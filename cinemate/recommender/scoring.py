@@ -41,7 +41,7 @@ def recommend(
     block = values[rows]
 
     weighted = np.asarray(block.multiply(sims[:, None]).sum(axis=0)).ravel()
-    abs_sims = np.asarray(block.astype(bool).multiply(sims[:, None]).sum(axis=0)).ravel()
+    abs_sims = np.asarray(block.astype(bool).multiply(np.abs(sims)[:, None]).sum(axis=0)).ravel()
     counts = np.asarray(block.getnnz(axis=0)).ravel()
     likes = np.asarray((values > 0).sum(axis=0)).ravel()
 

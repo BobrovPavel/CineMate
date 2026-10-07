@@ -74,3 +74,12 @@ def test_n_limits_and_sorts():
     assert [s for _, s in full] == sorted((s for _, s in full), reverse=True)
     assert recommend(m, 0, n=1, min_overlap=2) == full[:1]
     assert recommend(m, 0, n=0, min_overlap=2) == []
+
+
+def test_weighted_norm_with_mixed_ratings():
+    # Neighbours 1 and 2 disagree on movie 3 and have different similarities.
+    m = make([[1, 1, 1, 0], [1, 1, 1, 1], [1, 1, 0, -1]])
+    sim1, sim2 = math.sqrt(3) / 2, 2 / 3
+    (idx, score) = recommend(m, 0, min_overlap=2, lam=0.0)[0]
+    assert idx == 3
+    assert score == pytest.approx((sim1 - sim2) / (sim1 + sim2) / math.log(3))
