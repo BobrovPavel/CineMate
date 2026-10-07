@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "cinemate"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.12",
+]
 
 [project.scripts]
 cinemate = "cinemate.cli:main"
