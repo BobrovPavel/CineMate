@@ -18,8 +18,6 @@ pip install -e ".[dev]"
 
 In cloud sessions: if `pytest` or `ruff` is not found, run `pip install -e ".[dev]"` first.
 
-In cloud sessions: if `pytest` or `ruff` is not found, run `pip install -e ".[dev]"` first.
-
 ## Commands
 
 ```
@@ -46,7 +44,7 @@ Both must pass, so run `ruff check . && ruff format --check . && pytest` before 
 
 ## Agent workflow
 
-- Work only in branch `claude/<issue-number>`; never push to main.
+- For tasks from an issue, work in branch `claude/issue-<N>` created from main; for ad-hoc sessions, the session-provided `claude/` branch is fine. Never push to main.
 - Before opening a PR, `ruff check . && ruff format --check . && pytest` must pass.
 - New logic must be covered by tests.
 - PR description: `Closes #<N>`, what changed, how to verify.
