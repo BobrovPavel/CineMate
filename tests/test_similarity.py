@@ -53,3 +53,8 @@ def test_empty_row_has_no_neighbors():
 def test_non_positive_k():
     m = make([[1, 1], [1, 1]])
     assert find_neighbors(m, 0, k=0, min_overlap=1) == []
+
+
+def test_dislikes_count_towards_overlap():
+    m = make([[-1, -1, 1], [-1, -1, 1]])
+    assert [i for i, _ in find_neighbors(m, 0, min_overlap=3)] == [1]

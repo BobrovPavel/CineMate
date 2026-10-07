@@ -22,6 +22,7 @@ def find_neighbors(
         return []
 
     values = matrix.astype(np.float64)
+    values.eliminate_zeros()
     target = values[user_index]
 
     dots = np.asarray((values @ target.T).todense()).ravel()
