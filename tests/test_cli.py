@@ -20,7 +20,11 @@ def test_no_args_succeeds():
 
 def test_module_entrypoint():
     result = subprocess.run(
-        [sys.executable, "-m", "cinemate", "--version"], capture_output=True, text=True
+        [sys.executable, "-m", "cinemate", "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     assert result.returncode == 0
     assert cinemate.__version__ in result.stdout

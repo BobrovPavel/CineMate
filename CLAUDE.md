@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-CineMate is at an early stage: the `cinemate` package contains only `__version__`, and `tests/` has a single smoke test. There is no application code or architecture yet — update this file as it appears.
+CineMate is at an early stage: the `cinemate` package has `__version__` and a minimal CLI (`cinemate/cli.py`, entry point `cinemate`, also `python -m cinemate`) that supports `--version`. `tests/` has a smoke test and CLI tests. There is no other application code yet — update this file as it appears.
 
 ## Setup
 
