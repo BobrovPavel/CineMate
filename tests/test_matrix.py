@@ -51,3 +51,16 @@ def test_empty_input():
     assert result.matrix.shape == (0, 0)
     assert result.user_ids == []
     assert result.movie_ids == []
+
+
+def test_discarded_later_rating_keeps_previous_value():
+    result = _build((1, 10, 5.0), (1, 10, 3.0))
+
+    assert result.matrix[0, 0] == 1
+
+
+def test_users_and_movies_without_kept_ratings_are_omitted():
+    result = _build((1, 10, 5.0), (2, 20, 3.0))
+
+    assert result.user_ids == [1]
+    assert result.movie_ids == [10]

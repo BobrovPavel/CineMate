@@ -27,7 +27,8 @@ def build_matrix(ratings: Iterable[Rating], binarizer: Binarizer) -> RatingsMatr
     """Binarize ``ratings`` and assemble them into a :class:`RatingsMatrix`.
 
     Ratings the binarizer discards (``None``) are skipped. If a (user, movie) pair occurs more
-    than once, the last kept rating wins. Users and movies are indexed in ascending id order.
+    than once, the last kept rating wins. Users and movies with no kept rating are omitted.
+    Users and movies are indexed in ascending id order.
     """
     values: dict[tuple[int, int], int] = {}
     for rating in ratings:
