@@ -16,6 +16,8 @@ python -m venv .venv
 pip install -e ".[dev]"
 ```
 
+In cloud sessions: if `pytest` or `ruff` is not found, run `pip install -e ".[dev]"` first.
+
 ## Commands
 
 ```
