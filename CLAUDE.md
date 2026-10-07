@@ -18,6 +18,8 @@ pip install -e ".[dev]"
 
 In cloud sessions: if `pytest` or `ruff` is not found, run `pip install -e ".[dev]"` first.
 
+In cloud sessions: if `pytest` or `ruff` is not found, run `pip install -e ".[dev]"` first.
+
 ## Commands
 
 ```
@@ -41,3 +43,12 @@ Both must pass, so run `ruff check . && ruff format --check . && pytest` before 
 - Ruff: line length 100, target py312, rule sets `E, W, F, I, B, UP, SIM` (import order is enforced by `I`).
 - pytest runs with `--strict-markers`: register custom markers in `[tool.pytest.ini_options]` before using them.
 - New packages must match `cinemate*` to be picked up by setuptools package discovery.
+
+## Agent workflow
+
+- Work only in branch `claude/<issue-number>`; never push to main.
+- Before opening a PR, `ruff check . && ruff format --check . && pytest` must pass.
+- New logic must be covered by tests.
+- PR description: `Closes #<N>`, what changed, how to verify.
+- If a task is unclear, ask questions in an issue comment instead of guessing.
+- Do not modify `.github/workflows/` unless the issue explicitly asks for it.
