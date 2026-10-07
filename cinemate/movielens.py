@@ -15,7 +15,7 @@ class Movie:
     movielens_id: int
     title: str
     year: int | None
-    genres: list[str]
+    genres: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ def parse_movies(path: Path | str) -> Iterator[Movie]:
     for row in _rows(path):
         title, year = _split_title(row["title"])
         raw_genres = row["genres"].strip()
-        genres = [] if raw_genres in ("", _NO_GENRES) else raw_genres.split("|")
+        genres = () if raw_genres in ("", _NO_GENRES) else tuple(raw_genres.split("|"))
         yield Movie(int(row["movieId"]), title, year, genres)
 
 
