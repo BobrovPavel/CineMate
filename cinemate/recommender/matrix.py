@@ -27,7 +27,8 @@ def build_matrix(ratings: Iterable[Rating], binarizer: Binarizer) -> RatingsMatr
 
     Ratings the binarizer discards (``None``) are skipped entirely and neither create
     rows/columns nor override earlier ratings. If a (user, movie) pair occurs several
-    times, the last kept rating wins. Ids are sorted ascending to make indices deterministic.
+    times, the last kept rating wins. Users and movies with no kept rating are omitted.
+    Ids are sorted ascending to make indices deterministic.
     """
     values: dict[tuple[int, int], int] = {}
     for rating in ratings:
