@@ -1,1 +1,1 @@
-"""Recommendation engine: pure functions over ratings, independent of the web layer and DB."""
+"""Recommendation engine: pure functions over rating matrices, no web/DB dependencies."""
