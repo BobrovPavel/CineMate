@@ -17,3 +17,6 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Datasets
+data/
