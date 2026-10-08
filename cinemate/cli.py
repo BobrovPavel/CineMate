@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -9,12 +10,14 @@ from sqlalchemy.orm import Session
 from cinemate import __version__
 from cinemate.binarize import MovieLensBinarizer
 from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
+from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
 from cinemate.db.session import create_all, make_engine
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import EvaluationResult, MethodMetrics, evaluate
 from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import parse_ratings
+from cinemate.tmdb import TmdbClient, TmdbError
 
 
 def format_table(result: EvaluationResult, top_n: int = 10) -> str:
@@ -51,6 +54,13 @@ def parse_values(text: str, cast: Callable[[str], Any]) -> list[Any]:
     if not values:
         raise ValueError(f"invalid value list: {text!r}")
     return values
+
+
+def _positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,7 +141,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DATA_DIR,
         help="where MovieLens is stored or downloaded to (default: %(default)s)",
     )
+    en = sub.add_parser("enrich-movies", help="fetch movie metadata from TMDB into the database")
+    en.add_argument(
+        "--database-url",
+        default="sqlite:///cinemate.db",
+        help="SQLAlchemy database URL (default: %(default)s)",
+    )
+    en.add_argument(
+        "--limit", type=_positive_int, default=None, help="maximum number of movies to enrich"
+    )
     return parser
+
+
+def _run_enrich(args: argparse.Namespace) -> int:
+    api_key = os.environ.get("TMDB_API_KEY")
+    if not api_key:
+        print("cinemate enrich-movies: error: TMDB_API_KEY is not set", file=sys.stderr)
+        return 2
+    engine = make_engine(args.database_url)
+    create_all(engine)
+    with Session(engine) as session:
+        try:
+            stats = enrich_movies(session, TmdbClient(api_key), limit=args.limit)
+        except TmdbError as exc:
+            print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)
+            return 1
+    print(f"movies enriched: {stats.enriched}, not found: {stats.not_found}")
+    return 0
 
 
 def _run_import(args: argparse.Namespace) -> int:
@@ -190,4 +226,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_tune(args)
     if args.command == "import-movielens":
         return _run_import(args)
+    if args.command == "enrich-movies":
+        return _run_enrich(args)
     return 0
