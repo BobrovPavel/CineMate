@@ -41,9 +41,9 @@ def test_exclude_and_n_larger_than_pool():
 
 
 def test_pool_keeps_most_rated():
-    m = _matrix([[1, -1, 1], [1, 1, 1], [1, -1, 1]])
-    # column 1 has the same count; pool=1 keeps lowest index among ties
-    assert pick_onboarding_movies(m, [[]] * 3, pool=1) == [0]
+    m = _matrix([[1, -1], [1, -1, 1], [1]])
+    # column 1 has the most ratings, so it is the only one kept
+    assert pick_onboarding_movies(m, [[]] * 3, pool=1) == [1]
 
 
 def test_deterministic_ties_and_empty():

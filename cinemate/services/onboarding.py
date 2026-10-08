@@ -23,10 +23,10 @@ def pick_onboarding_movies(
 ) -> list[int]:
     """Return up to ``n`` movie (column) indices to show for taste discovery.
 
-    Columns in ``exclude`` are dropped first. Of the rest, the ``pool`` movies with the
-    most ratings are kept (ties: lower index first). The pool is ordered by rating
-    variance, most controversial first (ties: lower index first); for +1/-1 ratings the
-    variance is ``1 - mean**2``.
+    Columns in ``exclude`` are dropped first (so the pool is filled from the rest). Of the
+    rest, the ``pool`` movies with the most ratings are kept (ties: lower index first).
+    The pool is ordered by rating variance, most controversial first (ties: lower index
+    first); for +1/-1 ratings the variance is ``1 - mean**2``.
 
     Genre diversity: at most ``MAX_PER_GENRE`` movies sharing the same first genre are
     taken while other candidates remain; if fewer than ``n`` movies are found that way,
@@ -74,8 +74,8 @@ def onboarding_for_user(
     done = set(session.scalars(select(Rating.movie_id).where(Rating.user_id == user.id)))
     done |= set(session.scalars(select(SeenMark.movie_id).where(SeenMark.user_id == user.id)))
 
-    rows = session.scalars(select(Movie).where(Movie.id.in_(ratings.movie_ids))).all()
-    by_id = {m.id: m for m in rows}
+    wanted = set(ratings.movie_ids)
+    by_id = {m.id: m for m in session.scalars(select(Movie)) if m.id in wanted}
     genres = [by_id[mid].genres or [] if mid in by_id else [] for mid in ratings.movie_ids]
     exclude = {i for i, mid in enumerate(ratings.movie_ids) if mid in done}
 
