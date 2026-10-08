@@ -97,3 +97,23 @@ def _no_network(monkeypatch):
         raise AssertionError("network access in tests")
 
     monkeypatch.setattr("urllib.request.urlopen", boom)
+
+
+def test_cli_limit_must_be_positive(monkeypatch):
+    monkeypatch.setenv("TMDB_API_KEY", "topsecret")
+    with pytest.raises(SystemExit):
+        main(["enrich-movies", "--limit", "0"])
+
+
+def test_cli_tmdb_error_exit_code(monkeypatch, capsys):
+    from cinemate.tmdb import TmdbError
+
+    def fail(session, client, limit=None):
+        raise TmdbError("TMDB returned HTTP 500")
+
+    monkeypatch.setenv("TMDB_API_KEY", "topsecret")
+    monkeypatch.setattr("cinemate.cli.enrich_movies", fail)
+    assert main(["enrich-movies", "--database-url", "sqlite:///:memory:"]) == 1
+    out = capsys.readouterr()
+    assert "HTTP 500" in out.err
+    assert "topsecret" not in out.out + out.err

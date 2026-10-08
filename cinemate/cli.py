@@ -56,6 +56,13 @@ def parse_values(text: str, cast: Callable[[str], Any]) -> list[Any]:
     return values
 
 
+def _positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cinemate")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -140,7 +147,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="sqlite:///cinemate.db",
         help="SQLAlchemy database URL (default: %(default)s)",
     )
-    en.add_argument("--limit", type=int, default=None, help="maximum number of movies to enrich")
+    en.add_argument(
+        "--limit", type=_positive_int, default=None, help="maximum number of movies to enrich"
+    )
     return parser
 
 
