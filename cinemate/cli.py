@@ -1,6 +1,8 @@
 import argparse
-from collections.abc import Sequence
+import sys
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,7 @@ from cinemate.db.importer import import_movielens
 from cinemate.db.session import create_all, make_engine
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import EvaluationResult, MethodMetrics, evaluate
+from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import parse_ratings
 
 
@@ -36,6 +39,18 @@ def format_table(result: EvaluationResult, top_n: int = 10) -> str:
     lines.append("")
     lines.append(f"users evaluated: {result.n_users}")
     return "\n".join(lines)
+
+
+def parse_values(text: str, cast: Callable[[str], Any]) -> list[Any]:
+    """Parse a comma-separated list like ``20,40,80``; raise ``ValueError`` if invalid."""
+    parts = [p.strip() for p in text.split(",")]
+    try:
+        values = [cast(p) for p in parts]
+    except ValueError:
+        raise ValueError(f"invalid value list: {text!r}") from None
+    if not values:
+        raise ValueError(f"invalid value list: {text!r}")
+    return values
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -71,6 +86,37 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: %(default)s)",
     )
     ev.add_argument(
+        "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
+    )
+    tu = sub.add_parser("tune", help="grid search over K, LAMBDA and MIN_OVERLAP")
+    tu.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help="where MovieLens is stored or downloaded to (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--k", default="20,40,80", help="comma-separated K values (default: %(default)s)"
+    )
+    tu.add_argument(
+        "--lambda",
+        dest="lam",
+        default="2,5,10",
+        help="comma-separated LAMBDA values (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--min-overlap",
+        default="3,5,8",
+        help="comma-separated MIN_OVERLAP values (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="recommendations per user, also the cut-off for precision/recall "
+        "(default: %(default)s)",
+    )
+    tu.add_argument(
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
     )
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
@@ -118,10 +164,30 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_tune(args: argparse.Namespace) -> int:
+    try:
+        grid = {
+            "k": parse_values(args.k, int),
+            "lam": parse_values(args.lam, float),
+            "min_overlap": parse_values(args.min_overlap, int),
+        }
+    except ValueError as exc:
+        print(f"cinemate tune: error: {exc}", file=sys.stderr)
+        return 2
+    dataset = ensure_movielens(args.data_dir)
+    ratings = list(parse_ratings(dataset / "ratings.csv"))
+    train, test = split_ratings(ratings, seed=args.seed)
+    result = tune(train, test, MovieLensBinarizer(), grid, top_n=args.top_n)
+    print(format_tune_table(result, args.top_n))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "evaluate":
         return _run_evaluate(args)
+    if args.command == "tune":
+        return _run_tune(args)
     if args.command == "import-movielens":
         return _run_import(args)
     return 0
