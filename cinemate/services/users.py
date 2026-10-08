@@ -45,7 +45,7 @@ def set_rating(
     Raises ``ValueError`` for any other value and ``LookupError`` for an unknown movie.
     Only flushes; the caller commits. If ``store`` is given its cache is invalidated.
     """
-    if value not in (1, -1):
+    if isinstance(value, bool) or value not in (1, -1):
         raise ValueError(f"rating value must be +1 or -1, got {value!r}")
     _require_movie(session, movie_id)
     rating = session.scalar(

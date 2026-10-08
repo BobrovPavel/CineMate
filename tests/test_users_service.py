@@ -50,6 +50,8 @@ def test_rating_invalid_value_and_unknown_movie(session):
     user = create_session_user(session)
     with pytest.raises(ValueError):
         set_rating(session, user, 1, 0)
+    with pytest.raises(ValueError):
+        set_rating(session, user, 1, True)
     with pytest.raises(LookupError):
         set_rating(session, user, 99, 1)
     assert get_ratings(session, user) == []
