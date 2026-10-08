@@ -36,6 +36,17 @@ def build_matrix(ratings: Iterable[Rating], binarizer: Binarizer) -> RatingsMatr
         if value is not None:
             values[(rating.user_id, rating.movie_id)] = value
 
+    return matrix_from_values((user, movie, value) for (user, movie), value in values.items())
+
+
+def matrix_from_values(triples: Iterable[tuple[int, int, int]]) -> RatingsMatrix:
+    """Build a ``users x movies`` matrix from already binarized ``(user, movie, value)`` triples.
+
+    Values must be ``+1`` or ``-1``. If a (user, movie) pair occurs several times, the last
+    one wins. Ids are sorted ascending to make indices deterministic.
+    """
+    values = {(user, movie): value for user, movie, value in triples}
+
     user_ids = sorted({user for user, _ in values})
     movie_ids = sorted({movie for _, movie in values})
     user_index = {user: i for i, user in enumerate(user_ids)}

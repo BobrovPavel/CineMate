@@ -52,3 +52,12 @@ def test_users_and_movies_without_kept_ratings_are_omitted():
     result = build_matrix([Rating(1, 10, 5.0), Rating(2, 20, 3.0)], BIN)
     assert result.user_ids == [1]
     assert result.movie_ids == [10]
+
+
+def test_matrix_from_values_builds_from_binarized_triples():
+    from cinemate.recommender.matrix import matrix_from_values
+
+    result = matrix_from_values([(2, 5, -1), (1, 5, 1), (1, 3, 1), (1, 3, -1)])
+    assert result.user_ids == [1, 2]
+    assert result.movie_ids == [3, 5]
+    assert result.matrix.toarray().tolist() == [[-1, 1], [0, -1]]
