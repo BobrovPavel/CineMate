@@ -2,9 +2,13 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
 from cinemate import __version__
 from cinemate.binarize import MovieLensBinarizer
 from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
+from cinemate.db.importer import import_movielens
+from cinemate.db.session import create_all, make_engine
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import EvaluationResult, MethodMetrics, evaluate
 from cinemate.movielens import parse_ratings
@@ -69,7 +73,32 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument(
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
     )
+    imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
+    imp.add_argument(
+        "--database-url",
+        default="sqlite:///cinemate.db",
+        help="SQLAlchemy database URL (default: %(default)s)",
+    )
+    imp.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help="where MovieLens is stored or downloaded to (default: %(default)s)",
+    )
     return parser
+
+
+def _run_import(args: argparse.Namespace) -> int:
+    dataset = ensure_movielens(args.data_dir)
+    engine = make_engine(args.database_url)
+    create_all(engine)
+    with Session(engine) as session:
+        stats = import_movielens(session, dataset, MovieLensBinarizer())
+    print(
+        f"movies added: {stats.movies_added}, users added: {stats.users_added}, "
+        f"ratings added: {stats.ratings_added}, ratings skipped: {stats.ratings_skipped}"
+    )
+    return 0
 
 
 def _run_evaluate(args: argparse.Namespace) -> int:
@@ -93,4 +122,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "evaluate":
         return _run_evaluate(args)
+    if args.command == "import-movielens":
+        return _run_import(args)
     return 0

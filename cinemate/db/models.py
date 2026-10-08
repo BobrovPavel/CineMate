@@ -50,6 +50,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(320))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     is_synthetic: Mapped[bool] = mapped_column(default=False)
+    external_movielens_id: Mapped[int | None] = mapped_column(Integer, unique=True)
 
 
 class Rating(Base):
