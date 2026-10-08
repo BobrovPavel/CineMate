@@ -71,3 +71,18 @@ def test_no_evaluable_users():
 def test_deterministic():
     test = likes(1, 6, 7) + likes(3, 8)
     assert run(test) == run(test)
+
+
+def test_baseline_values_through_evaluate():
+    # movie 1: 5/5 likes, movie 2: 4/5, movie 3: 0/5, movie 4: liked by all (user 20 rated it).
+    train = likes(20, 4)
+    for u in range(10, 15):
+        train += likes(u, 1, 4) + [Rating(u, 2, 5.0 if u != 14 else 1.0), Rating(u, 3, 1.0)]
+    result = evaluate(train, likes(20, 1, 2), B, min_overlap=5, top_n=2)
+    assert result.n_users == 1
+    assert result.baseline.precision_at_k == 1.0  # picks [1, 2]; movie 4 is excluded (in train)
+    assert result.baseline.recall_at_k == 1.0
+    assert result.baseline.coverage == pytest.approx(0.5)  # 2 of 4 train movies
+    assert result.baseline.mean_popularity == pytest.approx((5 / 6 + 4 / 6) / 2)
+    assert result.cf.precision_at_k == 0.0  # no neighbours with enough overlap
+    assert result.cf.coverage == 0.0

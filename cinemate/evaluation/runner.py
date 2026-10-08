@@ -73,8 +73,10 @@ def evaluate(
     ``top_n`` movies, never including anything the user rated in ``train`` (even ratings the
     binarizer discarded). Precision/recall are computed at ``top_n`` against the user's
     test likes, which may include movies unseen in train (they can never be recommended).
-    Coverage is measured over the train catalogue; popularity of a movie is the share of
-    train users who liked it. All metrics are averaged over users (coverage is global).
+    The baseline only considers movies with at least ``DEFAULT_MIN_RATINGS`` (5) ratings in
+    ``train``, so on tiny datasets it can be empty.
+    Coverage is measured over the train catalogue; popularity of a movie is the share of train
+    users who liked it. All metrics are averaged over users (coverage is global).
     With no evaluable users all metrics are ``0.0``.
     """
     train = list(train)
@@ -102,7 +104,7 @@ def evaluate(
         recs = recommend(matrix, u, n=n_movies, k=k, min_overlap=min_overlap, lam=lam)
         return [m for m, _ in recs if m not in exclude][:top_n]
 
-    def baseline(u: int, exclude: set[int]) -> list[int]:
+    def baseline(_u: int, exclude: set[int]) -> list[int]:
         return popular_baseline(matrix, exclude, n=top_n)
 
     methods: dict[str, Callable[[int, set[int]], list[int]]] = {"cf": cf, "baseline": baseline}
