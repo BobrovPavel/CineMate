@@ -1,4 +1,6 @@
+import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import MovieLensBinarizer
@@ -96,3 +98,32 @@ def test_cli_import_movielens(tmp_path, monkeypatch, capsys):
     assert "ratings added: 3" in capsys.readouterr().out
     assert main(args) == 0
     assert "ratings added: 0" in capsys.readouterr().out
+
+
+def test_rating_for_unknown_movie_is_skipped(tmp_path):
+    data = _write_dataset(tmp_path)
+    with (data / "ratings.csv").open("a", encoding="utf-8") as f:
+        f.write("10,999,5.0,5\n")
+    with _session() as session:
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert stats.ratings_added == 3
+        assert stats.ratings_skipped == 2
+
+
+def test_user_external_id_is_unique():
+    with _session() as session:
+        session.add_all([User(external_movielens_id=1), User(external_movielens_id=1)])
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_reimport_keeps_existing_rating(tmp_path):
+    data = _write_dataset(tmp_path)
+    with _session() as session:
+        import_movielens(session, data, MovieLensBinarizer())
+        rating = session.scalars(select(Rating).order_by(Rating.id)).first()
+        rating.value = -rating.value
+        session.commit()
+        flipped = rating.value
+        import_movielens(session, data, MovieLensBinarizer())
+        assert session.scalars(select(Rating).order_by(Rating.id)).first().value == flipped
