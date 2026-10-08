@@ -26,7 +26,8 @@ def popular(
     the output varies between users and visits. Pass a seeded ``rng`` for determinism.
 
     Returns ``(movie_index, like_share)`` pairs sorted by score descending (ties by movie
-    index ascending). Returns an empty list if ``n <= 0`` or nothing qualifies.
+    index ascending). Returns an empty list if ``n <= 0``, ``pool_factor <= 0`` or nothing
+    qualifies.
     """
     if n <= 0:
         return []

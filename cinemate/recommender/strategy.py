@@ -35,7 +35,9 @@ def recommend_with_strategy(
     The fallback is used if the user has fewer than ``min_user_ratings`` ratings or
     ``recommend`` returns nothing.
     """
-    if matrix[user_index].nnz >= min_user_ratings:
+    row = matrix[user_index].copy()
+    row.eliminate_zeros()
+    if row.nnz >= min_user_ratings:
         items = recommend(matrix, user_index, n=n, k=k, min_overlap=min_overlap, lam=lam)
         if items:
             return Recommendation(items=items, strategy="collaborative")
