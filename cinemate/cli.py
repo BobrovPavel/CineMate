@@ -162,7 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--since",
         type=_iso_datetime,
         default=None,
-        help="only count events at or after this ISO date/time, e.g. 2026-10-01 (UTC if no zone); affects good session rates, not retention",
+        help="only count events at or after this ISO date/time, e.g. 2026-10-01 "
+        "(UTC if no zone); affects good session rates, not retention",
     )
     return parser
 
