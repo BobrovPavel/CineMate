@@ -16,7 +16,11 @@ dependencies = [
 cinemate = "cinemate.cli:main"
 
 [project.optional-dependencies]
+postgres = [
+    "psycopg[binary]>=3.2",
+]
 dev = [
+    "psycopg[binary]>=3.2",
     "pytest>=8.3",
     "pytest-cov>=5.0",
     "ruff>=0.6",

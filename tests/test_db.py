@@ -90,3 +90,10 @@ def test_movielens_id_and_session_token_unique(session, user_movie):
     session.add(User(session_token="tok"))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_make_engine_accepts_postgres_url_without_connecting():
+    pytest.importorskip("psycopg")
+    engine = make_engine("postgresql+psycopg://user:secret@localhost:5432/cinemate")
+    assert engine.dialect.name == "postgresql"
+    assert engine.url.host == "localhost"
