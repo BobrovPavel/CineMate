@@ -56,7 +56,8 @@ def _session_stats(session: Session, since: datetime | None) -> dict[str, tuple[
 def good_session_rate(session: Session, since: datetime | None = None) -> SessionRate:
     """Share of sessions with at least one ``like``; ``rate`` is 0.0 when there are none.
 
-    ``since`` keeps only events created at or after that moment.
+    ``since`` filters events, not sessions: only events created at or after that moment
+    count, so a session whose impression predates ``since`` is not counted at all.
     """
     stats = _session_stats(session, since)
     return _rate(len(stats), sum(1 for _, has_like in stats.values() if has_like))

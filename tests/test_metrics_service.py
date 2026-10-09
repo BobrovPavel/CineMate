@@ -109,3 +109,46 @@ def test_cli_metrics(tmp_path, capsys):
 def test_cli_metrics_invalid_since():
     with pytest.raises(SystemExit):
         main(["metrics", "--since", "nonsense"])
+
+
+def test_since_drops_session_whose_impression_is_before_since(session):
+    ev(session, "a", "impression", "fallback", at=T0)
+    ev(session, "a", "like", at=T0 + timedelta(days=10))
+    assert good_session_rate(session, since=T0 + timedelta(days=5)).total == 0
+
+
+def test_retention_boundary_exactly_7_days(session):
+    ev(session, "a", "impression", "fallback", user_id=1, at=T0)
+    ev(session, "b", "impression", "fallback", user_id=1, at=T0 + timedelta(days=7))
+    ev(session, "c", "impression", "fallback", user_id=2, at=T0)
+    ev(session, "d", "impression", "fallback", user_id=2, at=T0 + timedelta(days=7, seconds=1))
+    assert retention_7d(session, now=T0 + timedelta(days=30)) == 0.5
+
+
+def test_retention_naive_now_and_single_old_event(session):
+    ev(session, "a", "impression", "fallback", user_id=1, at=T0)
+    assert retention_7d(session, now=datetime(2026, 2, 1)) == 0.0
+
+
+def test_cli_metrics_with_data_and_since(tmp_path, capsys):
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    engine = make_engine(url)
+    create_all(engine)
+    with sessionmaker(engine)() as s:
+        s.add_all([Movie(id=1, title="a"), User()])
+        s.flush()
+        ev(s, "a", "impression", "collaborative")
+        ev(s, "a", "like")
+        s.commit()
+    assert main(["metrics", "--database-url", url]) == 0
+    out = capsys.readouterr().out
+    assert "good session rate: 1.0000 (1/1 sessions)" in out
+    assert "  collaborative: 1.0000 (1/1)" in out
+    assert main(["metrics", "--database-url", url, "--since", "2030-01-01"]) == 0
+    assert "(0/0 sessions)" in capsys.readouterr().out
+
+
+def test_cli_metrics_invalid_since_message(capsys):
+    with pytest.raises(SystemExit):
+        main(["metrics", "--since", "nonsense"])
+    assert "invalid ISO date/time" in capsys.readouterr().err
