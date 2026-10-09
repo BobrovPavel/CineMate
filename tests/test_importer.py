@@ -168,3 +168,20 @@ def test_popularity_score_is_idempotent(tmp_path):
         after = sorted(session.execute(select(Movie.id, Movie.popularity_score)).all())
         assert before == after
         assert stats.popularity_updated == 0
+
+
+def test_popularity_score_recomputed_when_ratings_change(tmp_path):
+    data = _write_dataset(tmp_path)
+    with _session() as session:
+        import_movielens(session, data, MovieLensBinarizer())
+        (data / "ratings.csv").write_text(
+            "userId,movieId,rating,timestamp\n10,1,5.0,1\n10,2,1.0,2\n11,1,3.0,3\n"
+            "11,2,4.0,4\n12,1,5.0,5\n",
+            encoding="utf-8",
+        )
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        scores = dict(
+            session.execute(select(Movie.external_movielens_id, Movie.popularity_score)).all()
+        )
+        assert scores == {1: 2.0, 2: 1.0}
+        assert stats.popularity_updated == 1
