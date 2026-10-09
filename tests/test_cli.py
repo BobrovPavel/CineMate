@@ -141,3 +141,27 @@ def test_help_mentions_database_url_env(capsys):
     with pytest.raises(SystemExit):
         main(["metrics", "--help"])
     assert "DATABASE_URL" in capsys.readouterr().out
+
+
+def test_serve_help_lists_arguments(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["serve", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--host" in out and "--port" in out and "--database-url" in out
+
+
+def test_serve_runs_uvicorn(monkeypatch):
+    import uvicorn
+
+    calls = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: calls.update(app=app, **kw))
+    code = main(["serve", "--database-url", "sqlite:///:memory:", "--port", "9000"])
+    assert code == 0
+    assert calls["host"] == "127.0.0.1" and calls["port"] == 9000
+    assert calls["app"].title == "CineMate"
+
+
+def test_serve_invalid_database_url(capsys):
+    assert main(["serve", "--database-url", "not a url"]) == 2
+    assert "invalid database URL" in capsys.readouterr().err
