@@ -65,12 +65,13 @@ cinemate enrich-movies --database-url sqlite:///cinemate.db --limit 100
 
 ## Переменные окружения
 
-| Переменная     | Назначение                                              |
-| -------------- | ------------------------------------------------------- |
-| `TMDB_API_KEY` | ключ TMDB API для `enrich-movies`                       |
+| Переменная     | Назначение                                                        |
+| -------------- | ----------------------------------------------------------------- |
+| `TMDB_API_KEY` | ключ TMDB API для `enrich-movies`                                 |
+| `DATABASE_URL` | URL БД для `import-movielens`, `enrich-movies`, `metrics`         |
 
-URL базы данных задаётся аргументом `--database-url` (по умолчанию
-`sqlite:///cinemate.db`). Шаблон переменных — в `.env.example`; настоящий `.env` не
+URL базы данных выбирается так: аргумент `--database-url` → переменная `DATABASE_URL` →
+`sqlite:///cinemate.db`. Шаблон переменных — в `.env.example`; настоящий `.env` не
 коммитьте (он в `.gitignore`). CLI сам `.env` не читает: экспортируйте переменные в
 окружение.
 

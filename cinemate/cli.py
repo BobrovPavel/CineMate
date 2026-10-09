@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import Engine
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session
 
 from cinemate import __version__
@@ -20,6 +22,27 @@ from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import parse_ratings
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
 from cinemate.tmdb import TmdbClient, TmdbError
+
+DEFAULT_DATABASE_URL = "sqlite:///cinemate.db"
+_DATABASE_URL_HELP = (
+    f"SQLAlchemy database URL (default: env DATABASE_URL, else {DEFAULT_DATABASE_URL})"
+)
+
+
+def resolve_database_url(arg: str | None) -> str:
+    """Pick the database URL: the argument, then env ``DATABASE_URL``, then the default."""
+    return arg or os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+
+
+def _open_engine(args: argparse.Namespace) -> Engine | None:
+    """Create the engine and schema; on a bad URL print an error without echoing the URL."""
+    try:
+        engine = make_engine(resolve_database_url(args.database_url))
+    except (ArgumentError, ImportError):
+        print(f"cinemate {args.command}: error: invalid database URL", file=sys.stderr)
+        return None
+    create_all(engine)
+    return engine
 
 
 def format_table(result: EvaluationResult, top_n: int = 10) -> str:
@@ -134,8 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
     imp.add_argument(
         "--database-url",
-        default="sqlite:///cinemate.db",
-        help="SQLAlchemy database URL (default: %(default)s)",
+        default=None,
+        help=_DATABASE_URL_HELP,
     )
     imp.add_argument(
         "--data-dir",
@@ -146,8 +169,8 @@ def build_parser() -> argparse.ArgumentParser:
     en = sub.add_parser("enrich-movies", help="fetch movie metadata from TMDB into the database")
     en.add_argument(
         "--database-url",
-        default="sqlite:///cinemate.db",
-        help="SQLAlchemy database URL (default: %(default)s)",
+        default=None,
+        help=_DATABASE_URL_HELP,
     )
     en.add_argument(
         "--limit", type=_positive_int, default=None, help="maximum number of movies to enrich"
@@ -155,8 +178,8 @@ def build_parser() -> argparse.ArgumentParser:
     me = sub.add_parser("metrics", help="print product metrics from the event log")
     me.add_argument(
         "--database-url",
-        default="sqlite:///cinemate.db",
-        help="SQLAlchemy database URL (default: %(default)s)",
+        default=None,
+        help=_DATABASE_URL_HELP,
     )
     me.add_argument(
         "--since",
@@ -177,8 +200,9 @@ def _iso_datetime(text: str) -> datetime:
 
 
 def _run_metrics(args: argparse.Namespace) -> int:
-    engine = make_engine(args.database_url)
-    create_all(engine)
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
     with Session(engine) as session:
         overall = good_session_rate(session, args.since)
         by_strategy = good_session_rate_by_strategy(session, args.since)
@@ -195,8 +219,9 @@ def _run_enrich(args: argparse.Namespace) -> int:
     if not api_key:
         print("cinemate enrich-movies: error: TMDB_API_KEY is not set", file=sys.stderr)
         return 2
-    engine = make_engine(args.database_url)
-    create_all(engine)
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
     with Session(engine) as session:
         try:
             stats = enrich_movies(session, TmdbClient(api_key), limit=args.limit)
@@ -209,8 +234,9 @@ def _run_enrich(args: argparse.Namespace) -> int:
 
 def _run_import(args: argparse.Namespace) -> int:
     dataset = ensure_movielens(args.data_dir)
-    engine = make_engine(args.database_url)
-    create_all(engine)
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
     with Session(engine) as session:
         stats = import_movielens(session, dataset, MovieLensBinarizer())
     print(
