@@ -47,7 +47,8 @@ cinemate tune --k 20,40,80 --lambda 2,5,10 --min-overlap 3,5,8
 
 ### `cinemate import-movielens`
 
-Идемпотентно импортирует фильмы, пользователей и оценки MovieLens в базу данных.
+Идемпотентно импортирует фильмы, пользователей и оценки MovieLens в базу данных. Поле
+`Movie.popularity_score` пересчитывается как число лайков (`+1`) фильма; без лайков — `0.0`.
 
 ```
 cinemate import-movielens --database-url sqlite:///cinemate.db --data-dir data

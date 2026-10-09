@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
@@ -17,6 +17,7 @@ class ImportStats:
     users_added: int
     ratings_added: int
     ratings_skipped: int
+    popularity_updated: int
 
 
 def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> ImportStats:
@@ -25,6 +26,7 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
     Movies and users are matched by their MovieLens id, so a repeated import updates movies
     in place and adds nothing new. Ratings the binarizer discards are counted as skipped;
     a (user, movie) pair that already exists is left untouched and not counted at all.
+    Finally ``Movie.popularity_score`` is recomputed as the number of ``+1`` ratings.
     """
     data_dir = Path(data_dir)
     links = {link.movielens_id: link for link in parse_links(data_dir / "links.csv")}
@@ -79,5 +81,27 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
         session.add(Rating(user_id=user.id, movie_id=movie.id, value=value))
         ratings_added += 1
 
+    session.flush()
+    popularity_updated = _update_popularity(session)
     session.commit()
-    return ImportStats(movies_added, users_added, ratings_added, ratings_skipped)
+    return ImportStats(
+        movies_added, users_added, ratings_added, ratings_skipped, popularity_updated
+    )
+
+
+def _update_popularity(session: Session, batch_size: int = 1000) -> int:
+    """Set ``Movie.popularity_score`` to the like count; return how many values changed."""
+    likes = dict(
+        session.execute(
+            select(Rating.movie_id, func.count()).where(Rating.value == 1).group_by(Rating.movie_id)
+        ).all()
+    )
+    current = session.execute(select(Movie.id, Movie.popularity_score)).all()
+    changes = [
+        {"id": movie_id, "popularity_score": float(likes.get(movie_id, 0))}
+        for movie_id, score in current
+        if score != likes.get(movie_id, 0)
+    ]
+    for start in range(0, len(changes), batch_size):
+        session.execute(update(Movie), changes[start : start + batch_size])
+    return len(changes)
