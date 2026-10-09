@@ -188,6 +188,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="only count events at or after this ISO date/time, e.g. 2026-10-01 "
         "(UTC if no zone); affects good session rates, not retention",
     )
+    sv = sub.add_parser("serve", help="run the web API")
+    sv.add_argument("--host", default="127.0.0.1", help="bind address (default: %(default)s)")
+    sv.add_argument("--port", type=int, default=8000, help="bind port (default: %(default)s)")
+    sv.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
     return parser
 
 
@@ -197,6 +201,20 @@ def _iso_datetime(text: str) -> datetime:
     except ValueError:
         raise argparse.ArgumentTypeError(f"invalid ISO date/time: {text!r}") from None
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _run_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from cinemate.api.app import create_app
+
+    try:
+        app = create_app(args.database_url)
+    except (ArgumentError, ImportError):
+        print("cinemate serve: error: invalid database URL", file=sys.stderr)
+        return 2
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
 
 
 def _run_metrics(args: argparse.Namespace) -> int:
@@ -294,4 +312,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_metrics(args)
     if args.command == "enrich-movies":
         return _run_enrich(args)
+    if args.command == "serve":
+        return _run_serve(args)
     return 0
