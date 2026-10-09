@@ -101,3 +101,43 @@ def test_evaluate_help_lists_arguments(capsys):
     out = capsys.readouterr().out
     for flag in ("--data-dir", "--k", "--lambda", "--min-overlap", "--top-n", "--seed"):
         assert flag in out
+
+
+def test_resolve_database_url_priority(monkeypatch):
+    from cinemate.cli import DEFAULT_DATABASE_URL, resolve_database_url
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert resolve_database_url(None) == DEFAULT_DATABASE_URL
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///env.db")
+    assert resolve_database_url(None) == "sqlite:///env.db"
+    assert resolve_database_url("sqlite:///arg.db") == "sqlite:///arg.db"
+
+
+def test_metrics_uses_database_url_env(monkeypatch, tmp_path, capsys):
+    db = tmp_path / "env.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    assert main(["metrics"]) == 0
+    assert db.exists()
+    assert "good session rate" in capsys.readouterr().out
+
+
+def test_metrics_argument_beats_env(monkeypatch, tmp_path):
+    env_db, arg_db = tmp_path / "env.db", tmp_path / "arg.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{env_db}")
+    assert main(["metrics", "--database-url", f"sqlite:///{arg_db}"]) == 0
+    assert arg_db.exists()
+    assert not env_db.exists()
+
+
+def test_invalid_database_url_does_not_leak_password(monkeypatch, capsys):
+    monkeypatch.setenv("DATABASE_URL", "not a url://user:s3cret@host/db")
+    assert main(["metrics"]) == 2
+    captured = capsys.readouterr()
+    assert "s3cret" not in captured.out + captured.err
+    assert "invalid database URL" in captured.err
+
+
+def test_help_mentions_database_url_env(capsys):
+    with pytest.raises(SystemExit):
+        main(["metrics", "--help"])
+    assert "DATABASE_URL" in capsys.readouterr().out
