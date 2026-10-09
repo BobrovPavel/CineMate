@@ -1,5 +1,6 @@
 """Session and profile endpoints."""
 
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -13,17 +14,22 @@ from cinemate.api.deps import (
     session_token,
 )
 from cinemate.api.schemas import (
+    BecauseOf,
+    MovieCard,
     OnboardingCard,
     ProfileItem,
     RatingIn,
+    RecommendationItem,
+    RecommendationsOut,
     SeenIn,
     SessionOut,
     WriteOut,
 )
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, User
-from cinemate.services.events import log_reaction
+from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
+from cinemate.services.recommendations import get_recommendations
 from cinemate.services.users import (
     create_session_user,
     get_ratings,
@@ -135,3 +141,55 @@ def seen(
     if body.session_id and body.type != "not_seen":
         log_reaction(session, user, body.session_id, body.movie_id, body.type)
     return WriteOut(ok=True, rated_count=len(get_ratings(session, user)))
+
+
+def _card(movie: Movie) -> MovieCard:
+    return MovieCard(
+        id=movie.id,
+        title=movie.title,
+        original_title=movie.original_title,
+        year=movie.year,
+        overview=movie.overview,
+        poster_path=movie.poster_path,
+        genres=list(movie.genres or []),
+        runtime=movie.runtime,
+    )
+
+
+@router.get("/recommendations", response_model=RecommendationsOut)
+def recommendations(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    store: Annotated[MatrixStore, Depends(get_matrix_store)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> RecommendationsOut:
+    """Recommendations with explanations; each call is a new session with logged impressions."""
+    result = get_recommendations(session, store, user, limit=limit)
+    session_id = uuid.uuid4().hex
+    log_impressions(session, user, session_id, [i.movie.id for i in result.items], result.strategy)
+    return RecommendationsOut(
+        strategy=result.strategy,
+        session_id=session_id,
+        items=[
+            RecommendationItem(
+                movie=_card(item.movie),
+                score=item.score,
+                liked_by=item.liked_by,
+                because_of=[BecauseOf(movie_id=m.id, title=m.title) for m in item.because_of],
+            )
+            for item in result.items
+        ],
+    )
+
+
+@router.get("/movies/{movie_id}", response_model=MovieCard)
+def movie_detail(
+    movie_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+) -> MovieCard:
+    """Full movie card; ``404`` for an unknown id."""
+    movie = session.get(Movie, movie_id)
+    if movie is None:
+        raise HTTPException(status_code=404, detail="movie not found")
+    return _card(movie)
