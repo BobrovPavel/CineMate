@@ -76,6 +76,22 @@ URL базы данных выбирается так: аргумент `--datab
 коммитьте (он в `.gitignore`). CLI сам `.env` не читает: экспортируйте переменные в
 окружение.
 
+## Docker
+
+Для запуска CLI в контейнере с PostgreSQL нужен `.env` с `POSTGRES_PASSWORD` (шаблон —
+`.env.example`; значения по умолчанию в файлах нет). Драйвер PostgreSQL ставится extra
+`postgres` (`pip install ".[postgres]"`); образ собирается с ним.
+
+```
+docker compose run --rm app import-movielens
+docker compose run --rm app enrich-movies    # нужен TMDB_API_KEY в .env
+docker compose run --rm app metrics
+```
+
+Данные MovieLens монтируются томом `./data`, база — в томе `pgdata`. Пароль подставляется в URL
+без кодирования — используйте только URL-безопасные символы (без `@ / : #`). Контейнер работает
+от пользователя uid 10001: каталог `./data` должен быть ему доступен на запись.
+
 ## Разработка
 
 ```
