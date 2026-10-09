@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import EvaluationResult, MethodMetrics, evaluate
 from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import parse_ratings
+from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
 from cinemate.tmdb import TmdbClient, TmdbError
 
 
@@ -150,7 +152,42 @@ def build_parser() -> argparse.ArgumentParser:
     en.add_argument(
         "--limit", type=_positive_int, default=None, help="maximum number of movies to enrich"
     )
+    me = sub.add_parser("metrics", help="print product metrics from the event log")
+    me.add_argument(
+        "--database-url",
+        default="sqlite:///cinemate.db",
+        help="SQLAlchemy database URL (default: %(default)s)",
+    )
+    me.add_argument(
+        "--since",
+        type=_iso_datetime,
+        default=None,
+        help="only count events at or after this ISO date/time, e.g. 2026-10-01 "
+        "(UTC if no zone); affects good session rates, not retention",
+    )
     return parser
+
+
+def _iso_datetime(text: str) -> datetime:
+    try:
+        value = datetime.fromisoformat(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid ISO date/time: {text!r}") from None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _run_metrics(args: argparse.Namespace) -> int:
+    engine = make_engine(args.database_url)
+    create_all(engine)
+    with Session(engine) as session:
+        overall = good_session_rate(session, args.since)
+        by_strategy = good_session_rate_by_strategy(session, args.since)
+        retention = retention_7d(session)
+    print(f"good session rate: {overall.rate:.4f} ({overall.good}/{overall.total} sessions)")
+    for strategy, rate in by_strategy.items():
+        print(f"  {strategy}: {rate.rate:.4f} ({rate.good}/{rate.total})")
+    print(f"7-day retention: {retention:.4f}")
+    return 0
 
 
 def _run_enrich(args: argparse.Namespace) -> int:
@@ -226,6 +263,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_tune(args)
     if args.command == "import-movielens":
         return _run_import(args)
+    if args.command == "metrics":
+        return _run_metrics(args)
     if args.command == "enrich-movies":
         return _run_enrich(args)
     return 0
