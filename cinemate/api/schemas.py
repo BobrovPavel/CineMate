@@ -25,6 +25,35 @@ class OnboardingCard(BaseModel):
     genres: list[str]
 
 
+class MovieCard(BaseModel):
+    id: int
+    title: str
+    original_title: str | None
+    year: int | None
+    overview: str | None
+    poster_path: str | None
+    genres: list[str]
+    runtime: int | None
+
+
+class BecauseOf(BaseModel):
+    movie_id: int
+    title: str
+
+
+class RecommendationItem(BaseModel):
+    movie: MovieCard
+    score: float
+    liked_by: int
+    because_of: list[BecauseOf]
+
+
+class RecommendationsOut(BaseModel):
+    strategy: Literal["collaborative", "fallback"]
+    session_id: str
+    items: list[RecommendationItem]
+
+
 class RatingIn(BaseModel):
     movie_id: int
     value: StrictInt
