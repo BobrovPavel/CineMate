@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -82,3 +83,28 @@ class SeenMark(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"))
     type: Mapped[str] = mapped_column(String(16))
+
+
+class Event(Base):
+    """Product event log: impressions and reactions. Only ids, no personal data."""
+
+    __tablename__ = "events"
+    __table_args__ = (
+        CheckConstraint(
+            "type IN ('impression', 'like', 'dislike', 'watched', 'not_interested')",
+            name="ck_events_type",
+        ),
+        CheckConstraint(
+            "strategy IS NULL OR strategy IN ('collaborative', 'fallback')",
+            name="ck_events_strategy",
+        ),
+        Index("ix_events_session_id", "session_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    session_id: Mapped[str] = mapped_column(String(128))
+    type: Mapped[str] = mapped_column(String(16))
+    movie_id: Mapped[int | None] = mapped_column(ForeignKey("movies.id"))
+    strategy: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

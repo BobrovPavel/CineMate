@@ -32,6 +32,7 @@ def test_create_all_makes_tables():
         "users",
         "ratings",
         "seen_marks",
+        "events",
     }
 
 
