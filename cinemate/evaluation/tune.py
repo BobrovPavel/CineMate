@@ -23,11 +23,16 @@ class TuneRow:
 
 @dataclass(frozen=True)
 class TuneResult:
-    """Rows sorted by precision@k (descending), the baseline and the evaluated user count."""
+    """Rows sorted by precision@k (descending), all baselines and the evaluated user count."""
 
     rows: list[TuneRow]
-    baseline: MethodMetrics
+    baselines: dict[str, MethodMetrics]
     n_users: int
+
+    @property
+    def baseline(self) -> MethodMetrics:
+        """The original ``popular`` baseline (kept for backward compatibility)."""
+        return self.baselines["popular"]
 
 
 def tune(
@@ -40,7 +45,7 @@ def tune(
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``).
 
     Each combination is evaluated once. Rows are sorted by precision@``top_n`` descending;
-    ties keep grid order. The baseline does not depend on the parameters, so it is taken
+    ties keep grid order. The baselines do not depend on the parameters, so they are taken
     from the first evaluation. An empty grid (any list empty) gives no rows and zero metrics.
     """
     missing = [key for key in GRID_KEYS if key not in grid]
@@ -49,7 +54,7 @@ def tune(
     train = list(train)
     test = list(test)
     rows: list[TuneRow] = []
-    baseline = MethodMetrics(0.0, 0.0, 0.0, 0.0)
+    baselines = {"popular": MethodMetrics(0.0, 0.0, 0.0, 0.0)}
     n_users = 0
     for i, (k, lam, min_overlap) in enumerate(product(*(grid[key] for key in GRID_KEYS))):
         result = evaluate(
@@ -57,14 +62,14 @@ def tune(
             top_n=top_n,
         )  # fmt: skip
         if i == 0:
-            baseline, n_users = result.baseline, result.n_users
+            baselines, n_users = result.baselines, result.n_users
         rows.append(TuneRow(int(k), float(lam), int(min_overlap), result.cf))
     rows.sort(key=lambda r: -r.metrics.precision_at_k)
-    return TuneResult(rows=rows, baseline=baseline, n_users=n_users)
+    return TuneResult(rows=rows, baselines=baselines, n_users=n_users)
 
 
 def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
-    """Render ``result`` as a text table: parameters and CF metrics, then the baseline row."""
+    """Render ``result`` as a text table: parameters and CF metrics, then one row per baseline."""
     headers = [
         "K",
         "lambda",
@@ -82,7 +87,7 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
     table = [
         [str(r.k), f"{r.lam:g}", str(r.min_overlap), *metric_cells(r.metrics)] for r in result.rows
     ]
-    table.append(["popular", "-", "-", *metric_cells(result.baseline)])
+    table += [[name, "-", "-", *metric_cells(m)] for name, m in result.baselines.items()]
     widths = [max(len(row[i]) for row in [headers, *table]) for i in range(len(headers))]
     lines = ["  ".join(h.rjust(w) for h, w in zip(headers, widths, strict=True))]
     lines += ["  ".join(c.rjust(w) for c, w in zip(row, widths, strict=True)) for row in table]

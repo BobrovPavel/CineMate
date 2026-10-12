@@ -30,6 +30,12 @@ def test_tune_row_count_and_sorting():
     assert precisions == sorted(precisions, reverse=True)
     assert result.n_users == 1
     assert result.baseline.precision_at_k == 0.0
+    assert set(result.baselines) == {
+        "popular",
+        "popular_likes",
+        "popular_share_20",
+        "popular_share_50",
+    }
 
 
 def test_tune_empty_grid_and_missing_keys():
@@ -42,12 +48,23 @@ def test_tune_empty_grid_and_missing_keys():
 def test_format_tune_table():
     m = MethodMetrics(0.5, 0.25, 0.1, 0.2)
     rows = [TuneRow(40, 5.0, 5, m), TuneRow(20, 2.5, 3, MethodMetrics(0.1, 0.1, 0.1, 0.1))]
-    out = format_tune_table(TuneResult(rows, MethodMetrics(0.05, 0.02, 0.01, 0.9), 7), 10)
+    baselines = {
+        "popular": MethodMetrics(0.05, 0.02, 0.01, 0.9),
+        "popular_likes": MethodMetrics(0.06, 0.02, 0.01, 0.9),
+        "popular_share_20": MethodMetrics(0.07, 0.02, 0.01, 0.9),
+        "popular_share_50": MethodMetrics(0.08, 0.02, 0.01, 0.9),
+    }
+    out = format_tune_table(TuneResult(rows, baselines, 7), 10)
     lines = out.splitlines()
     assert "precision@10" in lines[0] and "min_overlap" in lines[0]
     assert lines[1].split()[:3] == ["40", "5", "5"]
     assert lines[2].split()[:3] == ["20", "2.5", "3"]
     assert lines[3].split()[0] == "popular" and "0.0500" in lines[3]
+    assert [line.split()[0] for line in lines[4:7]] == [
+        "popular_likes",
+        "popular_share_20",
+        "popular_share_50",
+    ]
     assert lines[-1] == "users evaluated: 7"
 
 
@@ -69,7 +86,7 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "popular" in out and "precision@3" in out
-    assert len(out.splitlines()) == 1 + 2 + 1 + 2
+    assert len(out.splitlines()) == 1 + 2 + 4 + 2
 
 
 def test_tune_command_rejects_bad_list(capsys):

@@ -1,7 +1,12 @@
 import pytest
 
 from cinemate.binarize import MovieLensBinarizer
-from cinemate.evaluation.runner import evaluate, popular_baseline
+from cinemate.evaluation.runner import (
+    evaluate,
+    popular_baseline,
+    popular_by_likes,
+    popular_by_share,
+)
 from cinemate.movielens import Rating
 from cinemate.recommender.matrix import build_matrix
 
@@ -86,3 +91,51 @@ def test_baseline_values_through_evaluate():
     assert result.baseline.mean_popularity == pytest.approx((5 / 6 + 4 / 6) / 2)
     assert result.cf.precision_at_k == 0.0  # no neighbours with enough overlap
     assert result.cf.coverage == 0.0
+
+
+def _manual_matrix():
+    # likes per movie (index = movie id - 1): m1: 4 of 4, m2: 3 of 3, m3: 3 of 6, m4: 3 of 3,
+    # m5: 2 of 2. Users 1-4 like m1; 1-3 like m2, m4; 1-3 like m3 and 4-6 dislike it.
+    train = []
+    for u in (1, 2, 3, 4):
+        train += likes(u, 1)
+    for u in (1, 2, 3):
+        train += likes(u, 2, 3, 4)
+    for u in (4, 5, 6):
+        train.append(Rating(u, 3, 1.0))
+    train += likes(5, 5) + likes(6, 5)
+    return build_matrix(train, B).matrix
+
+
+def test_popular_by_likes_order_ties_and_exclude():
+    matrix = _manual_matrix()
+    # likes: m1=4, m2=3, m3=3, m4=3, m5=2 -> ties broken by lower index
+    assert popular_by_likes(matrix, set(), n=5) == [0, 1, 2, 3, 4]
+    assert popular_by_likes(matrix, {0, 2}, n=2) == [1, 3]
+    assert popular_by_likes(matrix, set(), n=0) == []
+    assert popular_by_likes(matrix, set(), n=10) == [0, 1, 2, 3, 4]
+
+
+def test_popular_by_share_threshold_exclude_and_ties():
+    matrix = _manual_matrix()
+    # shares: m1 1.0 (4), m2 1.0 (3), m3 0.5 (6), m4 1.0 (3), m5 1.0 (2)
+    assert popular_by_share(matrix, set(), n=5, min_ratings=1) == [0, 1, 3, 4, 2]
+    assert popular_by_share(matrix, set(), n=5, min_ratings=3) == [0, 1, 3, 2]
+    assert popular_by_share(matrix, set(), n=5, min_ratings=5) == [2]
+    assert popular_by_share(matrix, {0}, n=2, min_ratings=3) == [1, 3]
+    assert popular_by_share(matrix, set(), n=5, min_ratings=20) == []
+    assert popular_by_share(matrix, set(), n=0, min_ratings=1) == []
+
+
+def test_evaluate_has_all_baselines():
+    result = run(likes(1, 6, 7))
+    assert set(result.baselines) == {
+        "popular",
+        "popular_likes",
+        "popular_share_20",
+        "popular_share_50",
+    }
+    assert result.baseline is result.baselines["popular"]
+    # no movie reaches 20 ratings in this tiny dataset -> empty lists, zero metrics
+    assert result.baselines["popular_share_20"].precision_at_k == 0.0
+    assert result.baselines["popular_likes"].coverage > 0.0
