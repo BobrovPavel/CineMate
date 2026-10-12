@@ -69,7 +69,7 @@ cinemate enrich-movies --database-url sqlite:///cinemate.db --limit 100
 | Переменная     | Назначение                                                        |
 | -------------- | ----------------------------------------------------------------- |
 | `TMDB_API_KEY` | ключ TMDB API для `enrich-movies`                                 |
-| `DATABASE_URL` | URL БД для `import-movielens`, `enrich-movies`, `metrics`         |
+| `DATABASE_URL` | URL БД для `import-movielens`, `enrich-movies`, `metrics`, `serve` |
 
 URL базы данных выбирается так: аргумент `--database-url` → переменная `DATABASE_URL` →
 `sqlite:///cinemate.db`. Шаблон переменных — в `.env.example`; настоящий `.env` не
@@ -127,7 +127,7 @@ URL базы данных выбирается так: аргумент `--datab
 | `DATABASE_URL`        | `import-movielens`, `enrich-movies`, `metrics`, `serve` (если нет `--database-url`) | `sqlite:///cinemate.db` |
 | `TMDB_API_KEY`        | `enrich-movies`                                    | не задан (команда не работает) |
 | `CORS_ORIGINS`        | API: источники, которым разрешены запросы из браузера (через запятую, без `*`) | `http://localhost:3000` |
-| `NEXT_PUBLIC_API_URL` | фронтенд (`frontend/.env.local`): адрес API        | `http://localhost:8000`     |
+| `NEXT_PUBLIC_API_URL` | фронтенд (`frontend/.env.local`): адрес API; после смены перезапустите `npm run dev` | `http://localhost:8000`     |
 | `POSTGRES_PASSWORD`   | `docker-compose.yml`: пароль пользователя PostgreSQL | нет, обязателен для Docker |
 
 ### Типичные проблемы
