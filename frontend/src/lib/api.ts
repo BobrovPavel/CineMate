@@ -108,3 +108,15 @@ export function postReactionSeen(
     body: JSON.stringify({ movie_id: movieId, type, session_id: sessionId }),
   });
 }
+
+export type ProfileItem = {
+  movie_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  value: 1 | -1;
+};
+
+export function fetchProfile(): Promise<ProfileItem[]> {
+  return apiFetch("/api/profile");
+}
