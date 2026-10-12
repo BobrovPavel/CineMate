@@ -61,3 +61,50 @@ export function postNotSeen(movieId: number): Promise<WriteResult> {
     body: JSON.stringify({ movie_id: movieId, type: "not_seen" }),
   });
 }
+
+export type RecommendationItem = {
+  movie: {
+    id: number;
+    title: string;
+    year: number | null;
+    poster_path: string | null;
+    genres: string[];
+  };
+  score: number;
+  liked_by: number;
+  because_of: { movie_id: number; title: string }[];
+};
+
+export type RecommendationsResponse = {
+  strategy: "collaborative" | "fallback";
+  session_id: string;
+  items: RecommendationItem[];
+};
+
+export type SeenType = "not_seen" | "watched" | "not_interested";
+
+export function fetchRecommendations(limit = 20): Promise<RecommendationsResponse> {
+  return apiFetch(`/api/recommendations?limit=${limit}`);
+}
+
+export function postReactionRating(
+  movieId: number,
+  value: 1 | -1,
+  sessionId: string,
+): Promise<WriteResult> {
+  return apiFetch("/api/ratings", {
+    method: "POST",
+    body: JSON.stringify({ movie_id: movieId, value, session_id: sessionId }),
+  });
+}
+
+export function postReactionSeen(
+  movieId: number,
+  type: SeenType,
+  sessionId: string,
+): Promise<WriteResult> {
+  return apiFetch("/api/seen", {
+    method: "POST",
+    body: JSON.stringify({ movie_id: movieId, type, session_id: sessionId }),
+  });
+}
