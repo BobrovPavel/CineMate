@@ -19,6 +19,7 @@ def test_preflight_allowed_origin(monkeypatch):
         response = _preflight(client, ALLOWED)
     assert response.headers["access-control-allow-origin"] == ALLOWED
     assert response.headers["access-control-allow-credentials"] == "true"
+    assert "POST" in response.headers["access-control-allow-methods"]
 
 
 def test_foreign_origin_gets_no_cors_headers(monkeypatch):
