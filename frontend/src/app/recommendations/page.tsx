@@ -67,7 +67,6 @@ export default function RecommendationsPage() {
   const refill = useCallback(async () => {
     try {
       const data = await fetchRecommendations(LIMIT);
-      setStrategy(data.strategy);
       setItems((prev) => {
         const known = new Set(prev.map((p) => p.movie.id));
         const fresh = data.items

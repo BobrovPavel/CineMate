@@ -1,4 +1,4 @@
-/** Russian plural form for "человек": 1 человеку, 2–4 людям, 5+ людям. */
+/** Russian plural form for "человек": 1 человеку (21, 31…), иначе людям (2–4, 5+, 11). */
 export function pluralPeople(n: number): string {
   const mod100 = n % 100;
   const mod10 = n % 10;
