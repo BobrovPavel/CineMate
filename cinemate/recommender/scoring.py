@@ -31,7 +31,7 @@ def recommend(
     ascending). Returns an empty list if there are no neighbours or ``n <= 0``. Raises
     ``ValueError`` if ``pop_penalty`` is negative.
     """
-    if pop_penalty < 0:
+    if not pop_penalty >= 0:
         raise ValueError("pop_penalty must be >= 0")
     if n <= 0:
         return []

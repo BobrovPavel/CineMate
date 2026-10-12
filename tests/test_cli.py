@@ -175,3 +175,26 @@ def test_serve_runs_uvicorn(monkeypatch):
 def test_serve_invalid_database_url(capsys):
     assert main(["serve", "--database-url", "not a url"]) == 2
     assert "invalid database URL" in capsys.readouterr().err
+
+
+def test_evaluate_command_pop_penalty(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+    from cinemate.movielens import Rating
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    seen = {}
+    real = cli.evaluate
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "evaluate", spy)
+    argv = ["evaluate", "--min-overlap", "1", "--top-n", "3"]
+    assert main([*argv, "--pop-penalty", "0.5"]) == 0
+    assert seen["pop_penalty"] == 0.5
+    capsys.readouterr()
+    assert main([*argv, "--pop-penalty", "-1"]) == 2
+    assert "pop-penalty" in capsys.readouterr().err

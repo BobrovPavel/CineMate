@@ -277,6 +277,9 @@ def _run_import(args: argparse.Namespace) -> int:
 
 
 def _run_evaluate(args: argparse.Namespace) -> int:
+    if not args.pop_penalty >= 0:
+        print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
+        return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
     train, test = split_ratings(ratings, seed=args.seed)
@@ -302,7 +305,7 @@ def _run_tune(args: argparse.Namespace) -> int:
             "min_overlap": parse_values(args.min_overlap, int),
             "pop_penalty": parse_values(args.pop_penalty, float),
         }
-        if any(v < 0 for v in grid["pop_penalty"]):
+        if not all(v >= 0 for v in grid["pop_penalty"]):
             raise ValueError("pop_penalty values must be >= 0")
     except ValueError as exc:
         print(f"cinemate tune: error: {exc}", file=sys.stderr)
