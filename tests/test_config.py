@@ -1,5 +1,3 @@
-import math
-
 import pytest
 
 from cinemate.config import RecommenderSettings
@@ -47,6 +45,5 @@ def test_from_env_invalid_names_variable(name, value):
 
 
 def test_nan_is_rejected_even_for_lenient_check():
-    assert math.isnan(float("nan"))
     with pytest.raises(ValueError, match="REC_LAMBDA"):
         RecommenderSettings.from_env({"REC_LAMBDA": "NaN"})
