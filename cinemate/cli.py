@@ -46,9 +46,9 @@ def _open_engine(args: argparse.Namespace) -> Engine | None:
 
 
 def format_table(result: EvaluationResult, top_n: int = 10) -> str:
-    """Render ``result`` as a text table: one row per method, then the user count."""
+    """Render ``result`` as a text table: one row per method (CF and baselines), then users."""
     headers = [f"precision@{top_n}", f"recall@{top_n}", "coverage", "mean popularity"]
-    rows = [("collaborative", result.cf), ("popular", result.baseline)]
+    rows = [("collaborative", result.cf), *result.baselines.items()]
 
     def cells(m: MethodMetrics) -> list[str]:
         values = (m.precision_at_k, m.recall_at_k, m.coverage, m.mean_popularity)

@@ -27,11 +27,20 @@ class MethodMetrics:
 
 @dataclass(frozen=True)
 class EvaluationResult:
-    """Metrics of both methods plus the number of evaluated users."""
+    """CF metrics, metrics of every baseline and the number of evaluated users.
+
+    ``baselines`` keys: ``popular`` (the original weak baseline), ``popular_likes``,
+    ``popular_share_20`` and ``popular_share_50``.
+    """
 
     cf: MethodMetrics
-    baseline: MethodMetrics
+    baselines: dict[str, MethodMetrics]
     n_users: int
+
+    @property
+    def baseline(self) -> MethodMetrics:
+        """The original ``popular`` baseline (kept for backward compatibility)."""
+        return self.baselines["popular"]
 
 
 def popular_baseline(
@@ -44,6 +53,11 @@ def popular_baseline(
 
     Only movies with at least ``min_ratings`` ratings are considered and movies in
     ``exclude`` are skipped. Ties: more ratings first, then lower movie index.
+
+    The default threshold of 5 ratings makes this a weak opponent: obscure movies with 5 likes
+    out of 5 rank first. It is kept unchanged so results stay comparable with earlier runs;
+    for a fair comparison use ``popular_by_likes`` and ``popular_by_share`` with a higher
+    ``min_ratings`` (20 or 50).
     """
     if n <= 0:
         return []
@@ -55,6 +69,30 @@ def popular_baseline(
     candidates = candidates[~np.isin(candidates, list(exclude))]
     order = sorted(candidates, key=lambda m: (-likes[m] / totals[m], -totals[m], m))
     return [int(m) for m in order[:n]]
+
+
+def popular_by_likes(matrix: csr_matrix, exclude: Iterable[int], n: int = 10) -> list[int]:
+    """Top-``n`` movie indices by absolute number of likes (``+1``), skipping ``exclude``.
+
+    Ties: lower movie index first.
+    """
+    if n <= 0:
+        return []
+    likes = np.asarray((matrix > 0).sum(axis=0)).ravel()
+    banned = set(exclude)
+    order = sorted((m for m in range(len(likes)) if m not in banned), key=lambda m: (-likes[m], m))
+    return [int(m) for m in order[:n]]
+
+
+def popular_by_share(
+    matrix: csr_matrix, exclude: Iterable[int], n: int = 10, min_ratings: int = 20
+) -> list[int]:
+    """Top-``n`` movie indices by share of likes among movies with ``min_ratings`` ratings.
+
+    Same ordering as ``popular_baseline`` (ties: more ratings, then lower index) but with a
+    configurable threshold; the evaluation runs it with 20 and 50.
+    """
+    return popular_baseline(matrix, exclude, n=n, min_ratings=min_ratings)
 
 
 def evaluate(
@@ -73,8 +111,11 @@ def evaluate(
     ``top_n`` movies, never including anything the user rated in ``train`` (even ratings the
     binarizer discarded). Precision/recall are computed at ``top_n`` against the user's
     test likes, which may include movies unseen in train (they can never be recommended).
-    The baseline only considers movies with at least ``DEFAULT_MIN_RATINGS`` (5) ratings in
-    ``train``, so on tiny datasets it can be empty.
+    The ``popular`` baseline only considers movies with at least ``DEFAULT_MIN_RATINGS`` (5)
+    ratings in ``train``, so on tiny datasets it can be empty. Stronger baselines are reported
+    too: ``popular_likes`` (most likes), ``popular_share_20`` and ``popular_share_50`` (share of
+    likes with at least 20 / 50 ratings). Each baseline list is the same for every user before
+    excluding the user's train movies.
     Coverage is measured over the train catalogue; popularity of a movie is the share of train
     users who liked it. All metrics are averaged over users (coverage is global).
     With no evaluable users all metrics are ``0.0``.
@@ -104,10 +145,17 @@ def evaluate(
         recs = recommend(matrix, u, n=n_movies, k=k, min_overlap=min_overlap, lam=lam)
         return [m for m, _ in recs if m not in exclude][:top_n]
 
-    def baseline(_u: int, exclude: set[int]) -> list[int]:
-        return popular_baseline(matrix, exclude, n=top_n)
-
-    methods: dict[str, Callable[[int, set[int]], list[int]]] = {"cf": cf, "baseline": baseline}
+    methods: dict[str, Callable[[int, set[int]], list[int]]] = {
+        "cf": cf,
+        "popular": lambda _u, exclude: popular_baseline(matrix, exclude, n=top_n),
+        "popular_likes": lambda _u, exclude: popular_by_likes(matrix, exclude, n=top_n),
+        "popular_share_20": lambda _u, exclude: popular_by_share(
+            matrix, exclude, n=top_n, min_ratings=20
+        ),
+        "popular_share_50": lambda _u, exclude: popular_by_share(
+            matrix, exclude, n=top_n, min_ratings=50
+        ),
+    }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}
     recalls: dict[str, list[float]] = {name: [] for name in methods}
@@ -141,4 +189,8 @@ def evaluate(
             mean_popularity=sum(pops[name]) / n_users,
         )
 
-    return EvaluationResult(cf=summarize("cf"), baseline=summarize("baseline"), n_users=n_users)
+    return EvaluationResult(
+        cf=summarize("cf"),
+        baselines={name: summarize(name) for name in methods if name != "cf"},
+        n_users=n_users,
+    )

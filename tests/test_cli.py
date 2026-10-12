@@ -35,7 +35,12 @@ def _result():
 
     return EvaluationResult(
         cf=MethodMetrics(0.1234, 0.2, 0.3, 0.05),
-        baseline=MethodMetrics(0.05, 0.1, 0.01, 0.4),
+        baselines={
+            "popular": MethodMetrics(0.05, 0.1, 0.01, 0.4),
+            "popular_likes": MethodMetrics(0.06, 0.1, 0.02, 0.5),
+            "popular_share_20": MethodMetrics(0.07, 0.1, 0.03, 0.6),
+            "popular_share_50": MethodMetrics(0.08, 0.1, 0.04, 0.7),
+        },
         n_users=42,
     )
 
@@ -47,6 +52,11 @@ def test_format_table_rows_and_values():
     assert "precision@10" in lines[0] and "mean popularity" in lines[0]
     assert lines[1].split() == ["collaborative", "0.1234", "0.2000", "0.3000", "0.0500"]
     assert lines[2].split() == ["popular", "0.0500", "0.1000", "0.0100", "0.4000"]
+    assert [line.split()[0] for line in lines[3:6]] == [
+        "popular_likes",
+        "popular_share_20",
+        "popular_share_50",
+    ]
     assert lines[-1] == "users evaluated: 42"
 
 
