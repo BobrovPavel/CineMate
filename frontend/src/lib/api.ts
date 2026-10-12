@@ -27,3 +27,37 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   return (await response.json()) as T;
 }
+
+export type OnboardingCard = {
+  movie_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  genres: string[];
+};
+
+export type WriteResult = { ok: boolean; rated_count: number };
+
+export const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
+
+export function openSession(): Promise<{ user_id: number }> {
+  return apiFetch("/api/session", { method: "POST" });
+}
+
+export function fetchOnboarding(limit = 20): Promise<OnboardingCard[]> {
+  return apiFetch(`/api/onboarding?limit=${limit}`);
+}
+
+export function postRating(movieId: number, value: 1 | -1): Promise<WriteResult> {
+  return apiFetch("/api/ratings", {
+    method: "POST",
+    body: JSON.stringify({ movie_id: movieId, value }),
+  });
+}
+
+export function postNotSeen(movieId: number): Promise<WriteResult> {
+  return apiFetch("/api/seen", {
+    method: "POST",
+    body: JSON.stringify({ movie_id: movieId, type: "not_seen" }),
+  });
+}
