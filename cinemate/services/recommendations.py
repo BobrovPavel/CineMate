@@ -11,6 +11,7 @@ from scipy.sparse import csr_matrix, vstack
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, SeenMark, User
 from cinemate.recommender.explain import explain
@@ -19,9 +20,6 @@ from cinemate.recommender.strategy import recommend_with_strategy
 
 # Marks that remove a movie from the results; ``not_seen`` is only a signal (VISION.md).
 EXCLUDING_MARKS = ("watched", "not_interested")
-NEIGHBORS_K = 40
-MIN_OVERLAP = 5
-POP_PENALTY = 1.0
 
 
 @dataclass(frozen=True)
@@ -49,13 +47,17 @@ def get_recommendations(
     user: User,
     limit: int = 20,
     rng: random.Random | None = None,
+    settings: RecommenderSettings | None = None,
 ) -> RecommendationsResult:
     """Recommend up to ``limit`` movies to ``user`` using the matrix cached in ``store``.
+
+    ``settings`` defaults to :class:`RecommenderSettings` defaults.
 
     A user absent from the matrix gets the fallback. Movies marked ``watched`` or
     ``not_interested`` are excluded; ``not_seen`` does not exclude. Collaborative items carry
     ``liked_by`` and up to 3 ``because_of`` movies; fallback items carry neither.
     """
+    settings = settings or RecommenderSettings()
     if limit <= 0:
         return RecommendationsResult(strategy="fallback", items=[])
 
@@ -81,15 +83,16 @@ def get_recommendations(
         matrix,
         user_index,
         n=limit + len(excluded_cols),
-        k=NEIGHBORS_K,
-        min_overlap=MIN_OVERLAP,
-        pop_penalty=POP_PENALTY,
+        k=settings.k,
+        min_overlap=settings.min_overlap,
+        lam=settings.lam,
+        pop_penalty=settings.pop_penalty,
         rng=rng,
     )
     picked = [(j, s) for j, s in rec.items if j not in excluded_cols][:limit]
 
     neighbors = (
-        find_neighbors(matrix, user_index, k=NEIGHBORS_K, min_overlap=MIN_OVERLAP)
+        find_neighbors(matrix, user_index, k=settings.k, min_overlap=settings.min_overlap)
         if rec.strategy == "collaborative"
         else []
     )

@@ -158,13 +158,16 @@ def _card(movie: Movie) -> MovieCard:
 
 @router.get("/recommendations", response_model=RecommendationsOut)
 def recommendations(
+    request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db_session)],
     store: Annotated[MatrixStore, Depends(get_matrix_store)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> RecommendationsOut:
     """Recommendations with explanations; each call is a new session with logged impressions."""
-    result = get_recommendations(session, store, user, limit=limit)
+    result = get_recommendations(
+        session, store, user, limit=limit, settings=request.app.state.recommender_settings
+    )
     session_id = uuid.uuid4().hex
     log_impressions(session, user, session_id, [i.movie.id for i in result.items], result.strategy)
     return RecommendationsOut(

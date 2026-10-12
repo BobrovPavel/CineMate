@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from cinemate.api.app import create_app
+from cinemate.config import RecommenderSettings
 from cinemate.db.models import Event, Movie, Rating, User
 
 
@@ -97,3 +98,40 @@ def test_movie_detail(client):
 
 def test_movie_not_found(client):
     assert client.get("/api/movies/999").status_code == 404
+
+
+def test_app_settings_from_env(monkeypatch):
+    monkeypatch.setenv("REC_LAMBDA", "12")
+    app = create_app("sqlite:///:memory:")
+    assert app.state.recommender_settings.lam == 12.0
+
+
+def test_argument_overrides_env(monkeypatch):
+    monkeypatch.setenv("REC_LAMBDA", "12")
+    app = create_app("sqlite:///:memory:", recommender_settings=RecommenderSettings(lam=1.0))
+    assert app.state.recommender_settings.lam == 1.0
+
+
+def test_invalid_env_stops_app(monkeypatch):
+    monkeypatch.setenv("REC_K", "0")
+    with pytest.raises(ValueError, match="REC_K"):
+        create_app("sqlite:///:memory:")
+
+
+def test_route_passes_settings(monkeypatch):
+    from cinemate.api import routes
+
+    seen = {}
+    real = routes.get_recommendations
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "get_recommendations", spy)
+    settings = RecommenderSettings(lam=3.0)
+    app = create_app("sqlite:///:memory:", recommender_settings=settings)
+    with TestClient(app) as client:
+        client.post("/api/session")
+        assert client.get("/api/recommendations").status_code == 200
+    assert seen["settings"] is settings

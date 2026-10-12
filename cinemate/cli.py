@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from cinemate import __version__
 from cinemate.binarize import MovieLensBinarizer
+from cinemate.config import RecommenderSettings
 from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
 from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
@@ -104,13 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--lambda",
         dest="lam",
         type=float,
-        default=5.0,
+        default=RecommenderSettings().lam,
         help="shrinkage strength (default: %(default)s)",
     )
     ev.add_argument(
         "--min-overlap",
         type=int,
-        default=5,
+        default=RecommenderSettings().min_overlap,
         help="minimum co-rated movies for a neighbour (default: %(default)s)",
     )
     ev.add_argument(
