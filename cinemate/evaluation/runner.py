@@ -103,6 +103,7 @@ def evaluate(
     lam: float = 5.0,
     min_overlap: int = 5,
     top_n: int = 10,
+    pop_penalty: float = 1.0,
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -142,7 +143,15 @@ def evaluate(
     }
 
     def cf(u: int, exclude: set[int]) -> list[int]:
-        recs = recommend(matrix, u, n=n_movies, k=k, min_overlap=min_overlap, lam=lam)
+        recs = recommend(
+            matrix,
+            u,
+            n=n_movies,
+            k=k,
+            min_overlap=min_overlap,
+            lam=lam,
+            pop_penalty=pop_penalty,
+        )
         return [m for m, _ in recs if m not in exclude][:top_n]
 
     methods: dict[str, Callable[[int, set[int]], list[int]]] = {

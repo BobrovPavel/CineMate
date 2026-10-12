@@ -27,6 +27,7 @@ def recommend_with_strategy(
     k: int = 40,
     min_overlap: int = 5,
     lam: float = 5.0,
+    pop_penalty: float = 1.0,
     min_user_ratings: int = MIN_USER_RATINGS,
     rng: random.Random | None = None,
 ) -> Recommendation:
@@ -38,7 +39,15 @@ def recommend_with_strategy(
     row = matrix[user_index].copy()
     row.eliminate_zeros()
     if row.nnz >= min_user_ratings:
-        items = recommend(matrix, user_index, n=n, k=k, min_overlap=min_overlap, lam=lam)
+        items = recommend(
+            matrix,
+            user_index,
+            n=n,
+            k=k,
+            min_overlap=min_overlap,
+            lam=lam,
+            pop_penalty=pop_penalty,
+        )
         if items:
             return Recommendation(items=items, strategy="collaborative")
     return Recommendation(items=popular(matrix, user_index, n=n, rng=rng), strategy="fallback")

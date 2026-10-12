@@ -92,3 +92,37 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
 def test_tune_command_rejects_bad_list(capsys):
     assert main(["tune", "--k", "20,abc"]) != 0
     assert "invalid value list" in capsys.readouterr().err
+
+
+def test_tune_pop_penalty_dimension_multiplies_rows():
+    grid = {**GRID, "pop_penalty": [0.0, 1.0, 2.0]}
+    result = tune(make_train(), likes(1, 6, 7), B, grid, top_n=2)
+    assert len(result.rows) == 24
+    assert {r.pop_penalty for r in result.rows} == {0.0, 1.0, 2.0}
+
+
+def test_format_tune_table_has_pop_penalty_column():
+    m = MethodMetrics(0.5, 0.25, 0.1, 0.2)
+    baselines = {"popular": MethodMetrics(0.05, 0.02, 0.01, 0.9)}
+    out = format_tune_table(TuneResult([TuneRow(40, 5.0, 5, m, 1.5)], baselines, 7), 10)
+    lines = out.splitlines()
+    assert "pop_penalty" in lines[0]
+    assert lines[1].split()[:4] == ["40", "5", "5", "1.5"]
+
+
+def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = ["tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
+    assert main([*argv, "--pop-penalty", "0,0.5,1"]) == 0
+    out = capsys.readouterr().out
+    assert "pop_penalty" in out
+    assert len(out.splitlines()) == 1 + 3 + 4 + 2
+
+
+def test_tune_command_rejects_negative_pop_penalty(capsys):
+    assert main(["tune", "--pop-penalty", "-1"]) == 2
+    assert "pop_penalty" in capsys.readouterr().err
