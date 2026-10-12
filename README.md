@@ -76,6 +76,69 @@ URL базы данных выбирается так: аргумент `--datab
 коммитьте (он в `.gitignore`). CLI сам `.env` не читает: экспортируйте переменные в
 окружение.
 
+## Запуск приложения локально
+
+Путь от пустого репозитория до сайта на `localhost`. Нужны Python 3.12+ и Node.js.
+
+1. **Python-часть** (см. «Установка» выше):
+
+   ```
+   python -m venv .venv && source .venv/bin/activate
+   pip install -e ".[dev]"
+   ```
+
+2. **Данные.** Импорт MovieLens в SQLite (`cinemate.db` в текущем каталоге; MovieLens
+   скачивается в `data/`):
+
+   ```
+   cinemate import-movielens --data-dir data
+   ```
+
+   Необязательно — постеры и описания из TMDB (нужен ключ):
+
+   ```
+   export TMDB_API_KEY=...
+   cinemate enrich-movies --limit 200
+   ```
+
+3. **API:**
+
+   ```
+   cinemate serve --host 127.0.0.1 --port 8000
+   ```
+
+   Проверка: <http://127.0.0.1:8000/api/health> и документация <http://127.0.0.1:8000/docs>.
+
+4. **Фронтенд** (в другом терминале):
+
+   ```
+   cd frontend
+   npm install
+   cp .env.example .env.local
+   npm run dev
+   ```
+
+   Сайт: <http://localhost:3000>.
+
+### Переменные окружения
+
+| Переменная            | Где используется                                   | По умолчанию                |
+| --------------------- | -------------------------------------------------- | --------------------------- |
+| `DATABASE_URL`        | `import-movielens`, `enrich-movies`, `metrics`, `serve` (если нет `--database-url`) | `sqlite:///cinemate.db` |
+| `TMDB_API_KEY`        | `enrich-movies`                                    | не задан (команда не работает) |
+| `CORS_ORIGINS`        | API: источники, которым разрешены запросы из браузера (через запятую, без `*`) | `http://localhost:3000` |
+| `NEXT_PUBLIC_API_URL` | фронтенд (`frontend/.env.local`): адрес API        | `http://localhost:8000`     |
+| `POSTGRES_PASSWORD`   | `docker-compose.yml`: пароль пользователя PostgreSQL | нет, обязателен для Docker |
+
+### Типичные проблемы
+
+- **Пустая лента или онбординг без карточек** — не выполнен `cinemate import-movielens`, либо
+  API запущен с другой базой (проверьте `--database-url` / `DATABASE_URL` в обоих командах).
+- **Cookie сессии не ставится, запросы отвечают 401** — хосты не совпадают: открывайте сайт
+  на `localhost:3000`, а `NEXT_PUBLIC_API_URL` держите на `localhost:8000` (не
+  `127.0.0.1`), и `CORS_ORIGINS` должен точно совпадать с адресом сайта.
+- **Нет постеров и описаний** — не выполнен `cinemate enrich-movies` (нужен `TMDB_API_KEY`).
+
 ## Docker
 
 Для запуска CLI в контейнере с PostgreSQL нужен `.env` с `POSTGRES_PASSWORD` (шаблон —
