@@ -24,3 +24,7 @@ data/
 # Secrets and local databases
 .env
 *.db
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
