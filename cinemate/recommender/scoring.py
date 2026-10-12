@@ -13,21 +13,26 @@ def recommend(
     k: int = 40,
     min_overlap: int = 5,
     lam: float = 5.0,
+    pop_penalty: float = 1.0,
 ) -> list[tuple[int, float]]:
     """Recommend up to ``n`` movies for ``user_index``.
 
     For each candidate movie ``m`` rated by at least one neighbour (see ``find_neighbors``)::
 
         norm  = sum(sim * rating) / sum(|sim|)     over neighbours who rated m
-        score = norm * c / (c + lam) / log(2 + likes(m))
+        score = norm * c / (c + lam) / log(2 + likes(m)) ** pop_penalty
 
     where ``c`` is the number of neighbours who rated ``m`` and ``likes(m)`` is the number of
-    ``+1`` ratings of ``m`` among all users. Dislikes of neighbours lower the score. Movies
-    the user has already rated are excluded.
+    ``+1`` ratings of ``m`` among all users. ``pop_penalty`` is the exponent of the popularity
+    penalty: ``1.0`` is the formula above, ``0.0`` disables it. Dislikes of neighbours lower
+    the score. Movies the user has already rated are excluded.
 
     Returns ``(movie_index, score)`` pairs sorted by score descending (ties by movie index
-    ascending). Returns an empty list if there are no neighbours or ``n <= 0``.
+    ascending). Returns an empty list if there are no neighbours or ``n <= 0``. Raises
+    ``ValueError`` if ``pop_penalty`` is negative.
     """
+    if not pop_penalty >= 0:
+        raise ValueError("pop_penalty must be >= 0")
     if n <= 0:
         return []
     neighbors = find_neighbors(matrix, user_index, k=k, min_overlap=min_overlap)
@@ -51,7 +56,7 @@ def recommend(
 
     norm = weighted[candidates] / abs_sims[candidates]
     c = counts[candidates]
-    scores = norm * c / (c + lam) / np.log(2 + likes[candidates])
+    scores = norm * c / (c + lam) / np.log(2 + likes[candidates]) ** pop_penalty
 
     order = sorted(range(len(candidates)), key=lambda j: (-scores[j], candidates[j]))
     return [(int(candidates[j]), float(scores[j])) for j in order[:n]]

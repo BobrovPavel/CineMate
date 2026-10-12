@@ -83,3 +83,21 @@ def test_weighted_norm_with_mixed_ratings():
     (idx, score) = recommend(m, 0, min_overlap=2, lam=0.0)[0]
     assert idx == 3
     assert score == pytest.approx((sim1 - sim2) / (sim1 + sim2) / math.log(3))
+
+
+def test_pop_penalty_default_matches_explicit_one():
+    m = likes_matrix([1, 2, 3, 4, 5, 6, 7], [1, 2, 3, 5, 7, 8, 9])
+    assert recommend(m, 0, min_overlap=5) == recommend(m, 0, min_overlap=5, pop_penalty=1.0)
+
+
+def test_pop_penalty_zero_scores_popular_movie_higher_than_two():
+    m = likes_matrix([1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4], [4], [4], cols=5)
+    low = dict(recommend(m, 0, min_overlap=3, pop_penalty=0.0))
+    high = dict(recommend(m, 0, min_overlap=3, pop_penalty=2.0))
+    assert low[3] > high[3]
+
+
+def test_pop_penalty_negative_raises():
+    m = likes_matrix([1, 2, 3], [1, 2, 3, 4])
+    with pytest.raises(ValueError, match="pop_penalty"):
+        recommend(m, 0, min_overlap=3, pop_penalty=-0.5)

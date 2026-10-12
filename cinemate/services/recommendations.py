@@ -21,6 +21,7 @@ from cinemate.recommender.strategy import recommend_with_strategy
 EXCLUDING_MARKS = ("watched", "not_interested")
 NEIGHBORS_K = 40
 MIN_OVERLAP = 5
+POP_PENALTY = 1.0
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ def get_recommendations(
         n=limit + len(excluded_cols),
         k=NEIGHBORS_K,
         min_overlap=MIN_OVERLAP,
+        pop_penalty=POP_PENALTY,
         rng=rng,
     )
     picked = [(j, s) for j, s in rec.items if j not in excluded_cols][:limit]

@@ -114,6 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum co-rated movies for a neighbour (default: %(default)s)",
     )
     ev.add_argument(
+        "--pop-penalty",
+        type=float,
+        default=1.0,
+        help="popularity penalty exponent, 0 disables it (default: %(default)s)",
+    )
+    ev.add_argument(
         "--top-n",
         type=int,
         default=10,
@@ -123,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument(
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
     )
-    tu = sub.add_parser("tune", help="grid search over K, LAMBDA and MIN_OVERLAP")
+    tu = sub.add_parser("tune", help="grid search over K, LAMBDA, MIN_OVERLAP and POP_PENALTY")
     tu.add_argument(
         "--data-dir",
         type=Path,
@@ -143,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-overlap",
         default="3,5,8",
         help="comma-separated MIN_OVERLAP values (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--pop-penalty",
+        default="1",
+        help="comma-separated popularity penalty exponents, 0 disables it (default: %(default)s)",
     )
     tu.add_argument(
         "--top-n",
@@ -266,6 +277,9 @@ def _run_import(args: argparse.Namespace) -> int:
 
 
 def _run_evaluate(args: argparse.Namespace) -> int:
+    if not args.pop_penalty >= 0:
+        print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
+        return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
     train, test = split_ratings(ratings, seed=args.seed)
@@ -277,6 +291,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         lam=args.lam,
         min_overlap=args.min_overlap,
         top_n=args.top_n,
+        pop_penalty=args.pop_penalty,
     )
     print(format_table(result, args.top_n))
     return 0
@@ -288,7 +303,10 @@ def _run_tune(args: argparse.Namespace) -> int:
             "k": parse_values(args.k, int),
             "lam": parse_values(args.lam, float),
             "min_overlap": parse_values(args.min_overlap, int),
+            "pop_penalty": parse_values(args.pop_penalty, float),
         }
+        if not all(v >= 0 for v in grid["pop_penalty"]):
+            raise ValueError("pop_penalty values must be >= 0")
     except ValueError as exc:
         print(f"cinemate tune: error: {exc}", file=sys.stderr)
         return 2

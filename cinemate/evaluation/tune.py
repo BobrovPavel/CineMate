@@ -1,4 +1,4 @@
-"""Grid search over CF parameters (K, LAMBDA, MIN_OVERLAP) using ``evaluate``."""
+"""Grid search over CF parameters (K, LAMBDA, MIN_OVERLAP, POP_PENALTY) using ``evaluate``."""
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -8,7 +8,8 @@ from cinemate.binarize import Binarizer
 from cinemate.evaluation.runner import MethodMetrics, evaluate
 from cinemate.movielens import Rating
 
-GRID_KEYS = ("k", "lam", "min_overlap")
+GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty")
+DEFAULT_GRID = {"pop_penalty": [1.0]}
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class TuneRow:
     lam: float
     min_overlap: int
     metrics: MethodMetrics
+    pop_penalty: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -42,12 +44,14 @@ def tune(
     grid: Mapping[str, Sequence[float]],
     top_n: int = 10,
 ) -> TuneResult:
-    """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``).
+    """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
+    ``pop_penalty``; the last is optional and defaults to ``[1.0]``).
 
     Each combination is evaluated once. Rows are sorted by precision@``top_n`` descending;
     ties keep grid order. The baselines do not depend on the parameters, so they are taken
     from the first evaluation. An empty grid (any list empty) gives no rows and zero metrics.
     """
+    grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
     if missing:
         raise ValueError(f"grid is missing keys: {', '.join(missing)}")
@@ -56,14 +60,16 @@ def tune(
     rows: list[TuneRow] = []
     baselines = {"popular": MethodMetrics(0.0, 0.0, 0.0, 0.0)}
     n_users = 0
-    for i, (k, lam, min_overlap) in enumerate(product(*(grid[key] for key in GRID_KEYS))):
+    for i, (k, lam, min_overlap, pop_penalty) in enumerate(
+        product(*(grid[key] for key in GRID_KEYS))
+    ):
         result = evaluate(
             train, test, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
-            top_n=top_n,
+            top_n=top_n, pop_penalty=float(pop_penalty),
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users
-        rows.append(TuneRow(int(k), float(lam), int(min_overlap), result.cf))
+        rows.append(TuneRow(int(k), float(lam), int(min_overlap), result.cf, float(pop_penalty)))
     rows.sort(key=lambda r: -r.metrics.precision_at_k)
     return TuneResult(rows=rows, baselines=baselines, n_users=n_users)
 
@@ -74,6 +80,7 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         "K",
         "lambda",
         "min_overlap",
+        "pop_penalty",
         f"precision@{top_n}",
         f"recall@{top_n}",
         "coverage",
@@ -85,9 +92,10 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         return [f"{v:.4f}" for v in values]
 
     table = [
-        [str(r.k), f"{r.lam:g}", str(r.min_overlap), *metric_cells(r.metrics)] for r in result.rows
+        [str(r.k), f"{r.lam:g}", str(r.min_overlap), f"{r.pop_penalty:g}", *metric_cells(r.metrics)]
+        for r in result.rows
     ]
-    table += [[name, "-", "-", *metric_cells(m)] for name, m in result.baselines.items()]
+    table += [[name, "-", "-", "-", *metric_cells(m)] for name, m in result.baselines.items()]
     widths = [max(len(row[i]) for row in [headers, *table]) for i in range(len(headers))]
     lines = ["  ".join(h.rjust(w) for h, w in zip(headers, widths, strict=True))]
     lines += ["  ".join(c.rjust(w) for c, w in zip(row, widths, strict=True)) for row in table]

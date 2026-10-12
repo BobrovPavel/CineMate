@@ -139,3 +139,9 @@ def test_evaluate_has_all_baselines():
     # no movie reaches 20 ratings in this tiny dataset -> empty lists, zero metrics
     assert result.baselines["popular_share_20"].precision_at_k == 0.0
     assert result.baselines["popular_likes"].coverage > 0.0
+
+
+def test_evaluate_pop_penalty_validated_and_passed_through():
+    with pytest.raises(ValueError, match="pop_penalty"):
+        run(likes(1, 6, 7), pop_penalty=-1.0)
+    assert run(likes(1, 6, 7), pop_penalty=1.0) == run(likes(1, 6, 7))

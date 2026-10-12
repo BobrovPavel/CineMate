@@ -69,3 +69,13 @@ def test_no_neighbors_falls_back():
     result = recommend_with_strategy(make(rows), 0, rng=random.Random(0))
     assert result.strategy == "fallback"
     assert not {0, 1, 2, 3, 4} & {i for i, _ in result.items}
+
+
+def test_pop_penalty_reaches_recommend_on_collaborative_path():
+    import pytest
+
+    rows = [[1, 1, 1, 1, 1, 0, 0]] + [[1, 1, 1, 1, 1, 1, 0]] * 3
+    with pytest.raises(ValueError, match="pop_penalty"):
+        recommend_with_strategy(make(rows), 0, min_overlap=5, pop_penalty=-1.0)
+    default = recommend_with_strategy(make(rows), 0, min_overlap=5)
+    assert default == recommend_with_strategy(make(rows), 0, min_overlap=5, pop_penalty=1.0)
