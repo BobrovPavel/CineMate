@@ -90,6 +90,7 @@ def get_recommendations(
         significance=settings.significance,
         min_user_ratings=settings.min_user_ratings,
         fallback_pool_factor=settings.fallback_pool_factor,
+        blend_full_at=settings.blend_full_at,
         rng=rng,
     )
     picked = [(j, s) for j, s in rec.items if j not in excluded_cols][:limit]

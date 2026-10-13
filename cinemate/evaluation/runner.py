@@ -19,6 +19,7 @@ from cinemate.evaluation.metrics import (
     precision_at_k,
 )
 from cinemate.movielens import Rating
+from cinemate.recommender.hybrid import recommend_hybrid
 from cinemate.recommender.matrix import build_matrix
 from cinemate.recommender.scoring import recommend
 from cinemate.recommender.strategy import recommend_with_strategy
@@ -244,6 +245,7 @@ def evaluate(
     settings: RecommenderSettings | None = None,
     new_user_pick: NewUserPick = "random",
     new_user_seen: NewUserSeen = "all",
+    blend_full_at: Sequence[float] = (),
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -260,6 +262,11 @@ def evaluate(
     Coverage is measured over the train catalogue; popularity of a movie is the share of train
     users who liked it. All metrics are averaged over users (coverage is global).
     With no evaluable users all metrics are ``0.0``.
+
+    For every ``T`` in ``blend_full_at`` a ``hybrid(T=<T>)`` baseline runs ``recommend_hybrid``
+    with that ``blend_full_at`` and the CF parameters from ``settings``; its CF weight is
+    ``min(1, n / T)`` for a user with ``n`` ratings in the matrix (so ``min(1, N / T)`` in
+    cold-start mode). Values must be positive.
 
     ``product`` runs ``recommend_with_strategy`` with ``settings`` (default
     ``RecommenderSettings()``) and a fallback ``rng`` seeded by ``seed``.
@@ -295,6 +302,8 @@ def evaluate(
         raise ValueError(f"unknown new_user_seen: {new_user_seen!r}")
     if new_user_seen != "all" and new_user_ratings is None:
         raise ValueError("new_user_seen requires new_user_ratings")
+    if any(not t > 0 for t in blend_full_at):
+        raise ValueError("blend_full_at values must be > 0")
     settings = settings or RecommenderSettings()
     train = list(train)
     seen: dict[int, set[int]] = defaultdict(set)
@@ -361,6 +370,22 @@ def evaluate(
         )
         return [m for m, _ in rec.items if m not in exclude][:top_n]
 
+    def hybrid(threshold: float) -> Callable[[int, set[int]], list[int]]:
+        def method(u: int, exclude: set[int]) -> list[int]:
+            recs = recommend_hybrid(
+                matrix,
+                u,
+                n=n_movies,
+                k=settings.k,
+                min_overlap=settings.min_overlap,
+                lam=settings.lam,
+                blend_full_at=threshold,
+                significance=settings.significance,
+            )
+            return [m for m, _ in recs if m not in exclude][:top_n]
+
+        return method
+
     methods: dict[str, Callable[[int, set[int]], list[int]]] = {
         "cf": cf,
         "popular": lambda _u, exclude: popular_baseline(matrix, exclude, n=top_n),
@@ -372,6 +397,7 @@ def evaluate(
             matrix, exclude, n=top_n, min_ratings=50
         ),
         "product": product,
+        **{f"hybrid(T={t:g})": hybrid(t) for t in blend_full_at},
     }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}

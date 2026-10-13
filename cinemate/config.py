@@ -22,11 +22,12 @@ class RecommenderSettings:
     min_user_ratings: int = 5
     fallback_pool_factor: int = 1
     significance: int = 0
+    blend_full_at: float = 0.0
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "RecommenderSettings":
         """Read ``REC_K``, ``REC_LAMBDA``, ``REC_MIN_OVERLAP``, ``REC_POP_PENALTY``,
-        ``REC_SIGNIFICANCE``,
+        ``REC_SIGNIFICANCE``, ``REC_BLEND_FULL_AT`` (0 turns the hybrid off),
         ``REC_MIN_USER_RATINGS`` and ``REC_FALLBACK_POOL_FACTOR``.
 
         Empty or missing variables keep the defaults; invalid ones raise ``ValueError``
@@ -45,6 +46,9 @@ class RecommenderSettings:
             ),
             significance=_read(
                 env, "REC_SIGNIFICANCE", int, default.significance, lambda v: v >= 0, ">= 0"
+            ),
+            blend_full_at=_read(
+                env, "REC_BLEND_FULL_AT", float, default.blend_full_at, lambda v: v >= 0, ">= 0"
             ),
             min_user_ratings=_read(
                 env, "REC_MIN_USER_RATINGS", int, default.min_user_ratings, lambda v: v >= 1, ">= 1"

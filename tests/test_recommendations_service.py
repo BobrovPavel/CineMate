@@ -184,3 +184,20 @@ def test_four_ratings_get_fallback_and_five_get_collaborative(session, store):
     session.commit()
     store.invalidate()
     assert get_recommendations(session, store, user).strategy == "collaborative"
+
+
+def test_blend_full_at_setting_enables_hybrid(session, store):
+    user = session.get(User, 1)
+    # User 1 has 6 ratings: beta = 6/10 >= 0.5 -> collaborative even though min_user_ratings=50.
+    settings = RecommenderSettings(min_user_ratings=50, blend_full_at=10.0)
+    result = get_recommendations(session, store, user, settings=settings, rng=random.Random(0))
+    assert result.strategy == "collaborative"
+    assert {i.movie.id for i in result.items} >= {7, 8, 9}
+    off = get_recommendations(
+        session,
+        store,
+        user,
+        settings=RecommenderSettings(min_user_ratings=50),
+        rng=random.Random(0),
+    )
+    assert off.strategy == "fallback"

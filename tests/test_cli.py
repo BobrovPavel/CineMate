@@ -336,3 +336,32 @@ def test_evaluate_and_tune_reject_invalid_rec_env(monkeypatch, tmp_path, capsys,
     monkeypatch.setenv("REC_MIN_USER_RATINGS", "0")
     assert main([command]) == 2
     assert "REC_MIN_USER_RATINGS" in capsys.readouterr().err
+
+
+def _cold_start_ratings():
+    from cinemate.movielens import Rating
+
+    return [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+
+
+def test_evaluate_command_prints_hybrid_rows(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+
+    ratings = _cold_start_ratings()
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = ["evaluate", "--k", "5", "--min-overlap", "1", "--top-n", "3"]
+    assert main([*argv, "--new-user-ratings", "3", "--blend-full-at", "5,10,30"]) == 0
+    out = capsys.readouterr().out
+    for t in (5, 10, 30):
+        assert f"hybrid(T={t})" in out
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    assert "hybrid(T=10)" in out and "hybrid(T=30)" in out
+
+
+@pytest.mark.parametrize("command", ["evaluate", "tune"])
+@pytest.mark.parametrize("value", ["0", "-5", "abc"])
+def test_blend_full_at_option_rejects_invalid(command, value, capsys):
+    assert main([command, "--blend-full-at", value]) == 2
+    assert capsys.readouterr().err

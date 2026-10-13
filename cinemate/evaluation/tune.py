@@ -63,6 +63,7 @@ def tune(
     extra_splits: Sequence[Split] = (),
     new_user_pick: NewUserPick = "random",
     new_user_seen: NewUserSeen = "all",
+    blend_full_at: Sequence[float] = (),
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
     ``pop_penalty``, ``significance``; the last two are optional and default to ``[1.0]`` and
@@ -77,7 +78,8 @@ def tune(
     ``train``/``test`` with ``seed`` form the first split; ``extra_splits`` add more seeds.
     Every combination is evaluated on each split and the metrics are averaged (precision,
     recall and hit rate also get a standard deviation); rows sort by mean precision.
-    ``new_user_pick`` and ``new_user_seen`` are passed to ``evaluate`` (see there).
+    ``new_user_pick``, ``new_user_seen`` and ``blend_full_at`` (``hybrid(T=...)`` baseline rows)
+    are passed to ``evaluate`` (see there).
     """
     grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
@@ -95,6 +97,7 @@ def tune(
             top_n=top_n, pop_penalty=float(pop_penalty), significance=int(significance),
             new_user_ratings=new_user_ratings, settings=settings,
             new_user_pick=new_user_pick, new_user_seen=new_user_seen,
+            blend_full_at=blend_full_at,
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users

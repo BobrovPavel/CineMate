@@ -394,3 +394,20 @@ def test_evaluate_significance_validated_and_passed_through():
     with pytest.raises(ValueError, match="significance"):
         run(likes(1, 6, 7), significance=-1)
     assert run(likes(1, 6, 7), significance=0) == run(likes(1, 6, 7))
+
+
+def test_evaluate_hybrid_rows_follow_blend_full_at():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 4}
+    result = evaluate(train, test, B, blend_full_at=[3, 10.5], **kw)
+    assert "hybrid(T=3)" in result.baselines
+    assert "hybrid(T=10.5)" in result.baselines
+    default = evaluate(train, test, B, **kw)
+    assert not any(name.startswith("hybrid") for name in default.baselines)
+    assert result.cf == default.cf
+
+
+def test_evaluate_blend_full_at_must_be_positive():
+    train, test = cold_data()
+    with pytest.raises(ValueError, match="blend_full_at"):
+        evaluate(train, test, B, blend_full_at=[0])

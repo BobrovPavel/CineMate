@@ -101,3 +101,15 @@ def test_strategy_constants_match_settings_defaults():
     settings = RecommenderSettings()
     assert settings.min_user_ratings == MIN_USER_RATINGS
     assert settings.fallback_pool_factor == DEFAULT_POOL_FACTOR
+
+
+def test_blend_full_at_default_off_and_env():
+    assert RecommenderSettings().blend_full_at == 0.0
+    assert RecommenderSettings.from_env({"REC_BLEND_FULL_AT": "30"}).blend_full_at == 30.0
+    assert RecommenderSettings.from_env({"REC_BLEND_FULL_AT": "0"}).blend_full_at == 0.0
+
+
+@pytest.mark.parametrize("value", ["-1", "abc", "nan"])
+def test_blend_full_at_invalid(value):
+    with pytest.raises(ValueError, match="REC_BLEND_FULL_AT"):
+        RecommenderSettings.from_env({"REC_BLEND_FULL_AT": value})

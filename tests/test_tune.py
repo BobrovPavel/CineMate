@@ -91,7 +91,7 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "popular" in out and "precision@3" in out
-    assert len(out.splitlines()) == 1 + 2 + 5 + 3
+    assert len(out.splitlines()) == 1 + 2 + 5 + 3 + 2  # + hybrid(T=10), hybrid(T=30)
 
 
 def test_tune_command_rejects_bad_list(capsys):
@@ -134,7 +134,7 @@ def test_tune_command_significance(monkeypatch, tmp_path, capsys):
     assert main([*argv, "--significance", "0,5"]) == 0
     out = capsys.readouterr().out
     assert "signif" in out
-    assert len(out.splitlines()) == 1 + 2 + 5 + 3
+    assert len(out.splitlines()) == 1 + 2 + 5 + 3 + 2  # + hybrid(T=10), hybrid(T=30)
 
 
 def test_tune_command_rejects_negative_significance(capsys):
@@ -152,7 +152,7 @@ def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):
     assert main([*argv, "--pop-penalty", "0,0.5,1"]) == 0
     out = capsys.readouterr().out
     assert "pop_penalty" in out
-    assert len(out.splitlines()) == 1 + 3 + 5 + 3
+    assert len(out.splitlines()) == 1 + 3 + 5 + 3 + 2  # + hybrid rows
 
 
 def test_tune_command_rejects_negative_pop_penalty(capsys):
