@@ -168,7 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tu.add_argument(
         "--min-overlap",
-        default="3,5,8",
+        default="1,2,3",
         help="comma-separated MIN_OVERLAP values (default: %(default)s)",
     )
     tu.add_argument(

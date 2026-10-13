@@ -5,7 +5,7 @@ from cinemate.config import RecommenderSettings
 
 def test_defaults():
     s = RecommenderSettings()
-    assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (40, 40.0, 3, 1.0)
+    assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (40, 40.0, 1, 1.0)
 
 
 def test_from_env_empty_or_missing_gives_defaults():
@@ -65,3 +65,25 @@ def test_nan_is_rejected_even_for_lenient_check():
 def test_new_settings_defaults():
     settings = RecommenderSettings()
     assert (settings.min_user_ratings, settings.fallback_pool_factor) == (10, 2)
+
+
+def test_min_overlap_default_is_one_and_env_override_works():
+    assert RecommenderSettings().min_overlap == 1
+    assert RecommenderSettings.from_env({"REC_MIN_OVERLAP": "3"}).min_overlap == 3
+
+
+def test_min_overlap_default_gives_neighbors_to_new_user_but_three_does_not():
+    from scipy.sparse import csr_matrix
+
+    from cinemate.recommender.similarity import find_neighbors
+
+    m = csr_matrix([[1, 1, 0, 0], [1, 1, 1, 0], [0, 0, 1, 1]], dtype="int8")
+    overlap = RecommenderSettings().min_overlap
+    assert [i for i, _ in find_neighbors(m, 0, min_overlap=overlap)] == [1]
+    assert find_neighbors(m, 0, min_overlap=3) == []
+
+
+def test_tune_min_overlap_default_grid():
+    from cinemate.cli import build_parser
+
+    assert build_parser().parse_args(["tune"]).min_overlap == "1,2,3"
