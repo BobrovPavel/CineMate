@@ -13,8 +13,44 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build: .
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://cinemate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/cinemate
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      REC_K: ${REC_K:-}
+      REC_LAMBDA: ${REC_LAMBDA:-}
+      REC_MIN_OVERLAP: ${REC_MIN_OVERLAP:-}
+      REC_POP_PENALTY: ${REC_POP_PENALTY:-}
+      REC_MIN_USER_RATINGS: ${REC_MIN_USER_RATINGS:-}
+      REC_FALLBACK_POOL_FACTOR: ${REC_FALLBACK_POOL_FACTOR:-}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports:
+      - "3000:3000"
+
   app:
     build: .
+    profiles: ["tools"]
     depends_on:
       db:
         condition: service_healthy
