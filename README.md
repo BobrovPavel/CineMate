@@ -155,19 +155,39 @@ URL базы данных выбирается так: аргумент `--datab
 
 ## Docker
 
-Для запуска CLI в контейнере с PostgreSQL нужен `.env` с `POSTGRES_PASSWORD` (шаблон —
-`.env.example`; значения по умолчанию в файлах нет). Драйвер PostgreSQL ставится extra
-`postgres` (`pip install ".[postgres]"`); образ собирается с ним.
+Весь продукт (PostgreSQL, API и фронтенд) поднимается одной командой. Драйвер PostgreSQL ставится
+extra `postgres`; образ API собирается с ним.
 
-```
-docker compose run --rm app import-movielens
-docker compose run --rm app enrich-movies    # нужен TMDB_API_KEY в .env
-docker compose run --rm app metrics
-```
+1. Создайте `.env` и задайте `POSTGRES_PASSWORD` (шаблон — `.env.example`; значений по умолчанию
+   в файлах нет):
 
-Данные MovieLens монтируются томом `./data`, база — в томе `pgdata`. Пароль подставляется в URL
-без кодирования — используйте только URL-безопасные символы (без `@ / : #`). Контейнер работает
-от пользователя uid 10001: каталог `./data` должен быть ему доступен на запись.
+   ```
+   cp .env.example .env
+   ```
+
+2. Соберите и запустите сервисы (порядок задан healthcheck'ами: `db` → `api` → `frontend`):
+
+   ```
+   docker compose up --build -d
+   ```
+
+3. Выполните первичный импорт данных (один раз):
+
+   ```
+   docker compose run --rm app import-movielens --data-dir data
+   docker compose run --rm app enrich-movies    # по желанию, нужен TMDB_API_KEY в .env
+   ```
+
+4. Откройте сайт: <http://localhost:3000>. API наружу не публикуется, фронтенд проксирует `/api`.
+
+Другие разовые команды: `docker compose run --rm app metrics`. Сервис `app` относится к профилю
+`tools`, поэтому `docker compose up` его не запускает.
+
+Остановка: `docker compose down`; с удалением данных базы (том `pgdata`): `docker compose down -v`.
+
+Данные MovieLens монтируются томом `./data`. Пароль подставляется в URL без кодирования —
+используйте только URL-безопасные символы (без `@ / : #`). Контейнер работает от пользователя
+uid 10001: каталог `./data` должен быть ему доступен на запись.
 
 ## Разработка
 
