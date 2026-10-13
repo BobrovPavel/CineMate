@@ -113,6 +113,33 @@ def test_format_tune_table_has_pop_penalty_column():
     lines = out.splitlines()
     assert "pop_penalty" in lines[0]
     assert lines[1].split()[:4] == ["40", "5", "5", "1.5"]
+    assert "signif" in lines[0]
+    assert lines[1].split()[4] == "0"
+
+
+def test_tune_significance_dimension_multiplies_rows():
+    grid = {**GRID, "significance": [0, 3, 5]}
+    result = tune(make_train(), likes(1, 6, 7), B, grid, top_n=2)
+    assert len(result.rows) == 24
+    assert {r.significance for r in result.rows} == {0, 3, 5}
+
+
+def test_tune_command_significance(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = ["tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
+    assert main([*argv, "--significance", "0,5"]) == 0
+    out = capsys.readouterr().out
+    assert "signif" in out
+    assert len(out.splitlines()) == 1 + 2 + 5 + 3
+
+
+def test_tune_command_rejects_negative_significance(capsys):
+    assert main(["tune", "--significance", "-1"]) == 2
+    assert "significance" in capsys.readouterr().err
 
 
 def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):

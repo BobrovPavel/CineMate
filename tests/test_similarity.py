@@ -58,3 +58,49 @@ def test_non_positive_k():
 def test_dislikes_count_towards_overlap():
     m = make([[-1, -1, 1], [-1, -1, 1]])
     assert [i for i, _ in find_neighbors(m, 0, min_overlap=3)] == [1]
+
+
+def equal_cosine_matrix() -> csr_matrix:
+    # Neighbours 1 (overlap 1) and 2 (overlap 5) both have cosine 1 / sqrt(5) with user 0.
+    rows = [[0] * 25 for _ in range(3)]
+    for j in range(5):
+        rows[0][j] = 1
+    rows[1][0] = 1
+    for j in range(25):
+        rows[2][j] = 1
+    return make(rows)
+
+
+def test_significance_weights_by_overlap_and_reorders():
+    m = equal_cosine_matrix()
+    plain = find_neighbors(m, 0, min_overlap=1)
+    assert [i for i, _ in plain] == [1, 2]  # tie, broken by index
+    assert plain[0][1] == pytest.approx(plain[1][1])
+    weighted = dict(find_neighbors(m, 0, min_overlap=1, significance=5))
+    assert weighted[1] == pytest.approx(0.2 * plain[0][1])
+    assert weighted[2] == pytest.approx(1.0 * plain[1][1])
+    assert [i for i, _ in find_neighbors(m, 0, min_overlap=1, significance=5)] == [2, 1]
+
+
+def test_significance_zero_matches_default():
+    m = equal_cosine_matrix()
+    assert find_neighbors(m, 0, min_overlap=1, significance=0) == find_neighbors(
+        m, 0, min_overlap=1
+    )
+
+
+def test_significance_caps_weight_at_one():
+    m = equal_cosine_matrix()
+    assert find_neighbors(m, 0, min_overlap=1, significance=3)[0][0] == 2
+    assert dict(find_neighbors(m, 0, min_overlap=1, significance=3))[2] == pytest.approx(5**0.5 / 5)
+
+
+def test_top_k_is_taken_after_weighting():
+    m = equal_cosine_matrix()
+    assert [i for i, _ in find_neighbors(m, 0, k=1, min_overlap=1)] == [1]
+    assert [i for i, _ in find_neighbors(m, 0, k=1, min_overlap=1, significance=5)] == [2]
+
+
+def test_significance_negative_raises():
+    with pytest.raises(ValueError, match="significance"):
+        find_neighbors(equal_cosine_matrix(), 0, significance=-1)

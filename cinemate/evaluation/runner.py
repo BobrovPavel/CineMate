@@ -238,6 +238,7 @@ def evaluate(
     min_overlap: int = 5,
     top_n: int = 10,
     pop_penalty: float = 1.0,
+    significance: int = 0,
     new_user_ratings: int | None = None,
     seed: int = 0,
     settings: RecommenderSettings | None = None,
@@ -335,6 +336,7 @@ def evaluate(
             min_overlap=min_overlap,
             lam=lam,
             pop_penalty=pop_penalty,
+            significance=significance,
         )
         return [m for m, _ in recs if m not in exclude][:top_n]
 
@@ -352,6 +354,7 @@ def evaluate(
             min_overlap=settings.min_overlap,
             lam=settings.lam,
             pop_penalty=settings.pop_penalty,
+            significance=settings.significance,
             min_user_ratings=settings.min_user_ratings,
             fallback_pool_factor=settings.fallback_pool_factor,
             rng=product_rng,

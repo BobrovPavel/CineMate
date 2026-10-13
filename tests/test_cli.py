@@ -271,6 +271,33 @@ def test_evaluate_command_pop_penalty(monkeypatch, tmp_path, capsys):
     assert "pop-penalty" in capsys.readouterr().err
 
 
+def test_evaluate_command_significance(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+    from cinemate.movielens import Rating
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    import cinemate.evaluation.runner as runner
+
+    seen = {}
+    real = runner.evaluate
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "evaluate", spy)
+    argv = ["evaluate", "--min-overlap", "1", "--top-n", "3"]
+    assert main(argv) == 0
+    assert seen["significance"] == 0
+    assert main([*argv, "--significance", "5"]) == 0
+    assert seen["significance"] == 5
+    capsys.readouterr()
+    assert main([*argv, "--significance", "-1"]) == 2
+    assert "significance" in capsys.readouterr().err
+
+
 def _stub_dataset(monkeypatch, tmp_path):
     import cinemate.cli as cli
     from cinemate.movielens import Rating

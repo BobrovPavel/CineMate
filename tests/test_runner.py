@@ -388,3 +388,9 @@ def test_new_users_line_with_seen():
         new_users_line(5, "random", "kept")
         == "new users: 5 ratings each (pick: random, seen: kept)"
     )
+
+
+def test_evaluate_significance_validated_and_passed_through():
+    with pytest.raises(ValueError, match="significance"):
+        run(likes(1, 6, 7), significance=-1)
+    assert run(likes(1, 6, 7), significance=0) == run(likes(1, 6, 7))

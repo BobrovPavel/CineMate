@@ -101,3 +101,22 @@ def test_pop_penalty_negative_raises():
     m = likes_matrix([1, 2, 3], [1, 2, 3, 4])
     with pytest.raises(ValueError, match="pop_penalty"):
         recommend(m, 0, min_overlap=3, pop_penalty=-0.5)
+
+
+def test_significance_reaches_find_neighbors():
+    cols = 70
+    user = [1 if j < 5 else 0 for j in range(cols)]
+    one_overlap = [1 if j in (0, 5) else 0 for j in range(cols)]  # cosine 0.316, overlap 1
+    five_overlap = [1 if j < 5 or j == 6 or j >= 10 else 0 for j in range(cols)]  # cosine ~0.29
+    m = make([user, one_overlap, five_overlap])
+    plain = recommend(m, 0, k=1, min_overlap=1, lam=0.0)
+    assert [i for i, _ in plain] == [5]
+    assert recommend(m, 0, k=1, min_overlap=1, lam=0.0, significance=0) == plain
+    weighted = {i for i, _ in recommend(m, 0, k=1, min_overlap=1, lam=0.0, significance=5)}
+    assert 5 not in weighted and 6 in weighted
+
+
+def test_significance_negative_raises():
+    m = likes_matrix([1, 2, 3], [1, 2, 3, 4])
+    with pytest.raises(ValueError, match="significance"):
+        recommend(m, 0, min_overlap=1, significance=-1)
