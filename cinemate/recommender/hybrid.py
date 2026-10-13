@@ -82,9 +82,9 @@ def recommend_hybrid(
 
     ``norm`` and ``c`` are as in ``recommend`` (there is no popularity penalty here, ``pop``
     already accounts for it). Candidates are all movies the user has not rated. Without
-    neighbours the order is by likes (``pop``) whatever ``beta`` is. Returns ``(movie_index, score)`` pairs by score
-    descending (ties by movie index ascending). Raises ``ValueError`` if
-    ``blend_full_at <= 0``.
+    neighbours the order is by likes (``pop``) whatever ``beta`` is. Returns
+    ``(movie_index, score)`` pairs by score descending (ties by movie index ascending).
+    Raises ``ValueError`` if ``blend_full_at <= 0``.
     """
     return recommend_hybrid_detailed(
         matrix, user_index, n, k, min_overlap, lam, blend_full_at, significance
