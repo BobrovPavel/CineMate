@@ -118,7 +118,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DATA_DIR,
         help="where MovieLens is stored or downloaded to (default: %(default)s)",
     )
-    ev.add_argument("--k", type=int, default=40, help="number of neighbours (default: %(default)s)")
+    ev.add_argument(
+        "--k",
+        type=int,
+        default=RecommenderSettings().k,
+        help="number of neighbours (default: %(default)s)",
+    )
     ev.add_argument(
         "--lambda",
         dest="lam",
@@ -135,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument(
         "--pop-penalty",
         type=float,
-        default=1.0,
+        default=RecommenderSettings().pop_penalty,
         help="popularity penalty exponent, 0 disables it (default: %(default)s)",
     )
     ev.add_argument(

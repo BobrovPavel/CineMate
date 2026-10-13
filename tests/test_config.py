@@ -5,7 +5,7 @@ from cinemate.config import RecommenderSettings
 
 def test_defaults():
     s = RecommenderSettings()
-    assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (40, 40.0, 1, 1.0)
+    assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (60, 40.0, 1, 0.75)
 
 
 def test_from_env_empty_or_missing_gives_defaults():
@@ -64,7 +64,7 @@ def test_nan_is_rejected_even_for_lenient_check():
 
 def test_new_settings_defaults():
     settings = RecommenderSettings()
-    assert (settings.min_user_ratings, settings.fallback_pool_factor) == (10, 2)
+    assert (settings.min_user_ratings, settings.fallback_pool_factor) == (5, 1)
 
 
 def test_min_overlap_default_is_one_and_env_override_works():
@@ -87,3 +87,12 @@ def test_tune_min_overlap_default_grid():
     from cinemate.cli import build_parser
 
     assert build_parser().parse_args(["tune"]).min_overlap == "1,2,3"
+
+
+def test_strategy_constants_match_settings_defaults():
+    from cinemate.recommender.fallback import DEFAULT_POOL_FACTOR
+    from cinemate.recommender.strategy import MIN_USER_RATINGS
+
+    settings = RecommenderSettings()
+    assert settings.min_user_ratings == MIN_USER_RATINGS
+    assert settings.fallback_pool_factor == DEFAULT_POOL_FACTOR

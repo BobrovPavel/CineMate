@@ -10,16 +10,17 @@ from dataclasses import dataclass
 class RecommenderSettings:
     """Parameters of the recommender: collaborative filtering and the switch to the fallback.
 
-    Defaults follow the second and fourth runs (docs/EVALUATION.md; the fourth run is
-    the cold-start ``tune``): precision@10 = 0.2025 with ``min_overlap=1``.
+    Defaults were chosen from runs 2, 5 and 6 (docs/EVALUATION.md): ``min_overlap=1``,
+    K=60 and ``pop_penalty=0.75`` as a balance of precision and coverage, CF from 5 ratings
+    and an exact top by likes in the fallback.
     """
 
-    k: int = 40
+    k: int = 60
     lam: float = 40.0
     min_overlap: int = 1
-    pop_penalty: float = 1.0
-    min_user_ratings: int = 10
-    fallback_pool_factor: int = 2
+    pop_penalty: float = 0.75
+    min_user_ratings: int = 5
+    fallback_pool_factor: int = 1
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "RecommenderSettings":

@@ -108,6 +108,21 @@ def test_evaluate_command_offline(monkeypatch, tmp_path, capsys):
     assert "users evaluated:" in out
 
 
+def test_evaluate_defaults_come_from_recommender_settings():
+    from cinemate.cli import build_parser
+    from cinemate.config import RecommenderSettings
+
+    args = build_parser().parse_args(["evaluate"])
+    settings = RecommenderSettings()
+    assert (args.k, args.lam, args.min_overlap, args.pop_penalty) == (
+        settings.k,
+        settings.lam,
+        settings.min_overlap,
+        settings.pop_penalty,
+    )
+    assert (args.k, args.pop_penalty) == (60, 0.75)
+
+
 def test_evaluate_help_lists_arguments(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["evaluate", "--help"])

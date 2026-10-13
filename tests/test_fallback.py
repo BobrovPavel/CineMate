@@ -119,12 +119,26 @@ def test_popular_scores_are_in_unit_interval():
     assert popular(make([[0, 0], [-1, -1]]), 0, n=2) == [(0, 0.0), (1, 0.0)]
 
 
-def test_strategy_passes_pool_factor_and_switches_at_ten_ratings():
-    neighbours = [[1] * 10 + [1]] * 3
-    nine = make([[1] * 9 + [0, 0]] + neighbours)
-    assert recommend_with_strategy(nine, 0, min_overlap=1).strategy == "fallback"
-    ten = make([[1] * 10 + [0]] + neighbours)
-    assert recommend_with_strategy(ten, 0, min_overlap=1).strategy == "collaborative"
+def test_strategy_switches_at_five_ratings():
+    neighbours = [[1] * 6 + [1]] * 3
+    four = make([[1] * 4 + [0, 0, 0]] + neighbours)
+    assert recommend_with_strategy(four, 0, min_overlap=1).strategy == "fallback"
+    five = make([[1] * 5 + [0, 0]] + neighbours)
+    assert recommend_with_strategy(five, 0, min_overlap=1).strategy == "collaborative"
+
+
+def test_strategy_passes_pool_factor_and_defaults_to_exact_top():
     big = make([[0] * 10] + crowd())
-    exact = recommend_with_strategy(big, 0, n=2, fallback_pool_factor=1)
-    assert [i for i, _ in exact.items] == [0, 1]
+    for seed in range(5):
+        default = recommend_with_strategy(big, 0, n=2, rng=random.Random(seed))
+        assert [i for i, _ in default.items] == [0, 1]
+    wide = {
+        tuple(
+            i
+            for i, _ in recommend_with_strategy(
+                big, 0, n=2, fallback_pool_factor=4, rng=random.Random(seed)
+            ).items
+        )
+        for seed in range(20)
+    }
+    assert len(wide) > 1
