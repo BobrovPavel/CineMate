@@ -70,7 +70,7 @@ def test_format_tune_table():
         "popular_share_20",
         "popular_share_50",
     ]
-    assert lines[-1] == "users evaluated: 7"
+    assert lines[-2:] == ["users evaluated: 7", "seeds: 0"]
 
 
 def test_parse_values():
@@ -91,7 +91,7 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "popular" in out and "precision@3" in out
-    assert len(out.splitlines()) == 1 + 2 + 5 + 2
+    assert len(out.splitlines()) == 1 + 2 + 5 + 3
 
 
 def test_tune_command_rejects_bad_list(capsys):
@@ -125,7 +125,7 @@ def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):
     assert main([*argv, "--pop-penalty", "0,0.5,1"]) == 0
     out = capsys.readouterr().out
     assert "pop_penalty" in out
-    assert len(out.splitlines()) == 1 + 3 + 5 + 2
+    assert len(out.splitlines()) == 1 + 3 + 5 + 3
 
 
 def test_tune_command_rejects_negative_pop_penalty(capsys):

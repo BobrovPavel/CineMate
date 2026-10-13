@@ -1,8 +1,9 @@
 """Offline evaluation: user-based CF against a deterministic "popular" baseline."""
 
 import random
+import statistics
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,13 +28,20 @@ DEFAULT_MIN_RATINGS = 5
 
 @dataclass(frozen=True)
 class MethodMetrics:
-    """Metrics of one method, averaged over the evaluated users."""
+    """Metrics of one method, averaged over the evaluated users.
+
+    The ``*_std`` fields are the sample standard deviation (``ddof=1``) over several seeds;
+    they stay ``0.0`` for a single run.
+    """
 
     precision_at_k: float
     recall_at_k: float
     coverage: float
     mean_popularity: float
     hit_rate_at_k: float = 0.0
+    precision_std: float = 0.0
+    recall_std: float = 0.0
+    hit_rate_std: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -49,11 +57,99 @@ class EvaluationResult:
     baselines: dict[str, MethodMetrics]
     n_users: int
     new_user_ratings: int | None = None
+    seeds: tuple[int, ...] = (0,)
 
     @property
     def baseline(self) -> MethodMetrics:
         """The original ``popular`` baseline (kept for backward compatibility)."""
         return self.baselines["popular"]
+
+
+@dataclass(frozen=True)
+class Split:
+    """One train/test split together with the seed it was made with."""
+
+    seed: int
+    train: list[Rating]
+    test: list[Rating]
+
+
+def aggregate_metrics(runs: Sequence[MethodMetrics]) -> MethodMetrics:
+    """Mean of every metric over ``runs``; precision/recall/hit rate also get a sample std."""
+    if not runs:
+        raise ValueError("runs must not be empty")
+
+    def mean(field: str) -> float:
+        return statistics.fmean(getattr(r, field) for r in runs)
+
+    def std(field: str) -> float:
+        if len(runs) < 2:
+            return 0.0
+        return statistics.stdev(getattr(r, field) for r in runs)
+
+    return MethodMetrics(
+        precision_at_k=mean("precision_at_k"),
+        recall_at_k=mean("recall_at_k"),
+        coverage=mean("coverage"),
+        mean_popularity=mean("mean_popularity"),
+        hit_rate_at_k=mean("hit_rate_at_k"),
+        precision_std=std("precision_at_k"),
+        recall_std=std("recall_at_k"),
+        hit_rate_std=std("hit_rate_at_k"),
+    )
+
+
+def format_metric_cells(m: MethodMetrics, with_std: bool) -> list[str]:
+    """Cells: precision, recall, hit rate (``mean±std`` if ``with_std``), coverage, popularity."""
+    cells = [
+        f"{value:.4f}±{std:.4f}" if with_std else f"{value:.4f}"
+        for value, std in (
+            (m.precision_at_k, m.precision_std),
+            (m.recall_at_k, m.recall_std),
+            (m.hit_rate_at_k, m.hit_rate_std),
+        )
+    ]
+    return [*cells, f"{m.coverage:.4f}", f"{m.mean_popularity:.4f}"]
+
+
+def parse_seeds(text: str) -> list[int]:
+    """Parse ``0,1,2``; raise ``ValueError`` on an empty list, bad numbers or duplicates."""
+    try:
+        seeds = [int(p) for p in text.split(",")]
+    except ValueError:
+        raise ValueError(f"invalid seed list: {text!r}") from None
+    if len(set(seeds)) != len(seeds):
+        raise ValueError(f"duplicate seeds in {text!r}")
+    return seeds
+
+
+def evaluate_seeds(
+    splits: Sequence[Split],
+    binarizer: Binarizer,
+    **kwargs,
+) -> EvaluationResult:
+    """Run ``evaluate`` on every split (with ``seed=split.seed``) and aggregate the metrics.
+
+    ``kwargs`` are passed to ``evaluate`` (except ``seed``). ``n_users`` is taken from the
+    first split. Seeds must be non-empty and unique.
+    """
+    seeds = [s.seed for s in splits]
+    if not seeds:
+        raise ValueError("at least one seed is required")
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("seeds must be unique")
+    results = [evaluate(s.train, s.test, binarizer, seed=s.seed, **kwargs) for s in splits]
+    first = results[0]
+    return EvaluationResult(
+        cf=aggregate_metrics([r.cf for r in results]),
+        baselines={
+            name: aggregate_metrics([r.baselines[name] for r in results])
+            for name in first.baselines
+        },
+        n_users=first.n_users,
+        new_user_ratings=first.new_user_ratings,
+        seeds=tuple(seeds),
+    )
 
 
 def popular_baseline(
