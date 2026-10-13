@@ -365,3 +365,16 @@ def test_evaluate_command_prints_hybrid_rows(monkeypatch, tmp_path, capsys):
 def test_blend_full_at_option_rejects_invalid(command, value, capsys):
     assert main([command, "--blend-full-at", value]) == 2
     assert capsys.readouterr().err
+
+
+def test_evaluate_command_prints_item_based_row(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+
+    ratings = _cold_start_ratings()
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = ["evaluate", "--k", "5", "--min-overlap", "1", "--top-n", "3"]
+    assert main([*argv, "--new-user-ratings", "3", "--item-min-overlap", "2"]) == 0
+    assert "item_based" in capsys.readouterr().out
+    assert main([*argv, "--item-min-overlap", "0"]) == 2
+    assert main([*argv, "--item-lambda", "-1"]) == 2

@@ -20,6 +20,7 @@ from cinemate.evaluation.metrics import (
 )
 from cinemate.movielens import Rating
 from cinemate.recommender.hybrid import recommend_hybrid
+from cinemate.recommender.item_based import recommend_item_based
 from cinemate.recommender.matrix import build_matrix
 from cinemate.recommender.scoring import recommend
 from cinemate.recommender.strategy import recommend_with_strategy
@@ -246,6 +247,8 @@ def evaluate(
     new_user_pick: NewUserPick = "random",
     new_user_seen: NewUserSeen = "all",
     blend_full_at: Sequence[float] = (),
+    item_min_overlap: int = 3,
+    item_lam: float = 5.0,
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -267,6 +270,8 @@ def evaluate(
     with that ``blend_full_at`` and the CF parameters from ``settings``; its CF weight is
     ``min(1, n / T)`` for a user with ``n`` ratings in the matrix (so ``min(1, N / T)`` in
     cold-start mode). Values must be positive.
+
+    ``item_based`` runs ``recommend_item_based`` with ``item_min_overlap`` and ``item_lam``.
 
     ``product`` runs ``recommend_with_strategy`` with ``settings`` (default
     ``RecommenderSettings()``) and a fallback ``rng`` seeded by ``seed``.
@@ -386,6 +391,12 @@ def evaluate(
 
         return method
 
+    def item_based(u: int, exclude: set[int]) -> list[int]:
+        recs = recommend_item_based(
+            matrix, u, n=n_movies, min_overlap=item_min_overlap, lam=item_lam
+        )
+        return [m for m, _ in recs if m not in exclude][:top_n]
+
     methods: dict[str, Callable[[int, set[int]], list[int]]] = {
         "cf": cf,
         "popular": lambda _u, exclude: popular_baseline(matrix, exclude, n=top_n),
@@ -397,6 +408,7 @@ def evaluate(
             matrix, exclude, n=top_n, min_ratings=50
         ),
         "product": product,
+        "item_based": item_based,
         **{f"hybrid(T={t:g})": hybrid(t) for t in blend_full_at},
     }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}

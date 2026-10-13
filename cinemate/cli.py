@@ -193,6 +193,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="comma-separated hybrid thresholds T (ratings at which the hybrid is fully CF); "
         "each adds a hybrid(T=...) row (default: %(default)s)",
     )
+    ev.add_argument(
+        "--item-min-overlap",
+        type=int,
+        default=3,
+        help="item_based row: minimum common raters for a non-zero movie similarity "
+        "(default: %(default)s)",
+    )
+    ev.add_argument(
+        "--item-lambda",
+        type=float,
+        default=5.0,
+        help="item_based row: shrinkage lambda (default: %(default)s)",
+    )
     tu = sub.add_parser("tune", help="grid search over K, LAMBDA, MIN_OVERLAP and POP_PENALTY")
     tu.add_argument(
         "--data-dir",
@@ -454,6 +467,12 @@ def _run_evaluate(args: argparse.Namespace) -> int:
             "cinemate evaluate: error: --new-user-seen requires --new-user-ratings", file=sys.stderr
         )
         return 2
+    if args.item_min_overlap < 1:
+        print("cinemate evaluate: error: --item-min-overlap must be >= 1", file=sys.stderr)
+        return 2
+    if not args.item_lambda >= 0:
+        print("cinemate evaluate: error: --item-lambda must be >= 0", file=sys.stderr)
+        return 2
     if not _check_seeds(args, "evaluate"):
         return 2
     blend = _parse_blend(args, "evaluate")
@@ -480,6 +499,8 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         new_user_pick=args.new_user_pick,
         new_user_seen=args.new_user_seen,
         blend_full_at=blend,
+        item_min_overlap=args.item_min_overlap,
+        item_lam=args.item_lambda,
     )
     print(format_table(result, args.top_n))
     return 0
