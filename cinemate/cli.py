@@ -79,6 +79,8 @@ def format_table(result: EvaluationResult, top_n: int = 10) -> str:
         lines.append(f"{name.ljust(name_width)}  {line}")
     lines.append("")
     lines.append(f"users evaluated: {result.n_users}")
+    if result.new_user_ratings is not None:
+        lines.append(f"new users: {result.new_user_ratings} ratings each")
     return "\n".join(lines)
 
 
@@ -142,6 +144,12 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument(
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
     )
+    ev.add_argument(
+        "--new-user-ratings",
+        type=int,
+        default=None,
+        help="cold start: evaluate only 'new' users (half of them) keeping N train ratings each",
+    )
     tu = sub.add_parser("tune", help="grid search over K, LAMBDA, MIN_OVERLAP and POP_PENALTY")
     tu.add_argument(
         "--data-dir",
@@ -177,6 +185,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tu.add_argument(
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
+    )
+    tu.add_argument(
+        "--new-user-ratings",
+        type=int,
+        default=None,
+        help="cold start: evaluate only 'new' users (half of them) keeping N train ratings each",
     )
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
     imp.add_argument(
@@ -293,6 +307,9 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.pop_penalty >= 0:
         print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
         return 2
+    if args.new_user_ratings is not None and args.new_user_ratings < 1:
+        print("cinemate evaluate: error: --new-user-ratings must be >= 1", file=sys.stderr)
+        return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
     train, test = split_ratings(ratings, seed=args.seed)
@@ -305,6 +322,8 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         min_overlap=args.min_overlap,
         top_n=args.top_n,
         pop_penalty=args.pop_penalty,
+        new_user_ratings=args.new_user_ratings,
+        seed=args.seed,
     )
     print(format_table(result, args.top_n))
     return 0
@@ -323,10 +342,21 @@ def _run_tune(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"cinemate tune: error: {exc}", file=sys.stderr)
         return 2
+    if args.new_user_ratings is not None and args.new_user_ratings < 1:
+        print("cinemate tune: error: --new-user-ratings must be >= 1", file=sys.stderr)
+        return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
     train, test = split_ratings(ratings, seed=args.seed)
-    result = tune(train, test, MovieLensBinarizer(), grid, top_n=args.top_n)
+    result = tune(
+        train,
+        test,
+        MovieLensBinarizer(),
+        grid,
+        top_n=args.top_n,
+        new_user_ratings=args.new_user_ratings,
+        seed=args.seed,
+    )
     print(format_tune_table(result, args.top_n))
     return 0
 

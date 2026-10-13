@@ -138,6 +138,7 @@ def test_evaluate_has_all_baselines():
         "popular_likes",
         "popular_share_20",
         "popular_share_50",
+        "product",
     }
     assert result.baseline is result.baselines["popular"]
     # no movie reaches 20 ratings in this tiny dataset -> empty lists, zero metrics
@@ -149,3 +150,85 @@ def test_evaluate_pop_penalty_validated_and_passed_through():
     with pytest.raises(ValueError, match="pop_penalty"):
         run(likes(1, 6, 7), pop_penalty=-1.0)
     assert run(likes(1, 6, 7), pop_penalty=1.0) == run(likes(1, 6, 7))
+
+
+def cold_data():
+    """20 users: even users like movies 1-6, odd users like 7-12; each skips one (its test like)."""
+    train, test = [], []
+    for u in range(1, 21):
+        base = (1, 2, 3, 4, 5, 6) if u % 2 == 0 else (7, 8, 9, 10, 11, 12)
+        held_out = base[(u // 2) % 6]
+        train += likes(u, *(m for m in base if m != held_out))
+        test += likes(u, held_out)
+    return train, test
+
+
+def test_new_user_ratings_must_be_positive():
+    train, test = cold_data()
+    with pytest.raises(ValueError):
+        evaluate(train, test, B, new_user_ratings=0)
+
+
+def test_cold_start_evaluates_only_new_users_and_is_deterministic():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 4}
+    first = evaluate(train, test, B, **kw)
+    assert first.new_user_ratings == 3
+    assert first.n_users == 10  # half of the 20 users
+    assert evaluate(train, test, B, **kw) == first
+    assert "product" in first.baselines
+
+
+def test_cold_start_truncates_matrix_and_hides_dropped_ratings(monkeypatch):
+    from cinemate.evaluation import runner
+
+    train, test = cold_data()
+    captured = {}
+    real_build = runner.build_matrix
+
+    def spy(ratings, binarizer):
+        captured["train"] = list(ratings)
+        return real_build(captured["train"], binarizer)
+
+    monkeypatch.setattr(runner, "build_matrix", spy)
+    result = evaluate(train, test, B, min_overlap=1, top_n=1, new_user_ratings=3, seed=1)
+    counts = {}
+    for r in captured["train"]:
+        counts[r.user_id] = counts.get(r.user_id, 0) + 1
+    assert sorted(counts.values()) == [3] * 10 + [5] * 10
+    assert result.n_users == 10
+    # A new user keeps 3 of 5 train ratings; the 2 dropped ones are still "seen" and must not
+    # take the single slot, so the held-out test like is the only possible recommendation.
+    assert result.cf.precision_at_k == 1.0
+    # established users are neighbours only: evaluating them would give n_users == 20
+    assert result.n_users < 20
+
+
+def test_product_strategy_depends_on_new_user_ratings(monkeypatch):
+    from cinemate.evaluation import runner
+
+    train, test = cold_data()
+    strategies = []
+    real = runner.recommend_with_strategy
+
+    def spy(*args, **kwargs):
+        rec = real(*args, **kwargs)
+        strategies.append(rec.strategy)
+        return rec
+
+    monkeypatch.setattr(runner, "recommend_with_strategy", spy)
+    evaluate(train, test, B, min_overlap=1, top_n=3, new_user_ratings=3, seed=2)
+    assert set(strategies) == {"fallback"}  # fewer than 5 ratings
+    strategies.clear()
+    evaluate(train, test, B, min_overlap=1, top_n=3, new_user_ratings=4, seed=2)
+    assert set(strategies) == {"fallback"}  # still below MIN_USER_RATINGS
+    strategies.clear()
+    evaluate(train, test, B, min_overlap=1, top_n=3)
+    assert "collaborative" in strategies  # full histories: 5 ratings, CF
+
+
+def test_without_new_user_ratings_all_users_are_evaluated():
+    train, test = cold_data()
+    result = evaluate(train, test, B, min_overlap=1, top_n=3)
+    assert result.n_users == 20
+    assert result.new_user_ratings is None
