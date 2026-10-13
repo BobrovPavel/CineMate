@@ -3,9 +3,11 @@ import random
 import pytest
 from sqlalchemy.orm import sessionmaker
 
+from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, Rating, SeenMark, User
 from cinemate.db.session import create_all, make_engine
+from cinemate.services import recommendations as recommendations_module
 from cinemate.services.recommendations import get_recommendations
 
 N_MOVIES = 12
@@ -102,3 +104,39 @@ def test_fallback_excludes_marked_and_is_deterministic(session, store):
 
 def test_non_positive_limit(session, store):
     assert get_recommendations(session, store, session.get(User, 1), limit=0).items == []
+
+
+def test_lambda_from_settings_changes_scores(session, store):
+    user = session.get(User, 1)
+    low = get_recommendations(session, store, user, settings=RecommenderSettings(lam=0.0))
+    high = get_recommendations(session, store, user, settings=RecommenderSettings(lam=1000.0))
+    assert {i.movie.id: i.score for i in low.items} != {i.movie.id: i.score for i in high.items}
+    assert max(i.score for i in low.items) > max(i.score for i in high.items)
+
+
+def test_settings_are_passed_to_strategy(session, store, monkeypatch):
+    seen = {}
+    real = recommendations_module.recommend_with_strategy
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(recommendations_module, "recommend_with_strategy", spy)
+    get_recommendations(
+        session, store, session.get(User, 1), settings=RecommenderSettings(3, 7.0, 2, 0.5)
+    )
+    assert (seen["k"], seen["lam"], seen["min_overlap"], seen["pop_penalty"]) == (3, 7.0, 2, 0.5)
+
+
+def test_default_settings_used_without_argument(session, store, monkeypatch):
+    seen = {}
+    real = recommendations_module.recommend_with_strategy
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(recommendations_module, "recommend_with_strategy", spy)
+    get_recommendations(session, store, session.get(User, 1))
+    assert seen["lam"] == RecommenderSettings().lam

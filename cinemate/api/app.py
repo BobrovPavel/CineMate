@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cinemate.api.routes import router
 from cinemate.cli import resolve_database_url
+from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.session import create_all, make_engine
 
@@ -34,13 +35,17 @@ def create_app(
     database_url: str | None = None,
     cookie_secure: bool = False,
     cors_origins: list[str] | None = None,
+    recommender_settings: RecommenderSettings | None = None,
 ) -> FastAPI:
     """Build the app; ``database_url`` follows the same resolution rule as the CLI commands.
 
     ``cookie_secure`` sets the ``Secure`` flag of the session cookie (off for local development).
     ``cors_origins`` overrides the ``CORS_ORIGINS`` environment variable.
+    ``recommender_settings`` overrides the ``REC_*`` environment variables; invalid ones raise
+    ``ValueError`` at startup.
     """
     origins = resolve_cors_origins(cors_origins)
+    settings = recommender_settings or RecommenderSettings.from_env()
     engine = make_engine(resolve_database_url(database_url))
     create_all(engine)
     session_factory = sessionmaker(engine, expire_on_commit=False, class_=Session)
@@ -56,6 +61,7 @@ def create_app(
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.matrix_store = MatrixStore(session_factory)
+    app.state.recommender_settings = settings
     app.state.cookie_secure = cookie_secure
     app.include_router(router)
 
