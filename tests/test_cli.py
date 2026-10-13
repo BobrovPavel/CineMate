@@ -178,6 +178,7 @@ def test_serve_help_lists_arguments(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "--host" in out and "--port" in out and "--database-url" in out
+    assert "--cookie-secure" in out and "COOKIE_SECURE" in out
 
 
 def test_serve_runs_uvicorn(monkeypatch):
@@ -189,6 +190,59 @@ def test_serve_runs_uvicorn(monkeypatch):
     assert code == 0
     assert calls["host"] == "127.0.0.1" and calls["port"] == 9000
     assert calls["app"].title == "CineMate"
+
+
+def _capture_serve(monkeypatch):
+    import uvicorn
+
+    import cinemate.api.app as app_module
+
+    captured = {}
+    real_create_app = app_module.create_app
+
+    def fake_create_app(*args, **kwargs):
+        captured.update(kwargs)
+        return real_create_app(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "create_app", fake_create_app)
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: None)
+    return captured
+
+
+def test_serve_cookie_secure_default_off(monkeypatch):
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    captured = _capture_serve(monkeypatch)
+    assert main(["serve", "--database-url", "sqlite:///:memory:"]) == 0
+    assert captured["cookie_secure"] is False
+
+
+def test_serve_cookie_secure_flag(monkeypatch):
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    captured = _capture_serve(monkeypatch)
+    assert main(["serve", "--database-url", "sqlite:///:memory:", "--cookie-secure"]) == 0
+    assert captured["cookie_secure"] is True
+
+
+def test_serve_cookie_secure_env(monkeypatch):
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    captured = _capture_serve(monkeypatch)
+    assert main(["serve", "--database-url", "sqlite:///:memory:"]) == 0
+    assert captured["cookie_secure"] is True
+
+
+def test_serve_cookie_secure_flag_wins_over_env(monkeypatch):
+    monkeypatch.setenv("COOKIE_SECURE", "0")
+    captured = _capture_serve(monkeypatch)
+    assert main(["serve", "--database-url", "sqlite:///:memory:", "--cookie-secure"]) == 0
+    assert captured["cookie_secure"] is True
+
+
+def test_serve_invalid_cookie_secure_env(monkeypatch, capsys):
+    monkeypatch.setenv("COOKIE_SECURE", "maybe")
+    captured = _capture_serve(monkeypatch)
+    assert main(["serve", "--database-url", "sqlite:///:memory:"]) == 2
+    assert "COOKIE_SECURE" in capsys.readouterr().err
+    assert captured == {}
 
 
 def test_serve_invalid_database_url(capsys):

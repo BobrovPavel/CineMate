@@ -112,6 +112,17 @@ def test_session_cookie_secure_flag():
     assert "; secure" in response.headers["set-cookie"].lower()
 
 
+@pytest.mark.parametrize("secure", [True, False])
+def test_session_cookie_secure_keeps_other_attributes(secure):
+    app = create_app("sqlite:///:memory:", cookie_secure=secure)
+    with TestClient(app) as client:
+        response = client.post("/api/session")
+    lowered = response.headers["set-cookie"].lower()
+    assert ("; secure" in lowered) is secure
+    assert "httponly" in lowered
+    assert "samesite=lax" in lowered
+
+
 def test_session_reuses_existing_user(app):
     with TestClient(app) as client:
         first = client.post("/api/session").json()

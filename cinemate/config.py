@@ -73,3 +73,24 @@ def _read[T: (int, float)](
     if (isinstance(value, float) and math.isnan(value)) or not valid(value):
         raise ValueError(f"{name} must be {requirement}, got {raw!r}")
     return value
+
+
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+
+
+def resolve_cookie_secure(flag: bool, environ: Mapping[str, str] | None = None) -> bool:
+    """Decide the ``Secure`` flag of the session cookie: the flag, then ``COOKIE_SECURE``, then off.
+
+    ``1/true/yes/on`` enable and ``0/false/no/off`` disable (case-insensitive); an empty or
+    missing variable means off. Any other value raises ``ValueError`` naming the variable.
+    """
+    if flag:
+        return True
+    env = os.environ if environ is None else environ
+    raw = env.get("COOKIE_SECURE", "").strip().lower()
+    if not raw or raw in _FALSE_VALUES:
+        return False
+    if raw in _TRUE_VALUES:
+        return True
+    raise ValueError(f"COOKIE_SECURE must be one of 1/true/yes/on or 0/false/no/off, got {raw!r}")

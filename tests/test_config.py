@@ -1,6 +1,6 @@
 import pytest
 
-from cinemate.config import RecommenderSettings
+from cinemate.config import RecommenderSettings, resolve_cookie_secure
 
 
 def test_defaults():
@@ -96,3 +96,32 @@ def test_strategy_constants_match_settings_defaults():
     settings = RecommenderSettings()
     assert settings.min_user_ratings == MIN_USER_RATINGS
     assert settings.fallback_pool_factor == DEFAULT_POOL_FACTOR
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "Yes", "on", " On "])
+def test_resolve_cookie_secure_true_values(value):
+    assert resolve_cookie_secure(False, {"COOKIE_SECURE": value}) is True
+
+
+@pytest.mark.parametrize("value", ["0", "false", "FALSE", "No", "off", "", "  "])
+def test_resolve_cookie_secure_false_values(value):
+    assert resolve_cookie_secure(False, {"COOKIE_SECURE": value}) is False
+
+
+def test_resolve_cookie_secure_default_off():
+    assert resolve_cookie_secure(False, {}) is False
+
+
+def test_resolve_cookie_secure_flag_wins_over_env():
+    assert resolve_cookie_secure(True, {"COOKIE_SECURE": "0"}) is True
+    assert resolve_cookie_secure(True, {}) is True
+
+
+def test_resolve_cookie_secure_invalid_names_variable():
+    with pytest.raises(ValueError, match="COOKIE_SECURE"):
+        resolve_cookie_secure(False, {"COOKIE_SECURE": "maybe"})
+
+
+def test_resolve_cookie_secure_reads_os_environ(monkeypatch):
+    monkeypatch.setenv("COOKIE_SECURE", "1")
+    assert resolve_cookie_secure(False) is True

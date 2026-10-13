@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from cinemate import __version__
 from cinemate.binarize import MovieLensBinarizer
-from cinemate.config import RecommenderSettings
+from cinemate.config import RecommenderSettings, resolve_cookie_secure
 from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
 from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
@@ -265,6 +265,12 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--host", default="127.0.0.1", help="bind address (default: %(default)s)")
     sv.add_argument("--port", type=int, default=8000, help="bind port (default: %(default)s)")
     sv.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    sv.add_argument(
+        "--cookie-secure",
+        action="store_true",
+        help="set the Secure flag on the session cookie, use when serving over HTTPS "
+        "(default: env COOKIE_SECURE, else off)",
+    )
     return parser
 
 
@@ -282,7 +288,12 @@ def _run_serve(args: argparse.Namespace) -> int:
     from cinemate.api.app import create_app
 
     try:
-        app = create_app(args.database_url)
+        cookie_secure = resolve_cookie_secure(args.cookie_secure)
+    except ValueError as exc:
+        print(f"cinemate serve: error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        app = create_app(args.database_url, cookie_secure=cookie_secure)
     except (ArgumentError, ImportError):
         print("cinemate serve: error: invalid database URL", file=sys.stderr)
         return 2
