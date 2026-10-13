@@ -40,11 +40,11 @@ describe("apiFetch", () => {
     expect(init.credentials).toBe("include");
   });
 
-  it("по умолчанию использует http://localhost:8000", async () => {
+  it("по умолчанию ходит на тот же origin", async () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
     const { apiFetch } = await loadApi();
     await apiFetch("/api/health");
-    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:8000/api/health");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/health");
   });
 
   it("ставит Content-Type для запроса с телом", async () => {

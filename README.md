@@ -114,7 +114,7 @@ URL базы данных выбирается так: аргумент `--datab
    ```
    cd frontend
    npm install
-   cp .env.example .env.local
+   cp .env.example .env.local   # API_INTERNAL_URL — адрес API; настройка CORS не нужна
    npm run dev
    ```
 
@@ -126,23 +126,27 @@ URL базы данных выбирается так: аргумент `--datab
 | --------------------- | -------------------------------------------------- | --------------------------- |
 | `DATABASE_URL`        | `import-movielens`, `enrich-movies`, `metrics`, `serve` (если нет `--database-url`) | `sqlite:///cinemate.db` |
 | `TMDB_API_KEY`        | `enrich-movies`                                    | не задан (команда не работает) |
-| `CORS_ORIGINS`        | API: источники, которым разрешены запросы из браузера (через запятую, без `*`) | `http://localhost:3000` |
+| `CORS_ORIGINS`        | API: источники для прямых запросов из браузера (через запятую, без `*`); нужен только если `NEXT_PUBLIC_API_URL` указывает на другой origin | `http://localhost:3000` |
 | `REC_K`               | API: число соседей рекомендателя (>= 1)            | `60`                        |
 | `REC_LAMBDA`          | API: сила shrinkage (>= 0)                         | `40`                        |
 | `REC_MIN_OVERLAP`     | API: минимум общих оценок у соседа (>= 1)          | `1`                         |
 | `REC_POP_PENALTY`     | API: показатель штрафа за популярность (>= 0)      | `0.75`                      |
 | `REC_MIN_USER_RATINGS` | API: число оценок, с которого вместо запасной стратегии включается CF (>= 1) | `5`       |
 | `REC_FALLBACK_POOL_FACTOR` | API: запасная стратегия выбирает из первых `pool_factor * n` по числу лайков; `1` — точный топ (>= 1) | `1` |
-| `NEXT_PUBLIC_API_URL` | фронтенд (`frontend/.env.local`): адрес API; после смены перезапустите `npm run dev` | `http://localhost:8000`     |
+| `API_INTERNAL_URL`    | фронтенд (сервер Next.js): куда проксируются запросы `/api/*`; читается при каждом запросе | `http://127.0.0.1:8000` |
+| `NEXT_PUBLIC_API_URL` | фронтенд: прямой адрес API в обход прокси (тогда нужен `CORS_ORIGINS`); после смены перезапустите `npm run dev` | пусто (тот же origin, `/api/...`) |
 | `POSTGRES_PASSWORD`   | `docker-compose.yml`: пароль пользователя PostgreSQL | нет, обязателен для Docker |
 
 ### Типичные проблемы
 
 - **Пустая лента или онбординг без карточек** — не выполнен `cinemate import-movielens`, либо
   API запущен с другой базой (проверьте `--database-url` / `DATABASE_URL` в обоих командах).
-- **Cookie сессии не ставится, запросы отвечают 401** — хосты не совпадают: открывайте сайт
-  на `localhost:3000`, а `NEXT_PUBLIC_API_URL` держите на `localhost:8000` (не
-  `127.0.0.1`), и `CORS_ORIGINS` должен точно совпадать с адресом сайта.
+- **Запросы отвечают 502 `API unavailable`** — фронтенд не достучался до API: запустите
+  `cinemate serve` и проверьте `API_INTERNAL_URL`.
+- **Cookie сессии не ставится, запросы отвечают 401** — оставьте `NEXT_PUBLIC_API_URL` пустым:
+  браузер ходит на `/api/*` фронтенда, и cookie остаётся first-party. Если вы указали прямой адрес
+  API, открывайте сайт на `localhost:3000`, держите API на `localhost:8000` (не `127.0.0.1`), а
+  `CORS_ORIGINS` должен точно совпадать с адресом сайта.
 - **Нет постеров и описаний** — не выполнен `cinemate enrich-movies` (нужен `TMDB_API_KEY`).
 
 ## Docker
