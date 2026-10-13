@@ -84,7 +84,9 @@ def format_table(result: EvaluationResult, top_n: int = 10) -> str:
     lines.append(f"users evaluated: {result.n_users}")
     lines.append(f"seeds: {','.join(map(str, result.seeds))}")
     if result.new_user_ratings is not None:
-        lines.append(new_users_line(result.new_user_ratings, result.new_user_pick))
+        lines.append(
+            new_users_line(result.new_user_ratings, result.new_user_pick, result.new_user_seen)
+        )
     return "\n".join(lines)
 
 
@@ -172,6 +174,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --new-user-ratings: which ratings a 'new' user keeps, random ones or the "
         "first ones in onboarding card order (default: %(default)s)",
     )
+    ev.add_argument(
+        "--new-user-seen",
+        choices=["all", "kept"],
+        default="all",
+        help="with --new-user-ratings: exclude from the lists all train ratings of a 'new' user "
+        "or only the ones kept in the matrix, as the site does (default: %(default)s)",
+    )
     tu = sub.add_parser("tune", help="grid search over K, LAMBDA, MIN_OVERLAP and POP_PENALTY")
     tu.add_argument(
         "--data-dir",
@@ -226,6 +235,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="random",
         help="with --new-user-ratings: which ratings a 'new' user keeps, random ones or the "
         "first ones in onboarding card order (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--new-user-seen",
+        choices=["all", "kept"],
+        default="all",
+        help="with --new-user-ratings: exclude from the lists all train ratings of a 'new' user "
+        "or only the ones kept in the matrix, as the site does (default: %(default)s)",
     )
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
     imp.add_argument(
@@ -394,6 +410,11 @@ def _run_evaluate(args: argparse.Namespace) -> int:
             "cinemate evaluate: error: --new-user-pick requires --new-user-ratings", file=sys.stderr
         )
         return 2
+    if args.new_user_seen != "all" and args.new_user_ratings is None:
+        print(
+            "cinemate evaluate: error: --new-user-seen requires --new-user-ratings", file=sys.stderr
+        )
+        return 2
     if not _check_seeds(args, "evaluate"):
         return 2
     settings = _settings_from_env("evaluate")
@@ -414,6 +435,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         new_user_ratings=args.new_user_ratings,
         settings=settings,
         new_user_pick=args.new_user_pick,
+        new_user_seen=args.new_user_seen,
     )
     print(format_table(result, args.top_n))
     return 0
@@ -438,6 +460,9 @@ def _run_tune(args: argparse.Namespace) -> int:
     if args.new_user_pick != "random" and args.new_user_ratings is None:
         print("cinemate tune: error: --new-user-pick requires --new-user-ratings", file=sys.stderr)
         return 2
+    if args.new_user_seen != "all" and args.new_user_ratings is None:
+        print("cinemate tune: error: --new-user-seen requires --new-user-ratings", file=sys.stderr)
+        return 2
     if not _check_seeds(args, "tune"):
         return 2
     settings = _settings_from_env("tune")
@@ -459,6 +484,7 @@ def _run_tune(args: argparse.Namespace) -> int:
         settings=settings,
         extra_splits=rest,
         new_user_pick=args.new_user_pick,
+        new_user_seen=args.new_user_seen,
     )
     print(format_tune_table(result, args.top_n))
     return 0

@@ -28,6 +28,7 @@ from cinemate.services.onboarding import pick_onboarding_movies
 DEFAULT_MIN_RATINGS = 5
 
 NewUserPick = Literal["random", "onboarding"]
+NewUserSeen = Literal["all", "kept"]
 ONBOARDING_POOL = 300
 
 
@@ -64,6 +65,7 @@ class EvaluationResult:
     new_user_ratings: int | None = None
     seeds: tuple[int, ...] = (0,)
     new_user_pick: NewUserPick = "random"
+    new_user_seen: NewUserSeen = "all"
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -118,9 +120,18 @@ def format_metric_cells(m: MethodMetrics, with_std: bool) -> list[str]:
     return [*cells, f"{m.coverage:.4f}", f"{m.mean_popularity:.4f}"]
 
 
-def new_users_line(n_ratings: int, pick: NewUserPick) -> str:
-    """Table line describing the cold-start mode; unchanged text for the ``random`` pick."""
-    suffix = "" if pick == "random" else f" (pick: {pick})"
+def new_users_line(n_ratings: int, pick: NewUserPick, seen: NewUserSeen = "all") -> str:
+    """Table line describing the cold-start mode.
+
+    The text is unchanged for the ``random`` pick with ``seen="all"``; ``seen="kept"`` adds
+    ``seen: kept`` to the parenthesis (with ``pick`` too when it is not ``random``).
+    """
+    parts = []
+    if pick != "random" or seen != "all":
+        parts.append(f"pick: {pick}")
+    if seen != "all":
+        parts.append(f"seen: {seen}")
+    suffix = f" ({', '.join(parts)})" if parts else ""
     return f"new users: {n_ratings} ratings each{suffix}"
 
 
@@ -162,6 +173,7 @@ def evaluate_seeds(
         new_user_ratings=first.new_user_ratings,
         seeds=tuple(seeds),
         new_user_pick=first.new_user_pick,
+        new_user_seen=first.new_user_seen,
     )
 
 
@@ -230,6 +242,7 @@ def evaluate(
     seed: int = 0,
     settings: RecommenderSettings | None = None,
     new_user_pick: NewUserPick = "random",
+    new_user_seen: NewUserSeen = "all",
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -264,6 +277,12 @@ def evaluate(
     order (a "not seen" answer is a movie they did not rate). Only users with at least ``N``
     usable ratings among the cards can be "new". Genres are unknown here, so the per-genre
     limit of the onboarding picker does not apply. Requires ``new_user_ratings``.
+
+    ``new_user_seen`` decides what is excluded from the lists of a "new" user. ``"all"`` (the
+    default) excludes every train rating, including the dropped ones. ``"kept"`` imitates the
+    site, which only knows what the user rated or marked: only the ``N`` ratings left in the
+    matrix are excluded, so dropped train ratings may be recommended (they are still not
+    relevant; only test likes are). Test ratings are never excluded. Requires ``new_user_ratings``.
     """
     if new_user_ratings is not None and new_user_ratings < 1:
         raise ValueError("new_user_ratings must be at least 1")
@@ -271,6 +290,10 @@ def evaluate(
         raise ValueError(f"unknown new_user_pick: {new_user_pick!r}")
     if new_user_pick != "random" and new_user_ratings is None:
         raise ValueError("new_user_pick requires new_user_ratings")
+    if new_user_seen not in ("all", "kept"):
+        raise ValueError(f"unknown new_user_seen: {new_user_seen!r}")
+    if new_user_seen != "all" and new_user_ratings is None:
+        raise ValueError("new_user_seen requires new_user_ratings")
     settings = settings or RecommenderSettings()
     train = list(train)
     seen: dict[int, set[int]] = defaultdict(set)
@@ -281,6 +304,11 @@ def evaluate(
         train, new_users = _truncate_new_users(
             train, new_user_ratings, seed, binarizer, new_user_pick
         )
+        if new_user_seen == "kept":
+            # Established users keep all ratings, new users only the ones left in the matrix.
+            seen = defaultdict(set)
+            for r in train:
+                seen[r.user_id].add(r.movie_id)
     built = build_matrix(train, binarizer)
     matrix = built.matrix
     user_index = {u: i for i, u in enumerate(built.user_ids)}
@@ -384,6 +412,7 @@ def evaluate(
         n_users=n_users,
         new_user_ratings=new_user_ratings,
         new_user_pick=new_user_pick,
+        new_user_seen=new_user_seen,
     )
 
 
