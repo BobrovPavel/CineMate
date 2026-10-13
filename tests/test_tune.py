@@ -189,3 +189,43 @@ def test_commands_run_with_onboarding_pick(command, monkeypatch, tmp_path, capsy
         argv += ["--k", "3", "--lambda", "1"]
     assert main([*argv, "--new-user-pick", "onboarding"]) == 0
     assert "new users: 5 ratings each (pick: onboarding)" in capsys.readouterr().out
+
+
+def test_tune_passes_new_user_seen_and_prints_it():
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    train, test = ratings[:150], ratings[150:]
+    grid = {"k": [3], "lam": [1.0], "min_overlap": [1]}
+    result = tune(
+        train,
+        test,
+        B,
+        grid,
+        top_n=3,
+        new_user_ratings=4,
+        new_user_pick="onboarding",
+        new_user_seen="kept",
+    )
+    assert result.new_user_seen == "kept"
+    assert "new users: 4 ratings each (pick: onboarding, seen: kept)" in format_tune_table(
+        result, 3
+    )
+
+
+@pytest.mark.parametrize("command", ["tune", "evaluate"])
+def test_new_user_seen_requires_new_user_ratings(command, capsys):
+    assert main([command, "--new-user-seen", "kept"]) == 2
+    assert "--new-user-seen requires --new-user-ratings" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["tune", "evaluate"])
+def test_commands_run_with_seen_kept(command, monkeypatch, tmp_path, capsys):
+    from cinemate import cli
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = [command, "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
+    if command == "tune":
+        argv += ["--k", "3", "--lambda", "1"]
+    assert main([*argv, "--new-user-pick", "onboarding", "--new-user-seen", "kept"]) == 0
+    assert "new users: 5 ratings each (pick: onboarding, seen: kept)" in capsys.readouterr().out

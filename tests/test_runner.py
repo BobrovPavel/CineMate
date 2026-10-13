@@ -330,3 +330,61 @@ def test_new_user_pick_validation():
         evaluate(train, test, B, new_user_pick="onboarding")
     with pytest.raises(ValueError):
         evaluate(train, test, B, new_user_ratings=3, new_user_pick="bogus")
+
+
+def test_new_user_seen_kept_excludes_only_the_kept_ratings(monkeypatch):
+    from cinemate.evaluation import runner
+
+    train, test = cold_data()
+    real = runner.popular_by_likes
+    calls: list[tuple[int, int]] = []
+
+    def spy(matrix, exclude, n=10):
+        exclude = set(exclude)
+        out = real(matrix, exclude, n=n)
+        calls.append((len(exclude), len(out)))
+        return out
+
+    monkeypatch.setattr(runner, "popular_by_likes", spy)
+    kw = {"min_overlap": 1, "top_n": 12, "new_user_ratings": 3, "seed": 1}
+    evaluate(train, test, B, **kw)
+    assert {c[0] for c in calls} == {5} and {c[1] for c in calls} == {7}
+    calls.clear()
+    result = evaluate(train, test, B, new_user_seen="kept", **kw)
+    # 3 kept ratings are excluded; the 2 dropped ones may be recommended (9 of 12 movies left)
+    assert {c[0] for c in calls} == {3} and {c[1] for c in calls} == {9}
+    assert result.new_user_seen == "kept"
+    # a dropped train rating is not relevant: each user has exactly one relevant (test) movie
+    assert result.baselines["popular_likes"].precision_at_k <= 1 / 12
+    assert evaluate(train, test, B, new_user_seen="kept", **kw) == result
+
+
+def test_new_user_seen_all_is_the_default():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 4}
+    default = evaluate(train, test, B, **kw)
+    assert evaluate(train, test, B, new_user_seen="all", **kw) == default
+    assert default.new_user_seen == "all"
+
+
+def test_new_user_seen_validation():
+    train, test = cold_data()
+    with pytest.raises(ValueError):
+        evaluate(train, test, B, new_user_seen="kept")
+    with pytest.raises(ValueError):
+        evaluate(train, test, B, new_user_ratings=3, new_user_seen="bogus")
+
+
+def test_new_users_line_with_seen():
+    from cinemate.evaluation.runner import new_users_line
+
+    assert new_users_line(5, "random") == "new users: 5 ratings each"
+    assert new_users_line(5, "onboarding") == "new users: 5 ratings each (pick: onboarding)"
+    assert (
+        new_users_line(5, "onboarding", "kept")
+        == "new users: 5 ratings each (pick: onboarding, seen: kept)"
+    )
+    assert (
+        new_users_line(5, "random", "kept")
+        == "new users: 5 ratings each (pick: random, seen: kept)"
+    )
