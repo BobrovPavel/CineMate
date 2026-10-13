@@ -6,7 +6,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 DEFAULT_MIN_RATINGS = 1
-DEFAULT_POOL_FACTOR = 2
+DEFAULT_POOL_FACTOR = 1
 
 
 def popular(

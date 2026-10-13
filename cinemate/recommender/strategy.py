@@ -9,7 +9,7 @@ from scipy.sparse import csr_matrix
 from cinemate.recommender.fallback import DEFAULT_POOL_FACTOR, popular
 from cinemate.recommender.scoring import recommend
 
-MIN_USER_RATINGS = 10
+MIN_USER_RATINGS = 5
 
 
 @dataclass(frozen=True)

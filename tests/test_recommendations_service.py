@@ -148,16 +148,13 @@ def test_default_settings_used_without_argument(session, store, monkeypatch):
     assert seen["lam"] == RecommenderSettings().lam
 
 
-def test_nine_ratings_get_fallback_and_ten_get_collaborative(session, store):
-    session.add_all([Rating(user_id=1, movie_id=m, value=1) for m in (10, 11, 12)])
-    session.commit()
-    user = session.get(User, 1)
-    for u in range(2, N_USERS + 1):
-        session.add_all([Rating(user_id=u, movie_id=m, value=1) for m in (10, 11, 12)])
+def test_four_ratings_get_fallback_and_five_get_collaborative(session, store):
+    user = session.get(User, 100)
+    session.add_all([Rating(user_id=100, movie_id=m, value=1) for m in (1, 2, 3, 4)])
     session.commit()
     store.invalidate()
     assert get_recommendations(session, store, user, rng=random.Random(0)).strategy == "fallback"
-    session.add(Rating(user_id=1, movie_id=7, value=1))
+    session.add(Rating(user_id=100, movie_id=5, value=1))
     session.commit()
     store.invalidate()
     assert get_recommendations(session, store, user).strategy == "collaborative"
