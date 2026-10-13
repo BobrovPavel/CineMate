@@ -53,7 +53,8 @@ def recommend_hybrid_detailed(
         if peak > 0:
             cf[stats.candidates] = raw / peak
 
-    scores = (1 - beta) * pop + beta * cf
+    # Without neighbours there is nothing to blend: order by likes whatever beta is.
+    scores = (1 - beta) * pop + beta * cf if neighbors else pop
     candidates = np.setdiff1d(np.arange(values.shape[1]), row.indices)
     order = sorted(candidates.tolist(), key=lambda m: (-scores[m], m))
     items = [(int(m), float(scores[m])) for m in order[:n]]
@@ -81,7 +82,7 @@ def recommend_hybrid(
 
     ``norm`` and ``c`` are as in ``recommend`` (there is no popularity penalty here, ``pop``
     already accounts for it). Candidates are all movies the user has not rated. Without
-    neighbours the order is by likes. Returns ``(movie_index, score)`` pairs by score
+    neighbours the order is by likes (``pop``) whatever ``beta`` is. Returns ``(movie_index, score)`` pairs by score
     descending (ties by movie index ascending). Raises ``ValueError`` if
     ``blend_full_at <= 0``.
     """

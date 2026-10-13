@@ -66,6 +66,12 @@ def test_no_neighbors_keeps_likes_order():
     assert [i for i, _ in result.items] == [2, 3, 1]
 
 
+def test_no_neighbors_with_full_beta_still_orders_by_likes():
+    m = make([[1, 0, 0, 0], [0, 0, 1, 1], [0, 0, 1, 0]])
+    result = recommend_hybrid_detailed(m, 0, n=3, blend_full_at=1)
+    assert [i for i, _ in result.items] == [2, 3, 1]
+
+
 def test_rated_movies_are_excluded_including_dislikes():
     m = make([[1, -1, 0, 0], [1, -1, 1, 1]])
     assert {i for i, _ in recommend_hybrid(m, 0, n=10)} == {2, 3}
