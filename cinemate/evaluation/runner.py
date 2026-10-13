@@ -1,5 +1,6 @@
 """Offline evaluation: user-based CF against a deterministic "popular" baseline."""
 
+import random
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 from cinemate.binarize import Binarizer
+from cinemate.config import RecommenderSettings
 from cinemate.evaluation.metrics import (
     coverage,
     hit_rate_at_k,
@@ -18,6 +20,7 @@ from cinemate.movielens import Rating
 from cinemate.recommender.fallback import DEFAULT_MIN_RATINGS
 from cinemate.recommender.matrix import build_matrix
 from cinemate.recommender.scoring import recommend
+from cinemate.recommender.strategy import recommend_with_strategy
 
 
 @dataclass(frozen=True)
@@ -36,12 +39,14 @@ class EvaluationResult:
     """CF metrics, metrics of every baseline and the number of evaluated users.
 
     ``baselines`` keys: ``popular`` (the original weak baseline), ``popular_likes``,
-    ``popular_share_20`` and ``popular_share_50``.
+    ``popular_share_20``, ``popular_share_50`` and ``product`` (CF with the fallback, as on the
+    site). ``new_user_ratings`` is set when only "new" users with that many ratings were evaluated.
     """
 
     cf: MethodMetrics
     baselines: dict[str, MethodMetrics]
     n_users: int
+    new_user_ratings: int | None = None
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -110,6 +115,9 @@ def evaluate(
     min_overlap: int = 5,
     top_n: int = 10,
     pop_penalty: float = 1.0,
+    new_user_ratings: int | None = None,
+    seed: int = 0,
+    settings: RecommenderSettings | None = None,
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -126,19 +134,35 @@ def evaluate(
     Coverage is measured over the train catalogue; popularity of a movie is the share of train
     users who liked it. All metrics are averaged over users (coverage is global).
     With no evaluable users all metrics are ``0.0``.
+
+    ``product`` runs ``recommend_with_strategy`` with ``settings`` (default
+    ``RecommenderSettings()``) and a fallback ``rng`` seeded by ``seed``.
+
+    With ``new_user_ratings=N`` (cold-start mode) the train users are split by ``seed``:
+    "new" users (half of those with at least ``N`` usable ratings) keep exactly ``N`` random
+    usable train ratings in the matrix and are the only ones evaluated;
+    the dropped ratings still count as seen (never recommended)
+    but are not relevant. Users with fewer than ``N`` usable ratings are never "new".
+    "Established" users keep all ratings and serve as neighbours only.
     """
+    if new_user_ratings is not None and new_user_ratings < 1:
+        raise ValueError("new_user_ratings must be at least 1")
+    settings = settings or RecommenderSettings()
     train = list(train)
+    seen: dict[int, set[int]] = defaultdict(set)
+    for r in train:
+        seen[r.user_id].add(r.movie_id)
+    new_users: set[int] | None = None
+    if new_user_ratings is not None:
+        train, new_users = _truncate_new_users(train, new_user_ratings, seed, binarizer)
     built = build_matrix(train, binarizer)
     matrix = built.matrix
     user_index = {u: i for i, u in enumerate(built.user_ids)}
     movie_index = {m: i for i, m in enumerate(built.movie_ids)}
 
-    seen: dict[int, set[int]] = defaultdict(set)
-    for r in train:
-        seen[r.user_id].add(r.movie_id)
     test_likes: dict[int, set[int]] = defaultdict(set)
     for r in test:
-        if binarizer.binarize(r.score) == 1:
+        if binarizer.binarize(r.score) == 1 and (new_users is None or r.user_id in new_users):
             test_likes[r.user_id].add(r.movie_id)
 
     n_movies = len(built.movie_ids)
@@ -160,6 +184,24 @@ def evaluate(
         )
         return [m for m, _ in recs if m not in exclude][:top_n]
 
+    product_rng = random.Random(seed)
+
+    def product(u: int, exclude: set[int]) -> list[int]:
+        row = matrix[u].copy()
+        row.eliminate_zeros()
+        extra = len(exclude - {int(m) for m in row.indices})
+        rec = recommend_with_strategy(
+            matrix,
+            u,
+            n=top_n + extra,
+            k=settings.k,
+            min_overlap=settings.min_overlap,
+            lam=settings.lam,
+            pop_penalty=settings.pop_penalty,
+            rng=product_rng,
+        )
+        return [m for m, _ in rec.items if m not in exclude][:top_n]
+
     methods: dict[str, Callable[[int, set[int]], list[int]]] = {
         "cf": cf,
         "popular": lambda _u, exclude: popular_baseline(matrix, exclude, n=top_n),
@@ -170,6 +212,7 @@ def evaluate(
         "popular_share_50": lambda _u, exclude: popular_by_share(
             matrix, exclude, n=top_n, min_ratings=50
         ),
+        "product": product,
     }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}
@@ -211,4 +254,37 @@ def evaluate(
         cf=summarize("cf"),
         baselines={name: summarize(name) for name in methods if name != "cf"},
         n_users=n_users,
+        new_user_ratings=new_user_ratings,
     )
+
+
+def _truncate_new_users(
+    train: list[Rating], n_ratings: int, seed: int, binarizer: Binarizer
+) -> tuple[list[Rating], set[int]]:
+    """Mark half of the eligible train users as "new" and keep ``n_ratings`` of their ratings.
+
+    Eligible users have at least ``n_ratings`` ratings that survive binarization, so a new
+    user has exactly ``n_ratings`` entries in the matrix. The kept ratings are drawn from the
+    binarizable ones; everything else (neutral and dropped ratings) leaves the matrix.
+    Returns the reduced train list and the set of new user ids; deterministic for a ``seed``.
+    """
+    by_user: dict[int, list[Rating]] = defaultdict(list)
+    for r in train:
+        by_user[r.user_id].append(r)
+    rng = random.Random(seed)
+    user_ids = sorted(
+        u
+        for u, items in by_user.items()
+        if sum(binarizer.binarize(r.score) is not None for r in items) >= n_ratings
+    )
+    rng.shuffle(user_ids)
+    new_users = set(user_ids[: len(user_ids) // 2])
+    reduced: list[Rating] = []
+    for user_id in sorted(by_user):
+        items = by_user[user_id]
+        if user_id in new_users:
+            usable = [i for i, r in enumerate(items) if binarizer.binarize(r.score) is not None]
+            keep = set(rng.sample(usable, n_ratings))
+            items = [r for i, r in enumerate(items) if i in keep]
+        reduced.extend(items)
+    return reduced, new_users

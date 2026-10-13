@@ -35,6 +35,7 @@ def test_tune_row_count_and_sorting():
         "popular_likes",
         "popular_share_20",
         "popular_share_50",
+        "product",
     }
 
 
@@ -90,7 +91,7 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "popular" in out and "precision@3" in out
-    assert len(out.splitlines()) == 1 + 2 + 4 + 2
+    assert len(out.splitlines()) == 1 + 2 + 5 + 2
 
 
 def test_tune_command_rejects_bad_list(capsys):
@@ -124,9 +125,38 @@ def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):
     assert main([*argv, "--pop-penalty", "0,0.5,1"]) == 0
     out = capsys.readouterr().out
     assert "pop_penalty" in out
-    assert len(out.splitlines()) == 1 + 3 + 4 + 2
+    assert len(out.splitlines()) == 1 + 3 + 5 + 2
 
 
 def test_tune_command_rejects_negative_pop_penalty(capsys):
     assert main(["tune", "--pop-penalty", "-1"]) == 2
     assert "pop_penalty" in capsys.readouterr().err
+
+
+def test_tune_cold_start_passes_parameters_and_prints_line():
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    train, test = ratings[:150], ratings[150:]
+    grid = {"k": [3], "lam": [1.0], "min_overlap": [1]}
+    result = tune(train, test, B, grid, top_n=3, new_user_ratings=4, seed=1)
+    assert result.new_user_ratings == 4
+    assert "new users: 4 ratings each" in format_tune_table(result, 3)
+    assert "new users" not in format_tune_table(tune(train, test, B, grid, top_n=3), 3)
+
+
+@pytest.mark.parametrize("command", ["tune", "evaluate"])
+@pytest.mark.parametrize("value", ["0", "-3"])
+def test_cold_start_option_rejects_non_positive(command, value, capsys):
+    assert main([command, "--new-user-ratings", value]) == 2
+    assert "--new-user-ratings must be >= 1" in capsys.readouterr().err
+
+
+def test_evaluate_command_cold_start(monkeypatch, tmp_path, capsys):
+    from cinemate import cli
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = ["evaluate", "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    assert "product" in out and "new users: 5 ratings each" in out
