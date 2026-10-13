@@ -162,3 +162,45 @@ def test_profile_empty_then_with_ratings_newest_first(app):
         {"movie_id": 2, "title": "B", "year": None, "poster_path": None, "value": -1},
         {"movie_id": 1, "title": "A", "year": 1999, "poster_path": "/a.jpg", "value": 1},
     ]
+
+
+@pytest.mark.parametrize("value", ["1", "true", "YES", "On"])
+def test_resolve_cookie_secure_true_values(value):
+    from cinemate.api.app import resolve_cookie_secure
+
+    assert resolve_cookie_secure(False, {"COOKIE_SECURE": value}) is True
+
+
+@pytest.mark.parametrize("value", ["0", "false", "No", "OFF", "", "  "])
+def test_resolve_cookie_secure_false_values(value):
+    from cinemate.api.app import resolve_cookie_secure
+
+    assert resolve_cookie_secure(False, {"COOKIE_SECURE": value}) is False
+
+
+def test_resolve_cookie_secure_missing_is_off():
+    from cinemate.api.app import resolve_cookie_secure
+
+    assert resolve_cookie_secure(False, {}) is False
+
+
+def test_resolve_cookie_secure_flag_beats_env():
+    from cinemate.api.app import resolve_cookie_secure
+
+    assert resolve_cookie_secure(True, {"COOKIE_SECURE": "0"}) is True
+
+
+def test_resolve_cookie_secure_invalid_value():
+    from cinemate.api.app import resolve_cookie_secure
+
+    with pytest.raises(ValueError, match="COOKIE_SECURE"):
+        resolve_cookie_secure(False, {"COOKIE_SECURE": "maybe"})
+
+
+@pytest.mark.parametrize("secure", [True, False])
+def test_session_cookie_attributes(secure):
+    app = create_app("sqlite:///:memory:", cookie_secure=secure)
+    with TestClient(app) as client:
+        lowered = client.post("/api/session").headers["set-cookie"].lower()
+    assert ("; secure" in lowered) is secure
+    assert "httponly" in lowered and "samesite=lax" in lowered

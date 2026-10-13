@@ -265,6 +265,12 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--host", default="127.0.0.1", help="bind address (default: %(default)s)")
     sv.add_argument("--port", type=int, default=8000, help="bind port (default: %(default)s)")
     sv.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    sv.add_argument(
+        "--cookie-secure",
+        action="store_true",
+        help="set the Secure flag on the session cookie (use over HTTPS); "
+        "otherwise env COOKIE_SECURE (1/true/yes/on), default off",
+    )
     return parser
 
 
@@ -279,10 +285,15 @@ def _iso_datetime(text: str) -> datetime:
 def _run_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
-    from cinemate.api.app import create_app
+    from cinemate.api.app import create_app, resolve_cookie_secure
 
     try:
-        app = create_app(args.database_url)
+        cookie_secure = resolve_cookie_secure(args.cookie_secure)
+    except ValueError as exc:
+        print(f"cinemate serve: error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        app = create_app(args.database_url, cookie_secure=cookie_secure)
     except (ArgumentError, ImportError):
         print("cinemate serve: error: invalid database URL", file=sys.stderr)
         return 2

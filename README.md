@@ -107,6 +107,9 @@ URL базы данных выбирается так: аргумент `--datab
    cinemate serve --host 127.0.0.1 --port 8000
    ```
 
+   При работе по HTTPS добавьте `--cookie-secure` (или `COOKIE_SECURE=1`), чтобы cookie сессии
+   ставилась с флагом `Secure`.
+
    Проверка: <http://127.0.0.1:8000/api/health> и документация <http://127.0.0.1:8000/docs>.
 
 4. **Фронтенд** (в другом терминале):
@@ -127,6 +130,7 @@ URL базы данных выбирается так: аргумент `--datab
 | `DATABASE_URL`        | `import-movielens`, `enrich-movies`, `metrics`, `serve` (если нет `--database-url`) | `sqlite:///cinemate.db` |
 | `TMDB_API_KEY`        | `enrich-movies`                                    | не задан (команда не работает) |
 | `CORS_ORIGINS`        | API: источники для прямых запросов из браузера (через запятую, без `*`); нужен только если `NEXT_PUBLIC_API_URL` указывает на другой origin | `http://localhost:3000` |
+| `COOKIE_SECURE`       | `serve`: флаг `Secure` у cookie сессии (`1/true/yes/on` — включить, `0/false/no/off` — выключить; `--cookie-secure` важнее) | выключено |
 | `REC_K`               | API: число соседей рекомендателя (>= 1)            | `60`                        |
 | `REC_LAMBDA`          | API: сила shrinkage (>= 0)                         | `40`                        |
 | `REC_MIN_OVERLAP`     | API: минимум общих оценок у соседа (>= 1)          | `1`                         |

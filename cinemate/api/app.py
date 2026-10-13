@@ -1,6 +1,7 @@
 """Application factory: engine, schema and :class:`MatrixStore` are created once at startup."""
 
 import os
+from collections.abc import Mapping
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +30,27 @@ def resolve_cors_origins(cors_origins: list[str] | None = None) -> list[str]:
             "CORS origin '*' is not allowed together with credentials; list explicit origins"
         )
     return origins
+
+
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off"}
+
+
+def resolve_cookie_secure(flag: bool, environ: Mapping[str, str] | None = None) -> bool:
+    """Secure flag of the session cookie: ``flag`` → env ``COOKIE_SECURE`` → off.
+
+    Accepts ``1/true/yes/on`` and ``0/false/no/off`` (case-insensitive); empty means off.
+    Raises ``ValueError`` naming the variable for anything else.
+    """
+    if flag:
+        return True
+    env = os.environ if environ is None else environ
+    raw = env.get("COOKIE_SECURE", "").strip().lower()
+    if not raw or raw in _FALSE_VALUES:
+        return False
+    if raw in _TRUE_VALUES:
+        return True
+    raise ValueError(f"COOKIE_SECURE: invalid value {raw!r}; use 1/true/yes/on or 0/false/no/off")
 
 
 def create_app(
