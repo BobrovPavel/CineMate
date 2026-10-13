@@ -10,7 +10,7 @@ from dataclasses import dataclass
 class RecommenderSettings:
     """Parameters of the recommender: collaborative filtering and the switch to the fallback.
 
-    Defaults follow the second and fifth ``tune`` runs (docs/EVALUATION.md; the fifth run is
+    Defaults follow the second and fourth runs (docs/EVALUATION.md; the fourth run is
     the cold-start ``tune``): precision@10 = 0.2025 with ``min_overlap=1``.
     """
 
