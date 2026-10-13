@@ -87,6 +87,8 @@ def get_recommendations(
         min_overlap=settings.min_overlap,
         lam=settings.lam,
         pop_penalty=settings.pop_penalty,
+        min_user_ratings=settings.min_user_ratings,
+        fallback_pool_factor=settings.fallback_pool_factor,
         rng=rng,
     )
     picked = [(j, s) for j, s in rec.items if j not in excluded_cols][:limit]

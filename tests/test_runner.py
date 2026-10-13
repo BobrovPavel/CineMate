@@ -1,6 +1,7 @@
 import pytest
 
 from cinemate.binarize import MovieLensBinarizer
+from cinemate.config import RecommenderSettings
 from cinemate.evaluation.runner import (
     evaluate,
     popular_baseline,
@@ -217,13 +218,14 @@ def test_product_strategy_depends_on_new_user_ratings(monkeypatch):
         return rec
 
     monkeypatch.setattr(runner, "recommend_with_strategy", spy)
-    evaluate(train, test, B, min_overlap=1, top_n=3, new_user_ratings=3, seed=2)
+    five = RecommenderSettings(min_user_ratings=5)
+    evaluate(train, test, B, min_overlap=1, top_n=3, new_user_ratings=3, seed=2, settings=five)
     assert set(strategies) == {"fallback"}  # fewer than 5 ratings
     strategies.clear()
-    evaluate(train, test, B, min_overlap=1, top_n=3, new_user_ratings=4, seed=2)
+    evaluate(train, test, B, min_overlap=1, top_n=3, new_user_ratings=4, seed=2, settings=five)
     assert set(strategies) == {"fallback"}  # still below MIN_USER_RATINGS
     strategies.clear()
-    evaluate(train, test, B, min_overlap=1, top_n=3)
+    evaluate(train, test, B, min_overlap=1, top_n=3, settings=five)
     assert "collaborative" in strategies  # full histories: 5 ratings, CF
 
 
@@ -262,3 +264,19 @@ def test_cold_start_uses_only_usable_ratings_and_eligible_users(monkeypatch):
         kept = [r for r in captured["train"] if r.user_id == u]
         assert len(kept) == 3 and all(B.binarize(r.score) is not None for r in kept)
     assert counts[98] == 5 and counts[99] == 7  # ineligible users stay untouched, not evaluated
+
+
+def test_product_follows_min_user_ratings():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 3, "seed": 2}
+    cf_like = evaluate(train, test, B, settings=RecommenderSettings(min_user_ratings=1), **kw)
+    fallback = evaluate(
+        train,
+        test,
+        B,
+        settings=RecommenderSettings(min_user_ratings=10**6, fallback_pool_factor=1),
+        **kw,
+    )
+    assert cf_like.baselines["product"] != fallback.baselines["product"]
+    # with an unreachable threshold the product row is the exact popular-by-likes top
+    assert fallback.baselines["product"] == fallback.baselines["popular_likes"]

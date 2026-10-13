@@ -12,6 +12,7 @@ from cinemate.services.recommendations import get_recommendations
 
 N_MOVIES = 12
 N_USERS = 8
+FIVE = RecommenderSettings(min_user_ratings=5)  # the fixture users have only 6 ratings
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def test_unknown_in_empty_store_is_fallback(factory):
 
 
 def test_collaborative_with_explanations(session, store):
-    result = get_recommendations(session, store, session.get(User, 1))
+    result = get_recommendations(session, store, session.get(User, 1), settings=FIVE)
     assert result.strategy == "collaborative"
     assert {i.movie.id for i in result.items} == {7, 8, 9}
     for item in result.items:
@@ -108,8 +109,12 @@ def test_non_positive_limit(session, store):
 
 def test_lambda_from_settings_changes_scores(session, store):
     user = session.get(User, 1)
-    low = get_recommendations(session, store, user, settings=RecommenderSettings(lam=0.0))
-    high = get_recommendations(session, store, user, settings=RecommenderSettings(lam=1000.0))
+    low = get_recommendations(
+        session, store, user, settings=RecommenderSettings(lam=0.0, min_user_ratings=5)
+    )
+    high = get_recommendations(
+        session, store, user, settings=RecommenderSettings(lam=1000.0, min_user_ratings=5)
+    )
     assert {i.movie.id: i.score for i in low.items} != {i.movie.id: i.score for i in high.items}
     assert max(i.score for i in low.items) > max(i.score for i in high.items)
 
@@ -124,9 +129,10 @@ def test_settings_are_passed_to_strategy(session, store, monkeypatch):
 
     monkeypatch.setattr(recommendations_module, "recommend_with_strategy", spy)
     get_recommendations(
-        session, store, session.get(User, 1), settings=RecommenderSettings(3, 7.0, 2, 0.5)
+        session, store, session.get(User, 1), settings=RecommenderSettings(3, 7.0, 2, 0.5, 4, 1)
     )
     assert (seen["k"], seen["lam"], seen["min_overlap"], seen["pop_penalty"]) == (3, 7.0, 2, 0.5)
+    assert (seen["min_user_ratings"], seen["fallback_pool_factor"]) == (4, 1)
 
 
 def test_default_settings_used_without_argument(session, store, monkeypatch):
@@ -140,3 +146,18 @@ def test_default_settings_used_without_argument(session, store, monkeypatch):
     monkeypatch.setattr(recommendations_module, "recommend_with_strategy", spy)
     get_recommendations(session, store, session.get(User, 1))
     assert seen["lam"] == RecommenderSettings().lam
+
+
+def test_nine_ratings_get_fallback_and_ten_get_collaborative(session, store):
+    session.add_all([Rating(user_id=1, movie_id=m, value=1) for m in (10, 11, 12)])
+    session.commit()
+    user = session.get(User, 1)
+    for u in range(2, N_USERS + 1):
+        session.add_all([Rating(user_id=u, movie_id=m, value=1) for m in (10, 11, 12)])
+    session.commit()
+    store.invalidate()
+    assert get_recommendations(session, store, user, rng=random.Random(0)).strategy == "fallback"
+    session.add(Rating(user_id=1, movie_id=7, value=1))
+    session.commit()
+    store.invalidate()
+    assert get_recommendations(session, store, user).strategy == "collaborative"

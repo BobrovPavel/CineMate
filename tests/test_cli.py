@@ -202,3 +202,41 @@ def test_evaluate_command_pop_penalty(monkeypatch, tmp_path, capsys):
     capsys.readouterr()
     assert main([*argv, "--pop-penalty", "-1"]) == 2
     assert "pop-penalty" in capsys.readouterr().err
+
+
+def _stub_dataset(monkeypatch, tmp_path):
+    import cinemate.cli as cli
+    from cinemate.movielens import Rating
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    return cli
+
+
+def test_evaluate_and_tune_read_rec_env(monkeypatch, tmp_path, capsys):
+    cli = _stub_dataset(monkeypatch, tmp_path)
+    monkeypatch.setenv("REC_MIN_USER_RATINGS", "7")
+    monkeypatch.setenv("REC_FALLBACK_POOL_FACTOR", "1")
+    seen = {}
+    for name in ("evaluate", "tune"):
+        real = getattr(cli, name)
+
+        def spy(*args, _real=real, _name=name, **kwargs):
+            seen[_name] = kwargs["settings"]
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(cli, name, spy)
+    assert main(["evaluate", "--min-overlap", "1", "--top-n", "3"]) == 0
+    assert main(["tune", "--k", "5", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]) == 0
+    for name in ("evaluate", "tune"):
+        assert (seen[name].min_user_ratings, seen[name].fallback_pool_factor) == (7, 1)
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("command", ["evaluate", "tune"])
+def test_evaluate_and_tune_reject_invalid_rec_env(monkeypatch, tmp_path, capsys, command):
+    _stub_dataset(monkeypatch, tmp_path)
+    monkeypatch.setenv("REC_MIN_USER_RATINGS", "0")
+    assert main([command]) == 2
+    assert "REC_MIN_USER_RATINGS" in capsys.readouterr().err

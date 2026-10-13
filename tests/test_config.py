@@ -14,8 +14,15 @@ def test_from_env_empty_or_missing_gives_defaults():
 
 
 def test_from_env_reads_all_variables():
-    env = {"REC_K": "10", "REC_LAMBDA": "2.5", "REC_MIN_OVERLAP": "4", "REC_POP_PENALTY": "0"}
-    assert RecommenderSettings.from_env(env) == RecommenderSettings(10, 2.5, 4, 0.0)
+    env = {
+        "REC_K": "10",
+        "REC_LAMBDA": "2.5",
+        "REC_MIN_OVERLAP": "4",
+        "REC_POP_PENALTY": "0",
+        "REC_MIN_USER_RATINGS": "20",
+        "REC_FALLBACK_POOL_FACTOR": "1",
+    }
+    assert RecommenderSettings.from_env(env) == RecommenderSettings(10, 2.5, 4, 0.0, 20, 1)
 
 
 def test_from_env_reads_os_environ(monkeypatch):
@@ -37,6 +44,12 @@ def test_from_env_reads_os_environ(monkeypatch):
         ("REC_POP_PENALTY", "y"),
         ("REC_POP_PENALTY", "-0.1"),
         ("REC_POP_PENALTY", "nan"),
+        ("REC_MIN_USER_RATINGS", "abc"),
+        ("REC_MIN_USER_RATINGS", "0"),
+        ("REC_MIN_USER_RATINGS", "2.5"),
+        ("REC_FALLBACK_POOL_FACTOR", "x"),
+        ("REC_FALLBACK_POOL_FACTOR", "0"),
+        ("REC_FALLBACK_POOL_FACTOR", "-1"),
     ],
 )
 def test_from_env_invalid_names_variable(name, value):
@@ -47,3 +60,8 @@ def test_from_env_invalid_names_variable(name, value):
 def test_nan_is_rejected_even_for_lenient_check():
     with pytest.raises(ValueError, match="REC_LAMBDA"):
         RecommenderSettings.from_env({"REC_LAMBDA": "NaN"})
+
+
+def test_new_settings_defaults():
+    settings = RecommenderSettings()
+    assert (settings.min_user_ratings, settings.fallback_pool_factor) == (10, 2)

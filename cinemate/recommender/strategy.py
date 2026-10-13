@@ -6,10 +6,10 @@ from typing import Literal
 
 from scipy.sparse import csr_matrix
 
-from cinemate.recommender.fallback import popular
+from cinemate.recommender.fallback import DEFAULT_POOL_FACTOR, popular
 from cinemate.recommender.scoring import recommend
 
-MIN_USER_RATINGS = 5
+MIN_USER_RATINGS = 10
 
 
 @dataclass(frozen=True)
@@ -29,12 +29,13 @@ def recommend_with_strategy(
     lam: float = 5.0,
     pop_penalty: float = 1.0,
     min_user_ratings: int = MIN_USER_RATINGS,
+    fallback_pool_factor: int = DEFAULT_POOL_FACTOR,
     rng: random.Random | None = None,
 ) -> Recommendation:
     """Recommend collaboratively, falling back to popular movies when data is too thin.
 
     The fallback is used if the user has fewer than ``min_user_ratings`` ratings or
-    ``recommend`` returns nothing.
+    ``recommend`` returns nothing. ``fallback_pool_factor`` is passed to ``popular``.
     """
     row = matrix[user_index].copy()
     row.eliminate_zeros()
@@ -50,4 +51,7 @@ def recommend_with_strategy(
         )
         if items:
             return Recommendation(items=items, strategy="collaborative")
-    return Recommendation(items=popular(matrix, user_index, n=n, rng=rng), strategy="fallback")
+    return Recommendation(
+        items=popular(matrix, user_index, n=n, pool_factor=fallback_pool_factor, rng=rng),
+        strategy="fallback",
+    )

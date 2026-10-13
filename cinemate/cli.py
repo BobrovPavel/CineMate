@@ -303,12 +303,24 @@ def _run_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _settings_from_env(command: str) -> RecommenderSettings | None:
+    """Read ``REC_*`` from the environment; print an error and return ``None`` if invalid."""
+    try:
+        return RecommenderSettings.from_env()
+    except ValueError as exc:
+        print(f"cinemate {command}: error: {exc}", file=sys.stderr)
+        return None
+
+
 def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.pop_penalty >= 0:
         print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
         return 2
     if args.new_user_ratings is not None and args.new_user_ratings < 1:
         print("cinemate evaluate: error: --new-user-ratings must be >= 1", file=sys.stderr)
+        return 2
+    settings = _settings_from_env("evaluate")
+    if settings is None:
         return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
@@ -324,6 +336,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         pop_penalty=args.pop_penalty,
         new_user_ratings=args.new_user_ratings,
         seed=args.seed,
+        settings=settings,
     )
     print(format_table(result, args.top_n))
     return 0
@@ -345,6 +358,9 @@ def _run_tune(args: argparse.Namespace) -> int:
     if args.new_user_ratings is not None and args.new_user_ratings < 1:
         print("cinemate tune: error: --new-user-ratings must be >= 1", file=sys.stderr)
         return 2
+    settings = _settings_from_env("tune")
+    if settings is None:
+        return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
     train, test = split_ratings(ratings, seed=args.seed)
@@ -356,6 +372,7 @@ def _run_tune(args: argparse.Namespace) -> int:
         top_n=args.top_n,
         new_user_ratings=args.new_user_ratings,
         seed=args.seed,
+        settings=settings,
     )
     print(format_tune_table(result, args.top_n))
     return 0

@@ -17,10 +17,12 @@ from cinemate.evaluation.metrics import (
     precision_at_k,
 )
 from cinemate.movielens import Rating
-from cinemate.recommender.fallback import DEFAULT_MIN_RATINGS
 from cinemate.recommender.matrix import build_matrix
 from cinemate.recommender.scoring import recommend
 from cinemate.recommender.strategy import recommend_with_strategy
+
+# Threshold of the weak ``popular`` baseline; fixed so results stay comparable with earlier runs.
+DEFAULT_MIN_RATINGS = 5
 
 
 @dataclass(frozen=True)
@@ -198,6 +200,8 @@ def evaluate(
             min_overlap=settings.min_overlap,
             lam=settings.lam,
             pop_penalty=settings.pop_penalty,
+            min_user_ratings=settings.min_user_ratings,
+            fallback_pool_factor=settings.fallback_pool_factor,
             rng=product_rng,
         )
         return [m for m, _ in rec.items if m not in exclude][:top_n]
