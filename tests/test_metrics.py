@@ -2,6 +2,7 @@ import pytest
 
 from cinemate.evaluation.metrics import (
     coverage,
+    hit_rate_at_k,
     mean_popularity,
     precision_at_k,
     recall_at_k,
@@ -38,6 +39,20 @@ def test_empty_inputs_do_not_divide_by_zero():
     assert coverage([], 10) == 0.0
     assert coverage([[1]], 0) == 0.0
     assert mean_popularity([], {1: 5.0}) == 0.0
+
+
+def test_hit_rate_at_k():
+    assert hit_rate_at_k([5, 6, 7], {7, 9}, 3) == 1.0
+    assert hit_rate_at_k([5, 6, 7], {8, 9}, 3) == 0.0
+    assert hit_rate_at_k([5, 6, 7], {7}, 2) == 0.0  # hit is beyond k
+    assert hit_rate_at_k([5, 6, 7], {5}, 1) == 1.0
+
+
+def test_hit_rate_at_k_empty_inputs_and_bad_k():
+    assert hit_rate_at_k([5, 6], set(), 2) == 0.0
+    assert hit_rate_at_k([], {1}, 2) == 0.0
+    assert hit_rate_at_k([5, 6], {5}, 0) == 0.0
+    assert hit_rate_at_k([5, 6], {5}, -1) == 0.0
 
 
 def test_coverage():

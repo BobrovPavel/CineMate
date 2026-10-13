@@ -35,7 +35,9 @@ def test_known_values():
     assert result.n_users == 1
     assert result.cf.precision_at_k == 1.0
     assert result.cf.recall_at_k == 1.0
+    assert result.cf.hit_rate_at_k == 1.0
     assert result.baseline.precision_at_k == 0.0
+    assert result.baseline.hit_rate_at_k == 0.0
     assert 0.0 <= result.baseline.recall_at_k <= 1.0
 
 
@@ -87,6 +89,8 @@ def test_baseline_values_through_evaluate():
     assert result.n_users == 1
     assert result.baseline.precision_at_k == 1.0  # picks [1, 2]; movie 4 is excluded (in train)
     assert result.baseline.recall_at_k == 1.0
+    assert result.baseline.hit_rate_at_k == 1.0
+    assert result.cf.hit_rate_at_k == 0.0
     assert result.baseline.coverage == pytest.approx(0.5)  # 2 of 4 train movies
     assert result.baseline.mean_popularity == pytest.approx((5 / 6 + 4 / 6) / 2)
     assert result.cf.precision_at_k == 0.0  # no neighbours with enough overlap

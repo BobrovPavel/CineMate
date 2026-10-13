@@ -8,7 +8,12 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 from cinemate.binarize import Binarizer
-from cinemate.evaluation.metrics import coverage, mean_popularity, precision_at_k
+from cinemate.evaluation.metrics import (
+    coverage,
+    hit_rate_at_k,
+    mean_popularity,
+    precision_at_k,
+)
 from cinemate.movielens import Rating
 from cinemate.recommender.fallback import DEFAULT_MIN_RATINGS
 from cinemate.recommender.matrix import build_matrix
@@ -23,6 +28,7 @@ class MethodMetrics:
     recall_at_k: float
     coverage: float
     mean_popularity: float
+    hit_rate_at_k: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,7 @@ def evaluate(
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}
     recalls: dict[str, list[float]] = {name: [] for name in methods}
+    hit_rates: dict[str, list[float]] = {name: [] for name in methods}
     pops: dict[str, list[float]] = {name: [] for name in methods}
 
     n_users = 0
@@ -186,6 +193,7 @@ def evaluate(
             precisions[name].append(precision_at_k(recs, relevant, top_n))
             hits = len(set(recs[:top_n]) & relevant)
             recalls[name].append(hits / n_relevant if n_relevant else 0.0)
+            hit_rates[name].append(hit_rate_at_k(recs, relevant, top_n))
             pops[name].append(mean_popularity(recs, popularity))
 
     def summarize(name: str) -> MethodMetrics:
@@ -196,6 +204,7 @@ def evaluate(
             recall_at_k=sum(recalls[name]) / n_users,
             coverage=coverage(lists[name], n_movies),
             mean_popularity=sum(pops[name]) / n_users,
+            hit_rate_at_k=sum(hit_rates[name]) / n_users,
         )
 
     return EvaluationResult(

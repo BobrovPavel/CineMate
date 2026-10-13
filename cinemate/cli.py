@@ -48,11 +48,23 @@ def _open_engine(args: argparse.Namespace) -> Engine | None:
 
 def format_table(result: EvaluationResult, top_n: int = 10) -> str:
     """Render ``result`` as a text table: one row per method (CF and baselines), then users."""
-    headers = [f"precision@{top_n}", f"recall@{top_n}", "coverage", "mean popularity"]
+    headers = [
+        f"precision@{top_n}",
+        f"recall@{top_n}",
+        f"hit_rate@{top_n}",
+        "coverage",
+        "mean popularity",
+    ]
     rows = [("collaborative", result.cf), *result.baselines.items()]
 
     def cells(m: MethodMetrics) -> list[str]:
-        values = (m.precision_at_k, m.recall_at_k, m.coverage, m.mean_popularity)
+        values = (
+            m.precision_at_k,
+            m.recall_at_k,
+            m.hit_rate_at_k,
+            m.coverage,
+            m.mean_popularity,
+        )
         return [f"{v:.4f}" for v in values]
 
     name_width = max(len(name) for name, _ in rows)
