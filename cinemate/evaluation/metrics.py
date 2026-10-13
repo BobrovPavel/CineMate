@@ -61,6 +61,16 @@ def recall_at_k(recommended: Sequence[int], relevant: Collection[int], k: int) -
     return _hits(recommended, relevant_set, k) / len(relevant_set)
 
 
+def hit_rate_at_k(recommended: Sequence[int], relevant: Collection[int], k: int) -> float:
+    """``1.0`` if any of the top-``k`` recommendations is relevant, else ``0.0``.
+
+    Returns ``0.0`` for ``k <= 0`` or empty inputs.
+    """
+    if k <= 0:
+        return 0.0
+    return 1.0 if _hits(recommended, relevant, k) > 0 else 0.0
+
+
 def coverage(all_recommended: Iterable[Iterable[int]], n_movies: int) -> float:
     """Fraction of the catalogue that appears in at least one recommendation list."""
     if n_movies <= 0:

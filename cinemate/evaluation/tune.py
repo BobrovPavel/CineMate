@@ -83,12 +83,19 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         "pop_penalty",
         f"precision@{top_n}",
         f"recall@{top_n}",
+        f"hit_rate@{top_n}",
         "coverage",
         "mean popularity",
     ]
 
     def metric_cells(m: MethodMetrics) -> list[str]:
-        values = (m.precision_at_k, m.recall_at_k, m.coverage, m.mean_popularity)
+        values = (
+            m.precision_at_k,
+            m.recall_at_k,
+            m.hit_rate_at_k,
+            m.coverage,
+            m.mean_popularity,
+        )
         return [f"{v:.4f}" for v in values]
 
     table = [

@@ -46,7 +46,7 @@ def test_tune_empty_grid_and_missing_keys():
 
 
 def test_format_tune_table():
-    m = MethodMetrics(0.5, 0.25, 0.1, 0.2)
+    m = MethodMetrics(0.5, 0.25, 0.1, 0.2, 0.8)
     rows = [TuneRow(40, 5.0, 5, m), TuneRow(20, 2.5, 3, MethodMetrics(0.1, 0.1, 0.1, 0.1))]
     baselines = {
         "popular": MethodMetrics(0.05, 0.02, 0.01, 0.9),
@@ -57,6 +57,10 @@ def test_format_tune_table():
     out = format_tune_table(TuneResult(rows, baselines, 7), 10)
     lines = out.splitlines()
     assert "precision@10" in lines[0] and "min_overlap" in lines[0]
+    assert "hit_rate@10" in lines[0]
+    headers = lines[0].split()
+    assert headers.index("hit_rate@10") == headers.index("recall@10") + 1
+    assert lines[1].split()[headers.index("hit_rate@10")] == "0.8000"
     assert lines[1].split()[:3] == ["40", "5", "5"]
     assert lines[2].split()[:3] == ["20", "2.5", "3"]
     assert lines[3].split()[0] == "popular" and "0.0500" in lines[3]

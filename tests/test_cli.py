@@ -34,7 +34,7 @@ def _result():
     from cinemate.evaluation.runner import EvaluationResult, MethodMetrics
 
     return EvaluationResult(
-        cf=MethodMetrics(0.1234, 0.2, 0.3, 0.05),
+        cf=MethodMetrics(0.1234, 0.2, 0.3, 0.05, 0.9),
         baselines={
             "popular": MethodMetrics(0.05, 0.1, 0.01, 0.4),
             "popular_likes": MethodMetrics(0.06, 0.1, 0.02, 0.5),
@@ -50,8 +50,11 @@ def test_format_table_rows_and_values():
 
     lines = format_table(_result()).splitlines()
     assert "precision@10" in lines[0] and "mean popularity" in lines[0]
-    assert lines[1].split() == ["collaborative", "0.1234", "0.2000", "0.3000", "0.0500"]
-    assert lines[2].split() == ["popular", "0.0500", "0.1000", "0.0100", "0.4000"]
+    assert "hit_rate@10" in lines[0]
+    headers = lines[0].split()
+    assert headers.index("hit_rate@10") == headers.index("recall@10") + 1
+    assert lines[1].split() == ["collaborative", "0.1234", "0.2000", "0.9000", "0.3000", "0.0500"]
+    assert lines[2].split() == ["popular", "0.0500", "0.1000", "0.0000", "0.0100", "0.4000"]
     assert [line.split()[0] for line in lines[3:6]] == [
         "popular_likes",
         "popular_share_20",
@@ -64,6 +67,7 @@ def test_format_table_uses_top_n_in_headers():
     from cinemate.cli import format_table
 
     assert "precision@5" in format_table(_result(), top_n=5)
+    assert "hit_rate@5" in format_table(_result(), top_n=5)
 
 
 def test_evaluate_command_offline(monkeypatch, tmp_path, capsys):
