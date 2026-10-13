@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RecommenderSettings:
-    """Parameters of the collaborative recommender.
+    """Parameters of the recommender: collaborative filtering and the switch to the fallback.
 
     Defaults follow the second ``tune`` run (docs/EVALUATION.md): precision@10 = 0.1997.
     """
@@ -17,10 +17,13 @@ class RecommenderSettings:
     lam: float = 40.0
     min_overlap: int = 3
     pop_penalty: float = 1.0
+    min_user_ratings: int = 10
+    fallback_pool_factor: int = 2
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "RecommenderSettings":
-        """Read ``REC_K``, ``REC_LAMBDA``, ``REC_MIN_OVERLAP`` and ``REC_POP_PENALTY``.
+        """Read ``REC_K``, ``REC_LAMBDA``, ``REC_MIN_OVERLAP``, ``REC_POP_PENALTY``,
+        ``REC_MIN_USER_RATINGS`` and ``REC_FALLBACK_POOL_FACTOR``.
 
         Empty or missing variables keep the defaults; invalid ones raise ``ValueError``
         naming the variable.
@@ -35,6 +38,17 @@ class RecommenderSettings:
             ),
             pop_penalty=_read(
                 env, "REC_POP_PENALTY", float, default.pop_penalty, lambda v: v >= 0, ">= 0"
+            ),
+            min_user_ratings=_read(
+                env, "REC_MIN_USER_RATINGS", int, default.min_user_ratings, lambda v: v >= 1, ">= 1"
+            ),
+            fallback_pool_factor=_read(
+                env,
+                "REC_FALLBACK_POOL_FACTOR",
+                int,
+                default.fallback_pool_factor,
+                lambda v: v >= 1,
+                ">= 1",
             ),
         )
 

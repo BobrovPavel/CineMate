@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from itertools import product
 
 from cinemate.binarize import Binarizer
+from cinemate.config import RecommenderSettings
 from cinemate.evaluation.runner import MethodMetrics, evaluate
 from cinemate.movielens import Rating
 
@@ -46,6 +47,7 @@ def tune(
     top_n: int = 10,
     new_user_ratings: int | None = None,
     seed: int = 0,
+    settings: RecommenderSettings | None = None,
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
     ``pop_penalty``; the last is optional and defaults to ``[1.0]``).
@@ -53,7 +55,8 @@ def tune(
     Each combination is evaluated once. Rows are sorted by precision@``top_n`` descending;
     ties keep grid order. The baselines do not depend on the parameters, so they are taken
     from the first evaluation. ``new_user_ratings`` and ``seed`` are passed to ``evaluate``
-    (cold-start mode). An empty grid (any list empty) gives no rows and zero metrics.
+    (cold-start mode); ``settings`` configures the ``product`` baseline. An empty grid (any
+    list empty) gives no rows and zero metrics.
     """
     grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
@@ -70,7 +73,7 @@ def tune(
         result = evaluate(
             train, test, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
             top_n=top_n, pop_penalty=float(pop_penalty),
-            new_user_ratings=new_user_ratings, seed=seed,
+            new_user_ratings=new_user_ratings, seed=seed, settings=settings,
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users

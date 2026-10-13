@@ -131,6 +131,8 @@ URL базы данных выбирается так: аргумент `--datab
 | `REC_LAMBDA`          | API: сила shrinkage (>= 0)                         | `40`                        |
 | `REC_MIN_OVERLAP`     | API: минимум общих оценок у соседа (>= 1)          | `3`                         |
 | `REC_POP_PENALTY`     | API: показатель штрафа за популярность (>= 0)      | `1.0`                       |
+| `REC_MIN_USER_RATINGS` | API: число оценок, с которого вместо запасной стратегии включается CF (>= 1) | `10`      |
+| `REC_FALLBACK_POOL_FACTOR` | API: запасная стратегия выбирает из первых `pool_factor * n` по числу лайков; `1` — точный топ (>= 1) | `2` |
 | `NEXT_PUBLIC_API_URL` | фронтенд (`frontend/.env.local`): адрес API; после смены перезапустите `npm run dev` | `http://localhost:8000`     |
 | `POSTGRES_PASSWORD`   | `docker-compose.yml`: пароль пользователя PostgreSQL | нет, обязателен для Docker |
 

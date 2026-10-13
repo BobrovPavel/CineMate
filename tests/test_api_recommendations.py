@@ -9,7 +9,9 @@ from cinemate.db.models import Event, Movie, Rating, User
 
 @pytest.fixture
 def app():
-    app = create_app("sqlite:///:memory:")
+    app = create_app(
+        "sqlite:///:memory:", recommender_settings=RecommenderSettings(min_user_ratings=5)
+    )
     with app.state.session_factory() as session:
         session.add_all(
             [Movie(id=i, title=f"M{i}", original_title=f"O{i}", year=2000 + i) for i in range(1, 9)]
