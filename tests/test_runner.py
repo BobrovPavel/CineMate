@@ -140,6 +140,7 @@ def test_evaluate_has_all_baselines():
         "popular_share_20",
         "popular_share_50",
         "product",
+        "item_based",
     }
     assert result.baseline is result.baselines["popular"]
     # no movie reaches 20 ratings in this tiny dataset -> empty lists, zero metrics
@@ -411,3 +412,10 @@ def test_evaluate_blend_full_at_must_be_positive():
     train, test = cold_data()
     with pytest.raises(ValueError, match="blend_full_at"):
         evaluate(train, test, B, blend_full_at=[0])
+
+
+def test_evaluate_item_based_params_change_row():
+    loose = run(likes(1, 6, 7), item_min_overlap=1).baselines["item_based"]
+    strict = run(likes(1, 6, 7), item_min_overlap=100).baselines["item_based"]
+    assert strict.coverage == 0.0
+    assert loose.coverage > 0.0
