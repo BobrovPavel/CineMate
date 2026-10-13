@@ -232,3 +232,33 @@ def test_without_new_user_ratings_all_users_are_evaluated():
     result = evaluate(train, test, B, min_overlap=1, top_n=3)
     assert result.n_users == 20
     assert result.new_user_ratings is None
+
+
+def test_cold_start_uses_only_usable_ratings_and_eligible_users(monkeypatch):
+    from cinemate.evaluation import runner
+
+    train, test = cold_data()
+    # user 99 has neutral ratings only (3.0): never eligible; user 98 has 2 usable ratings < N
+    train += [Rating(99, m, 3.0) for m in range(1, 8)]
+    train += [Rating(98, 1, 5.0), Rating(98, 2, 5.0)] + [Rating(98, m, 3.0) for m in (3, 4, 5)]
+    # neutral ratings mixed into regular users must not be picked as "kept"
+    train += [Rating(u, 12 + u, 3.0) for u in range(1, 21)]
+    test += likes(98, 3) + likes(99, 1)
+    captured = {}
+    real_build = runner.build_matrix
+
+    def spy(ratings, binarizer):
+        captured["train"] = list(ratings)
+        return real_build(captured["train"], binarizer)
+
+    monkeypatch.setattr(runner, "build_matrix", spy)
+    result = evaluate(train, test, B, min_overlap=1, top_n=1, new_user_ratings=3, seed=3)
+    counts = {}
+    for r in captured["train"]:
+        counts[r.user_id] = counts.get(r.user_id, 0) + 1
+    new = [u for u in range(1, 21) if counts[u] < 6]
+    assert len(new) == 10 and result.n_users == 10
+    for u in new:
+        kept = [r for r in captured["train"] if r.user_id == u]
+        assert len(kept) == 3 and all(B.binarize(r.score) is not None for r in kept)
+    assert counts[98] == 5 and counts[99] == 7  # ineligible users stay untouched, not evaluated

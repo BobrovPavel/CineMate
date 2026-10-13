@@ -138,9 +138,11 @@ def evaluate(
     ``product`` runs ``recommend_with_strategy`` with ``settings`` (default
     ``RecommenderSettings()``) and a fallback ``rng`` seeded by ``seed``.
 
-    With ``new_user_ratings=N`` (cold-start mode) the train users are split in half by ``seed``:
-    "new" users keep only ``N`` random train ratings in the matrix and are the only ones
-    evaluated; the dropped ratings still count as seen (never recommended) but are not relevant.
+    With ``new_user_ratings=N`` (cold-start mode) the train users are split by ``seed``:
+    "new" users (half of those with at least ``N`` usable ratings) keep exactly ``N`` random
+    usable train ratings in the matrix and are the only ones evaluated;
+    the dropped ratings still count as seen (never recommended)
+    but are not relevant. Users with fewer than ``N`` usable ratings are never "new".
     "Established" users keep all ratings and serve as neighbours only.
     """
     if new_user_ratings is not None and new_user_ratings < 1:
@@ -152,7 +154,7 @@ def evaluate(
         seen[r.user_id].add(r.movie_id)
     new_users: set[int] | None = None
     if new_user_ratings is not None:
-        train, new_users = _truncate_new_users(train, new_user_ratings, seed)
+        train, new_users = _truncate_new_users(train, new_user_ratings, seed, binarizer)
     built = build_matrix(train, binarizer)
     matrix = built.matrix
     user_index = {u: i for i, u in enumerate(built.user_ids)}
@@ -257,24 +259,32 @@ def evaluate(
 
 
 def _truncate_new_users(
-    train: list[Rating], n_ratings: int, seed: int
+    train: list[Rating], n_ratings: int, seed: int, binarizer: Binarizer
 ) -> tuple[list[Rating], set[int]]:
-    """Mark half of the train users as "new" and keep ``n_ratings`` random ratings of each.
+    """Mark half of the eligible train users as "new" and keep ``n_ratings`` of their ratings.
 
+    Eligible users have at least ``n_ratings`` ratings that survive binarization, so a new
+    user has exactly ``n_ratings`` entries in the matrix. The kept ratings are drawn from the
+    binarizable ones; everything else (neutral and dropped ratings) leaves the matrix.
     Returns the reduced train list and the set of new user ids; deterministic for a ``seed``.
     """
     by_user: dict[int, list[Rating]] = defaultdict(list)
     for r in train:
         by_user[r.user_id].append(r)
     rng = random.Random(seed)
-    user_ids = sorted(by_user)
+    user_ids = sorted(
+        u
+        for u, items in by_user.items()
+        if sum(binarizer.binarize(r.score) is not None for r in items) >= n_ratings
+    )
     rng.shuffle(user_ids)
     new_users = set(user_ids[: len(user_ids) // 2])
     reduced: list[Rating] = []
     for user_id in sorted(by_user):
         items = by_user[user_id]
-        if user_id in new_users and len(items) > n_ratings:
-            keep = set(rng.sample(range(len(items)), n_ratings))
+        if user_id in new_users:
+            usable = [i for i, r in enumerate(items) if binarizer.binarize(r.score) is not None]
+            keep = set(rng.sample(usable, n_ratings))
             items = [r for i, r in enumerate(items) if i in keep]
         reduced.extend(items)
     return reduced, new_users
