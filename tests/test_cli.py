@@ -60,7 +60,7 @@ def test_format_table_rows_and_values():
         "popular_share_20",
         "popular_share_50",
     ]
-    assert lines[-1] == "users evaluated: 42"
+    assert lines[-2:] == ["users evaluated: 42", "seeds: 0"]
 
 
 def test_format_table_uses_top_n_in_headers():
@@ -188,14 +188,16 @@ def test_evaluate_command_pop_penalty(monkeypatch, tmp_path, capsys):
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
     monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    import cinemate.evaluation.runner as runner
+
     seen = {}
-    real = cli.evaluate
+    real = runner.evaluate
 
     def spy(*args, **kwargs):
         seen.update(kwargs)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(cli, "evaluate", spy)
+    monkeypatch.setattr(runner, "evaluate", spy)
     argv = ["evaluate", "--min-overlap", "1", "--top-n", "3"]
     assert main([*argv, "--pop-penalty", "0.5"]) == 0
     assert seen["pop_penalty"] == 0.5
@@ -218,15 +220,17 @@ def test_evaluate_and_tune_read_rec_env(monkeypatch, tmp_path, capsys):
     cli = _stub_dataset(monkeypatch, tmp_path)
     monkeypatch.setenv("REC_MIN_USER_RATINGS", "7")
     monkeypatch.setenv("REC_FALLBACK_POOL_FACTOR", "1")
-    seen = {}
-    for name in ("evaluate", "tune"):
-        real = getattr(cli, name)
+    import cinemate.evaluation.runner as runner
 
-        def spy(*args, _real=real, _name=name, **kwargs):
-            seen[_name] = kwargs["settings"]
+    seen = {}
+    for owner, name, key in ((runner, "evaluate", "evaluate"), (cli, "tune", "tune")):
+        real = getattr(owner, name)
+
+        def spy(*args, _real=real, _key=key, **kwargs):
+            seen[_key] = kwargs["settings"]
             return _real(*args, **kwargs)
 
-        monkeypatch.setattr(cli, name, spy)
+        monkeypatch.setattr(owner, name, spy)
     assert main(["evaluate", "--min-overlap", "1", "--top-n", "3"]) == 0
     assert main(["tune", "--k", "5", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]) == 0
     for name in ("evaluate", "tune"):

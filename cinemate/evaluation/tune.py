@@ -6,7 +6,7 @@ from itertools import product
 
 from cinemate.binarize import Binarizer
 from cinemate.config import RecommenderSettings
-from cinemate.evaluation.runner import MethodMetrics, evaluate
+from cinemate.evaluation.runner import MethodMetrics, Split, evaluate_seeds, format_metric_cells
 from cinemate.movielens import Rating
 
 GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty")
@@ -32,6 +32,7 @@ class TuneResult:
     baselines: dict[str, MethodMetrics]
     n_users: int
     new_user_ratings: int | None = None
+    seeds: tuple[int, ...] = (0,)
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -48,6 +49,7 @@ def tune(
     new_user_ratings: int | None = None,
     seed: int = 0,
     settings: RecommenderSettings | None = None,
+    extra_splits: Sequence[Split] = (),
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
     ``pop_penalty``; the last is optional and defaults to ``[1.0]``).
@@ -57,30 +59,37 @@ def tune(
     from the first evaluation. ``new_user_ratings`` and ``seed`` are passed to ``evaluate``
     (cold-start mode); ``settings`` configures the ``product`` baseline. An empty grid (any
     list empty) gives no rows and zero metrics.
+
+    ``train``/``test`` with ``seed`` form the first split; ``extra_splits`` add more seeds.
+    Every combination is evaluated on each split and the metrics are averaged (precision,
+    recall and hit rate also get a standard deviation); rows sort by mean precision.
     """
     grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
     if missing:
         raise ValueError(f"grid is missing keys: {', '.join(missing)}")
-    train = list(train)
-    test = list(test)
+    splits = [Split(seed, list(train), list(test)), *extra_splits]
     rows: list[TuneRow] = []
     baselines = {"popular": MethodMetrics(0.0, 0.0, 0.0, 0.0)}
     n_users = 0
     for i, (k, lam, min_overlap, pop_penalty) in enumerate(
         product(*(grid[key] for key in GRID_KEYS))
     ):
-        result = evaluate(
-            train, test, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
+        result = evaluate_seeds(
+            splits, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
             top_n=top_n, pop_penalty=float(pop_penalty),
-            new_user_ratings=new_user_ratings, seed=seed, settings=settings,
+            new_user_ratings=new_user_ratings, settings=settings,
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users
         rows.append(TuneRow(int(k), float(lam), int(min_overlap), result.cf, float(pop_penalty)))
     rows.sort(key=lambda r: -r.metrics.precision_at_k)
     return TuneResult(
-        rows=rows, baselines=baselines, n_users=n_users, new_user_ratings=new_user_ratings
+        rows=rows,
+        baselines=baselines,
+        n_users=n_users,
+        new_user_ratings=new_user_ratings,
+        seeds=tuple(s.seed for s in splits),
     )
 
 
@@ -98,15 +107,10 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         "mean popularity",
     ]
 
+    multi = len(result.seeds) > 1
+
     def metric_cells(m: MethodMetrics) -> list[str]:
-        values = (
-            m.precision_at_k,
-            m.recall_at_k,
-            m.hit_rate_at_k,
-            m.coverage,
-            m.mean_popularity,
-        )
-        return [f"{v:.4f}" for v in values]
+        return format_metric_cells(m, multi)
 
     table = [
         [str(r.k), f"{r.lam:g}", str(r.min_overlap), f"{r.pop_penalty:g}", *metric_cells(r.metrics)]
@@ -118,6 +122,7 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
     lines += ["  ".join(c.rjust(w) for c, w in zip(row, widths, strict=True)) for row in table]
     lines.append("")
     lines.append(f"users evaluated: {result.n_users}")
+    lines.append(f"seeds: {','.join(map(str, result.seeds))}")
     if result.new_user_ratings is not None:
         lines.append(f"new users: {result.new_user_ratings} ratings each")
     return "\n".join(lines)

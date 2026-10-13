@@ -18,7 +18,14 @@ from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
 from cinemate.db.session import create_all, make_engine
 from cinemate.evaluation.metrics import split_ratings
-from cinemate.evaluation.runner import EvaluationResult, MethodMetrics, evaluate
+from cinemate.evaluation.runner import (
+    EvaluationResult,
+    MethodMetrics,
+    Split,
+    evaluate_seeds,
+    format_metric_cells,
+    parse_seeds,
+)
 from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import parse_ratings
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
@@ -57,18 +64,13 @@ def format_table(result: EvaluationResult, top_n: int = 10) -> str:
     ]
     rows = [("collaborative", result.cf), *result.baselines.items()]
 
+    multi = len(result.seeds) > 1
+
     def cells(m: MethodMetrics) -> list[str]:
-        values = (
-            m.precision_at_k,
-            m.recall_at_k,
-            m.hit_rate_at_k,
-            m.coverage,
-            m.mean_popularity,
-        )
-        return [f"{v:.4f}" for v in values]
+        return format_metric_cells(m, multi)
 
     name_width = max(len(name) for name, _ in rows)
-    widths = [len(h) for h in headers]
+    widths = [max(len(h), *(len(cells(m)[i]) for _, m in rows)) for i, h in enumerate(headers)]
     lines = [
         " " * name_width
         + "  "
@@ -79,6 +81,7 @@ def format_table(result: EvaluationResult, top_n: int = 10) -> str:
         lines.append(f"{name.ljust(name_width)}  {line}")
     lines.append("")
     lines.append(f"users evaluated: {result.n_users}")
+    lines.append(f"seeds: {','.join(map(str, result.seeds))}")
     if result.new_user_ratings is not None:
         lines.append(f"new users: {result.new_user_ratings} ratings each")
     return "\n".join(lines)
@@ -145,6 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
     )
     ev.add_argument(
+        "--seeds",
+        default=None,
+        help="comma-separated split seeds, metrics are averaged (mean±std in tables); "
+        "default: --seed",
+    )
+    ev.add_argument(
         "--new-user-ratings",
         type=int,
         default=None,
@@ -185,6 +194,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tu.add_argument(
         "--seed", type=int, default=0, help="train/test split seed (default: %(default)s)"
+    )
+    tu.add_argument(
+        "--seeds",
+        default=None,
+        help="comma-separated split seeds, metrics are averaged (mean±std in tables); "
+        "default: --seed",
     )
     tu.add_argument(
         "--new-user-ratings",
@@ -312,6 +327,30 @@ def _settings_from_env(command: str) -> RecommenderSettings | None:
         return None
 
 
+def _make_splits(args: argparse.Namespace, command: str, ratings: list) -> list[Split] | None:
+    """Splits for ``--seeds`` (or the single ``--seed``); prints an error and returns ``None``."""
+    try:
+        seeds = parse_seeds(args.seeds) if args.seeds is not None else [args.seed]
+    except ValueError as exc:
+        print(f"cinemate {command}: error: {exc}", file=sys.stderr)
+        return None
+    splits = []
+    for seed in seeds:
+        train, test = split_ratings(ratings, seed=seed)
+        splits.append(Split(seed, train, test))
+    return splits
+
+
+def _check_seeds(args: argparse.Namespace, command: str) -> bool:
+    try:
+        if args.seeds is not None:
+            parse_seeds(args.seeds)
+    except ValueError as exc:
+        print(f"cinemate {command}: error: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
 def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.pop_penalty >= 0:
         print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
@@ -319,15 +358,17 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     if args.new_user_ratings is not None and args.new_user_ratings < 1:
         print("cinemate evaluate: error: --new-user-ratings must be >= 1", file=sys.stderr)
         return 2
+    if not _check_seeds(args, "evaluate"):
+        return 2
     settings = _settings_from_env("evaluate")
     if settings is None:
         return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
-    train, test = split_ratings(ratings, seed=args.seed)
-    result = evaluate(
-        train,
-        test,
+    splits = _make_splits(args, "evaluate", ratings)
+    assert splits is not None
+    result = evaluate_seeds(
+        splits,
         MovieLensBinarizer(),
         k=args.k,
         lam=args.lam,
@@ -335,7 +376,6 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         top_n=args.top_n,
         pop_penalty=args.pop_penalty,
         new_user_ratings=args.new_user_ratings,
-        seed=args.seed,
         settings=settings,
     )
     print(format_table(result, args.top_n))
@@ -358,21 +398,26 @@ def _run_tune(args: argparse.Namespace) -> int:
     if args.new_user_ratings is not None and args.new_user_ratings < 1:
         print("cinemate tune: error: --new-user-ratings must be >= 1", file=sys.stderr)
         return 2
+    if not _check_seeds(args, "tune"):
+        return 2
     settings = _settings_from_env("tune")
     if settings is None:
         return 2
     dataset = ensure_movielens(args.data_dir)
     ratings = list(parse_ratings(dataset / "ratings.csv"))
-    train, test = split_ratings(ratings, seed=args.seed)
+    splits = _make_splits(args, "tune", ratings)
+    assert splits is not None
+    first, *rest = splits
     result = tune(
-        train,
-        test,
+        first.train,
+        first.test,
         MovieLensBinarizer(),
         grid,
         top_n=args.top_n,
         new_user_ratings=args.new_user_ratings,
-        seed=args.seed,
+        seed=first.seed,
         settings=settings,
+        extra_splits=rest,
     )
     print(format_tune_table(result, args.top_n))
     return 0
