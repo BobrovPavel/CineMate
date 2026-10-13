@@ -1,9 +1,54 @@
 """Neighbour-based movie scoring with shrinkage and a popularity penalty."""
 
+from dataclasses import dataclass
+
 import numpy as np
 from scipy.sparse import csr_matrix
 
 from cinemate.recommender.similarity import find_neighbors
+
+
+@dataclass(frozen=True)
+class CandidateStats:
+    """Per-candidate statistics aligned with ``candidates`` (sorted movie indices).
+
+    ``norm`` is ``sum(sim * rating) / sum(|sim|)`` over the neighbours who rated the movie,
+    ``c`` their number and ``likes`` the number of ``+1`` ratings among all users.
+    """
+
+    candidates: np.ndarray
+    norm: np.ndarray
+    c: np.ndarray
+    likes: np.ndarray
+
+
+def candidate_stats(
+    matrix: csr_matrix, user_index: int, neighbors: list[tuple[int, float]]
+) -> CandidateStats:
+    """Statistics of the movies rated by at least one neighbour and not by the user.
+
+    ``neighbors`` must be non-empty (as returned by ``find_neighbors``).
+    """
+    values = matrix.astype(np.float64)
+    values.eliminate_zeros()
+    rows = [i for i, _ in neighbors]
+    sims = np.array([s for _, s in neighbors])
+    block = values[rows]
+
+    weighted = np.asarray(block.multiply(sims[:, None]).sum(axis=0)).ravel()
+    abs_sims = np.asarray(block.astype(bool).multiply(np.abs(sims)[:, None]).sum(axis=0)).ravel()
+    counts = np.asarray(block.getnnz(axis=0)).ravel()
+    likes = np.asarray((values > 0).sum(axis=0)).ravel()
+
+    rated = values[user_index].indices
+    candidates = np.flatnonzero(counts > 0)
+    candidates = candidates[~np.isin(candidates, rated)]
+    return CandidateStats(
+        candidates=candidates,
+        norm=weighted[candidates] / abs_sims[candidates],
+        c=counts[candidates],
+        likes=likes[candidates],
+    )
 
 
 def recommend(
@@ -43,24 +88,10 @@ def recommend(
     if not neighbors:
         return []
 
-    values = matrix.astype(np.float64)
-    values.eliminate_zeros()
-    rows = [i for i, _ in neighbors]
-    sims = np.array([s for _, s in neighbors])
-    block = values[rows]
+    stats = candidate_stats(matrix, user_index, neighbors)
+    candidates, c = stats.candidates, stats.c
 
-    weighted = np.asarray(block.multiply(sims[:, None]).sum(axis=0)).ravel()
-    abs_sims = np.asarray(block.astype(bool).multiply(np.abs(sims)[:, None]).sum(axis=0)).ravel()
-    counts = np.asarray(block.getnnz(axis=0)).ravel()
-    likes = np.asarray((values > 0).sum(axis=0)).ravel()
-
-    rated = values[user_index].indices
-    candidates = np.flatnonzero(counts > 0)
-    candidates = candidates[~np.isin(candidates, rated)]
-
-    norm = weighted[candidates] / abs_sims[candidates]
-    c = counts[candidates]
-    scores = norm * c / (c + lam) / np.log(2 + likes[candidates]) ** pop_penalty
+    scores = stats.norm * c / (c + lam) / np.log(2 + stats.likes) ** pop_penalty
 
     order = sorted(range(len(candidates)), key=lambda j: (-scores[j], candidates[j]))
     return [(int(candidates[j]), float(scores[j])) for j in order[:n]]

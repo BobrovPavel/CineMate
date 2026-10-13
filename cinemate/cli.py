@@ -187,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --new-user-ratings: exclude from the lists all train ratings of a 'new' user "
         "or only the ones kept in the matrix, as the site does (default: %(default)s)",
     )
+    ev.add_argument(
+        "--blend-full-at",
+        default="10,30",
+        help="comma-separated hybrid thresholds T (ratings at which the hybrid is fully CF); "
+        "each adds a hybrid(T=...) row (default: %(default)s)",
+    )
     tu = sub.add_parser("tune", help="grid search over K, LAMBDA, MIN_OVERLAP and POP_PENALTY")
     tu.add_argument(
         "--data-dir",
@@ -254,6 +260,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="with --new-user-ratings: exclude from the lists all train ratings of a 'new' user "
         "or only the ones kept in the matrix, as the site does (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--blend-full-at",
+        default="10,30",
+        help="comma-separated hybrid thresholds T (ratings at which the hybrid is fully CF); "
+        "each adds a hybrid(T=...) row (default: %(default)s)",
     )
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
     imp.add_argument(
@@ -400,6 +412,18 @@ def _make_splits(args: argparse.Namespace, command: str, ratings: list) -> list[
     return splits
 
 
+def _parse_blend(args: argparse.Namespace, command: str) -> list[float] | None:
+    """Parse ``--blend-full-at``; print an error and return ``None`` if invalid."""
+    try:
+        values = parse_values(args.blend_full_at, float)
+        if not all(v > 0 for v in values):
+            raise ValueError("--blend-full-at values must be > 0")
+    except ValueError as exc:
+        print(f"cinemate {command}: error: {exc}", file=sys.stderr)
+        return None
+    return values
+
+
 def _check_seeds(args: argparse.Namespace, command: str) -> bool:
     try:
         if args.seeds is not None:
@@ -432,6 +456,9 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         return 2
     if not _check_seeds(args, "evaluate"):
         return 2
+    blend = _parse_blend(args, "evaluate")
+    if blend is None:
+        return 2
     settings = _settings_from_env("evaluate")
     if settings is None:
         return 2
@@ -452,6 +479,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         settings=settings,
         new_user_pick=args.new_user_pick,
         new_user_seen=args.new_user_seen,
+        blend_full_at=blend,
     )
     print(format_table(result, args.top_n))
     return 0
@@ -484,6 +512,9 @@ def _run_tune(args: argparse.Namespace) -> int:
         return 2
     if not _check_seeds(args, "tune"):
         return 2
+    blend = _parse_blend(args, "tune")
+    if blend is None:
+        return 2
     settings = _settings_from_env("tune")
     if settings is None:
         return 2
@@ -504,6 +535,7 @@ def _run_tune(args: argparse.Namespace) -> int:
         extra_splits=rest,
         new_user_pick=args.new_user_pick,
         new_user_seen=args.new_user_seen,
+        blend_full_at=blend,
     )
     print(format_tune_table(result, args.top_n))
     return 0
