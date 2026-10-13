@@ -40,7 +40,7 @@ cinemate evaluate --k 40 --lambda 5 --min-overlap 5 --top-n 10 --seed 0
 принимают списки через запятую.
 
 ```
-cinemate tune --k 20,40,80 --lambda 2,5,10 --min-overlap 3,5,8
+cinemate tune --k 20,40,80 --lambda 2,5,10 --min-overlap 1,2,3
 ```
 
 Аргументы: `--data-dir`, `--k`, `--lambda`, `--min-overlap`, `--top-n`, `--seed`.
@@ -129,7 +129,7 @@ URL базы данных выбирается так: аргумент `--datab
 | `CORS_ORIGINS`        | API: источники, которым разрешены запросы из браузера (через запятую, без `*`) | `http://localhost:3000` |
 | `REC_K`               | API: число соседей рекомендателя (>= 1)            | `40`                        |
 | `REC_LAMBDA`          | API: сила shrinkage (>= 0)                         | `40`                        |
-| `REC_MIN_OVERLAP`     | API: минимум общих оценок у соседа (>= 1)          | `3`                         |
+| `REC_MIN_OVERLAP`     | API: минимум общих оценок у соседа (>= 1)          | `1`                         |
 | `REC_POP_PENALTY`     | API: показатель штрафа за популярность (>= 0)      | `1.0`                       |
 | `REC_MIN_USER_RATINGS` | API: число оценок, с которого вместо запасной стратегии включается CF (>= 1) | `10`      |
 | `REC_FALLBACK_POOL_FACTOR` | API: запасная стратегия выбирает из первых `pool_factor * n` по числу лайков; `1` — точный топ (>= 1) | `2` |
