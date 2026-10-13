@@ -280,3 +280,53 @@ def test_product_follows_min_user_ratings():
     assert cf_like.baselines["product"] != fallback.baselines["product"]
     # with an unreachable threshold the product row is the exact popular-by-likes top
     assert fallback.baselines["product"] == fallback.baselines["popular_likes"]
+
+
+def onboarding_train():
+    """Users 1-8 rate cards 1-3 (reversed list order), users 9-10 only rarely rated movies 4-6."""
+    train = []
+    for u in range(1, 9):
+        # movie 1: 4 likes / 4 dislikes, movie 2: 6 / 2, movie 3: 8 / 0 -> card order 1, 2, 3
+        scores = {1: u <= 4, 2: u <= 6, 3: True}
+        train += [Rating(u, m, 5.0 if scores[m] else 1.0) for m in (3, 2, 1)]
+    train += likes(9, 4, 5, 6, 1) + likes(10, 4, 5, 6)
+    return train
+
+
+def test_onboarding_pick_keeps_first_cards_in_order_and_skips_ineligible(monkeypatch):
+    from cinemate.evaluation import runner
+
+    monkeypatch.setattr(runner, "ONBOARDING_POOL", 3)
+    train = onboarding_train()
+    reduced, new = runner._truncate_new_users(train, 2, 0, B, "onboarding")
+    assert len(new) == 4 and new <= set(range(1, 9))  # users 9 and 10 have < 2 cards
+    for u in new:
+        assert {r.movie_id for r in reduced if r.user_id == u} == {1, 2}
+    for u in set(range(1, 11)) - new:
+        assert [r for r in reduced if r.user_id == u] == [r for r in train if r.user_id == u]
+    assert runner._truncate_new_users(train, 2, 0, B, "onboarding") == (reduced, new)
+
+
+def test_onboarding_pick_keeps_dropped_ratings_as_seen():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 1, "new_user_ratings": 3, "seed": 1}
+    result = evaluate(train, test, B, new_user_pick="onboarding", **kw)
+    assert result.new_user_pick == "onboarding"
+    assert result.n_users == 10
+    assert result.cf.precision_at_k == 1.0  # dropped train ratings are not recommended
+    assert evaluate(train, test, B, new_user_pick="onboarding", **kw) == result
+
+
+def test_random_pick_is_the_default():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 4}
+    assert evaluate(train, test, B, new_user_pick="random", **kw) == evaluate(train, test, B, **kw)
+    assert evaluate(train, test, B, **kw).new_user_pick == "random"
+
+
+def test_new_user_pick_validation():
+    train, test = cold_data()
+    with pytest.raises(ValueError):
+        evaluate(train, test, B, new_user_pick="onboarding")
+    with pytest.raises(ValueError):
+        evaluate(train, test, B, new_user_ratings=3, new_user_pick="bogus")

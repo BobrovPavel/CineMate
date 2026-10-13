@@ -5,6 +5,7 @@ import statistics
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from scipy.sparse import csr_matrix
@@ -21,9 +22,13 @@ from cinemate.movielens import Rating
 from cinemate.recommender.matrix import build_matrix
 from cinemate.recommender.scoring import recommend
 from cinemate.recommender.strategy import recommend_with_strategy
+from cinemate.services.onboarding import pick_onboarding_movies
 
 # Threshold of the weak ``popular`` baseline; fixed so results stay comparable with earlier runs.
 DEFAULT_MIN_RATINGS = 5
+
+NewUserPick = Literal["random", "onboarding"]
+ONBOARDING_POOL = 300
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,7 @@ class EvaluationResult:
     n_users: int
     new_user_ratings: int | None = None
     seeds: tuple[int, ...] = (0,)
+    new_user_pick: NewUserPick = "random"
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -112,6 +118,12 @@ def format_metric_cells(m: MethodMetrics, with_std: bool) -> list[str]:
     return [*cells, f"{m.coverage:.4f}", f"{m.mean_popularity:.4f}"]
 
 
+def new_users_line(n_ratings: int, pick: NewUserPick) -> str:
+    """Table line describing the cold-start mode; unchanged text for the ``random`` pick."""
+    suffix = "" if pick == "random" else f" (pick: {pick})"
+    return f"new users: {n_ratings} ratings each{suffix}"
+
+
 def parse_seeds(text: str) -> list[int]:
     """Parse ``0,1,2``; raise ``ValueError`` on an empty list, bad numbers or duplicates."""
     try:
@@ -149,6 +161,7 @@ def evaluate_seeds(
         n_users=first.n_users,
         new_user_ratings=first.new_user_ratings,
         seeds=tuple(seeds),
+        new_user_pick=first.new_user_pick,
     )
 
 
@@ -216,6 +229,7 @@ def evaluate(
     new_user_ratings: int | None = None,
     seed: int = 0,
     settings: RecommenderSettings | None = None,
+    new_user_pick: NewUserPick = "random",
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -242,9 +256,21 @@ def evaluate(
     the dropped ratings still count as seen (never recommended)
     but are not relevant. Users with fewer than ``N`` usable ratings are never "new".
     "Established" users keep all ratings and serve as neighbours only.
+
+    ``new_user_pick`` chooses which ratings a "new" user keeps. ``"random"`` draws them at
+    random. ``"onboarding"`` imitates the site: the cards come from ``pick_onboarding_movies``
+    on the matrix of the full train set (top ``ONBOARDING_POOL`` movies by rating count, most
+    controversial first), and a new user keeps their first ``N`` usable ratings in that card
+    order (a "not seen" answer is a movie they did not rate). Only users with at least ``N``
+    usable ratings among the cards can be "new". Genres are unknown here, so the per-genre
+    limit of the onboarding picker does not apply. Requires ``new_user_ratings``.
     """
     if new_user_ratings is not None and new_user_ratings < 1:
         raise ValueError("new_user_ratings must be at least 1")
+    if new_user_pick not in ("random", "onboarding"):
+        raise ValueError(f"unknown new_user_pick: {new_user_pick!r}")
+    if new_user_pick != "random" and new_user_ratings is None:
+        raise ValueError("new_user_pick requires new_user_ratings")
     settings = settings or RecommenderSettings()
     train = list(train)
     seen: dict[int, set[int]] = defaultdict(set)
@@ -252,7 +278,9 @@ def evaluate(
         seen[r.user_id].add(r.movie_id)
     new_users: set[int] | None = None
     if new_user_ratings is not None:
-        train, new_users = _truncate_new_users(train, new_user_ratings, seed, binarizer)
+        train, new_users = _truncate_new_users(
+            train, new_user_ratings, seed, binarizer, new_user_pick
+        )
     built = build_matrix(train, binarizer)
     matrix = built.matrix
     user_index = {u: i for i, u in enumerate(built.user_ids)}
@@ -355,36 +383,56 @@ def evaluate(
         baselines={name: summarize(name) for name in methods if name != "cf"},
         n_users=n_users,
         new_user_ratings=new_user_ratings,
+        new_user_pick=new_user_pick,
     )
 
 
 def _truncate_new_users(
-    train: list[Rating], n_ratings: int, seed: int, binarizer: Binarizer
+    train: list[Rating],
+    n_ratings: int,
+    seed: int,
+    binarizer: Binarizer,
+    pick: NewUserPick = "random",
 ) -> tuple[list[Rating], set[int]]:
     """Mark half of the eligible train users as "new" and keep ``n_ratings`` of their ratings.
 
-    Eligible users have at least ``n_ratings`` ratings that survive binarization, so a new
-    user has exactly ``n_ratings`` entries in the matrix. The kept ratings are drawn from the
-    binarizable ones; everything else (neutral and dropped ratings) leaves the matrix.
+    Eligible users have at least ``n_ratings`` ratings that survive binarization (in
+    ``onboarding`` mode: among the onboarding cards), so a new user has exactly ``n_ratings``
+    entries in the matrix. The kept ratings are random binarizable ones, or the first ones in
+    onboarding card order; everything else (neutral and dropped ratings) leaves the matrix.
     Returns the reduced train list and the set of new user ids; deterministic for a ``seed``.
     """
     by_user: dict[int, list[Rating]] = defaultdict(list)
     for r in train:
         by_user[r.user_id].append(r)
+
+    def usable_indices(items: list[Rating]) -> list[int]:
+        usable = [i for i, r in enumerate(items) if binarizer.binarize(r.score) is not None]
+        if card_rank is None:
+            return usable
+        usable = [i for i in usable if items[i].movie_id in card_rank]
+        return sorted(usable, key=lambda i: card_rank[items[i].movie_id])
+
+    card_rank: dict[int, int] | None = None
+    if pick == "onboarding":
+        built = build_matrix(train, binarizer)
+        n_movies = len(built.movie_ids)
+        cards = pick_onboarding_movies(
+            built.matrix, genres=[[] for _ in range(n_movies)], n=n_movies, pool=ONBOARDING_POOL
+        )
+        card_rank = {built.movie_ids[m]: pos for pos, m in enumerate(cards)}
     rng = random.Random(seed)
-    user_ids = sorted(
-        u
-        for u, items in by_user.items()
-        if sum(binarizer.binarize(r.score) is not None for r in items) >= n_ratings
-    )
+    user_ids = sorted(u for u, items in by_user.items() if len(usable_indices(items)) >= n_ratings)
     rng.shuffle(user_ids)
     new_users = set(user_ids[: len(user_ids) // 2])
     reduced: list[Rating] = []
     for user_id in sorted(by_user):
         items = by_user[user_id]
         if user_id in new_users:
-            usable = [i for i, r in enumerate(items) if binarizer.binarize(r.score) is not None]
-            keep = set(rng.sample(usable, n_ratings))
+            usable = usable_indices(items)
+            keep = set(
+                usable[:n_ratings] if card_rank is not None else rng.sample(usable, n_ratings)
+            )
             items = [r for i, r in enumerate(items) if i in keep]
         reduced.extend(items)
     return reduced, new_users
