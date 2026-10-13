@@ -5,12 +5,20 @@ from scipy.sparse import csr_matrix
 
 
 def find_neighbors(
-    matrix: csr_matrix, user_index: int, k: int = 40, min_overlap: int = 5
+    matrix: csr_matrix,
+    user_index: int,
+    k: int = 40,
+    min_overlap: int = 5,
+    significance: int = 0,
 ) -> list[tuple[int, float]]:
     """Find the ``k`` users most similar to ``user_index``.
 
     Similarity is the cosine between rows of ``matrix`` (entries ``+1`` / ``-1`` / ``0``).
     If two users have fewer than ``min_overlap`` co-rated movies, their similarity is 0.
+    With ``significance > 0`` every similarity is multiplied by
+    ``min(overlap, significance) / significance`` (significance weighting), so neighbours with
+    few co-rated movies are damped rather than dropped; ``0`` disables it. Ranking and the
+    top-``k`` cut use the weighted similarity. Raises ``ValueError`` if ``significance < 0``.
     Only the target user's row is multiplied against the matrix; the full user x user
     matrix is never built.
 
@@ -18,6 +26,8 @@ def find_neighbors(
     similarity descending (ties by row index ascending), at most ``k`` long. The user
     itself is excluded.
     """
+    if significance < 0:
+        raise ValueError("significance must be >= 0")
     if k <= 0:
         return []
 
@@ -41,6 +51,8 @@ def find_neighbors(
     similarities = np.zeros_like(dots)
     valid = (denominators > 0) & (overlaps >= min_overlap)
     similarities[valid] = dots[valid] / denominators[valid]
+    if significance > 0:
+        similarities *= np.minimum(overlaps, significance) / significance
     similarities[user_index] = 0.0
 
     candidates = np.flatnonzero(similarities > 0)

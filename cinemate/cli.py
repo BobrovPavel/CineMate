@@ -146,6 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="popularity penalty exponent, 0 disables it (default: %(default)s)",
     )
     ev.add_argument(
+        "--significance",
+        type=int,
+        default=RecommenderSettings().significance,
+        help="significance weighting threshold, 0 disables it (default: %(default)s)",
+    )
+    ev.add_argument(
         "--top-n",
         type=int,
         default=10,
@@ -206,6 +212,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--pop-penalty",
         default="1",
         help="comma-separated popularity penalty exponents, 0 disables it (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--significance",
+        default=str(RecommenderSettings().significance),
+        help="comma-separated significance weighting thresholds, 0 disables it "
+        "(default: %(default)s)",
     )
     tu.add_argument(
         "--top-n",
@@ -402,6 +414,9 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.pop_penalty >= 0:
         print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
         return 2
+    if args.significance < 0:
+        print("cinemate evaluate: error: --significance must be >= 0", file=sys.stderr)
+        return 2
     if args.new_user_ratings is not None and args.new_user_ratings < 1:
         print("cinemate evaluate: error: --new-user-ratings must be >= 1", file=sys.stderr)
         return 2
@@ -432,6 +447,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         min_overlap=args.min_overlap,
         top_n=args.top_n,
         pop_penalty=args.pop_penalty,
+        significance=args.significance,
         new_user_ratings=args.new_user_ratings,
         settings=settings,
         new_user_pick=args.new_user_pick,
@@ -448,9 +464,12 @@ def _run_tune(args: argparse.Namespace) -> int:
             "lam": parse_values(args.lam, float),
             "min_overlap": parse_values(args.min_overlap, int),
             "pop_penalty": parse_values(args.pop_penalty, float),
+            "significance": parse_values(args.significance, int),
         }
         if not all(v >= 0 for v in grid["pop_penalty"]):
             raise ValueError("pop_penalty values must be >= 0")
+        if not all(v >= 0 for v in grid["significance"]):
+            raise ValueError("significance values must be >= 0")
     except ValueError as exc:
         print(f"cinemate tune: error: {exc}", file=sys.stderr)
         return 2

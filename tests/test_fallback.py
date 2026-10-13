@@ -142,3 +142,15 @@ def test_strategy_passes_pool_factor_and_defaults_to_exact_top():
         for seed in range(20)
     }
     assert len(wide) > 1
+
+
+def test_significance_reaches_find_neighbors_on_collaborative_path():
+    import pytest
+
+    rows = [[1, 1, 1, 1, 1, 0, 0]] + [[1, 1, 1, 1, 1, 1, 0]] * 3
+    with pytest.raises(ValueError, match="significance"):
+        recommend_with_strategy(make(rows), 0, min_overlap=5, min_user_ratings=5, significance=-1)
+    default = recommend_with_strategy(make(rows), 0, min_overlap=5, min_user_ratings=5)
+    assert default == recommend_with_strategy(
+        make(rows), 0, min_overlap=5, min_user_ratings=5, significance=0
+    )

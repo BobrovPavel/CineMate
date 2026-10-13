@@ -133,6 +133,32 @@ def test_settings_are_passed_to_strategy(session, store, monkeypatch):
     )
     assert (seen["k"], seen["lam"], seen["min_overlap"], seen["pop_penalty"]) == (3, 7.0, 2, 0.5)
     assert (seen["min_user_ratings"], seen["fallback_pool_factor"]) == (4, 1)
+    assert seen["significance"] == 0
+
+
+def test_significance_reaches_strategy_and_explanations(session, store, monkeypatch):
+    seen = {}
+    real_strategy = recommendations_module.recommend_with_strategy
+    real_neighbors = recommendations_module.find_neighbors
+
+    def spy_strategy(*args, **kwargs):
+        seen["strategy"] = kwargs["significance"]
+        return real_strategy(*args, **kwargs)
+
+    def spy_neighbors(*args, **kwargs):
+        seen["neighbors"] = kwargs["significance"]
+        return real_neighbors(*args, **kwargs)
+
+    monkeypatch.setattr(recommendations_module, "recommend_with_strategy", spy_strategy)
+    monkeypatch.setattr(recommendations_module, "find_neighbors", spy_neighbors)
+    result = get_recommendations(
+        session,
+        store,
+        session.get(User, 1),
+        settings=RecommenderSettings(min_user_ratings=5, significance=3),
+    )
+    assert result.strategy == "collaborative"
+    assert seen == {"strategy": 3, "neighbors": 3}
 
 
 def test_default_settings_used_without_argument(session, store, monkeypatch):

@@ -28,6 +28,7 @@ def recommend_with_strategy(
     min_overlap: int = 5,
     lam: float = 5.0,
     pop_penalty: float = 1.0,
+    significance: int = 0,
     min_user_ratings: int = MIN_USER_RATINGS,
     fallback_pool_factor: int = DEFAULT_POOL_FACTOR,
     rng: random.Random | None = None,
@@ -48,6 +49,7 @@ def recommend_with_strategy(
             min_overlap=min_overlap,
             lam=lam,
             pop_penalty=pop_penalty,
+            significance=significance,
         )
         if items:
             return Recommendation(items=items, strategy="collaborative")

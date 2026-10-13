@@ -17,8 +17,8 @@ from cinemate.evaluation.runner import (
 )
 from cinemate.movielens import Rating
 
-GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty")
-DEFAULT_GRID = {"pop_penalty": [1.0]}
+GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty", "significance")
+DEFAULT_GRID = {"pop_penalty": [1.0], "significance": [0]}
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,7 @@ class TuneRow:
     min_overlap: int
     metrics: MethodMetrics
     pop_penalty: float = 1.0
+    significance: int = 0
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,8 @@ def tune(
     new_user_seen: NewUserSeen = "all",
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
-    ``pop_penalty``; the last is optional and defaults to ``[1.0]``).
+    ``pop_penalty``, ``significance``; the last two are optional and default to ``[1.0]`` and
+    ``[0]``).
 
     Each combination is evaluated once. Rows are sorted by precision@``top_n`` descending;
     ties keep grid order. The baselines do not depend on the parameters, so they are taken
@@ -85,18 +87,23 @@ def tune(
     rows: list[TuneRow] = []
     baselines = {"popular": MethodMetrics(0.0, 0.0, 0.0, 0.0)}
     n_users = 0
-    for i, (k, lam, min_overlap, pop_penalty) in enumerate(
+    for i, (k, lam, min_overlap, pop_penalty, significance) in enumerate(
         product(*(grid[key] for key in GRID_KEYS))
     ):
         result = evaluate_seeds(
             splits, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
-            top_n=top_n, pop_penalty=float(pop_penalty),
+            top_n=top_n, pop_penalty=float(pop_penalty), significance=int(significance),
             new_user_ratings=new_user_ratings, settings=settings,
             new_user_pick=new_user_pick, new_user_seen=new_user_seen,
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users
-        rows.append(TuneRow(int(k), float(lam), int(min_overlap), result.cf, float(pop_penalty)))
+        rows.append(
+            TuneRow(
+                int(k), float(lam), int(min_overlap), result.cf, float(pop_penalty),
+                int(significance),
+            )
+        )  # fmt: skip
     rows.sort(key=lambda r: -r.metrics.precision_at_k)
     return TuneResult(
         rows=rows,
@@ -116,6 +123,7 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         "lambda",
         "min_overlap",
         "pop_penalty",
+        "signif",
         f"precision@{top_n}",
         f"recall@{top_n}",
         f"hit_rate@{top_n}",
@@ -129,10 +137,17 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         return format_metric_cells(m, multi)
 
     table = [
-        [str(r.k), f"{r.lam:g}", str(r.min_overlap), f"{r.pop_penalty:g}", *metric_cells(r.metrics)]
+        [
+            str(r.k),
+            f"{r.lam:g}",
+            str(r.min_overlap),
+            f"{r.pop_penalty:g}",
+            str(r.significance),
+            *metric_cells(r.metrics),
+        ]
         for r in result.rows
     ]
-    table += [[name, "-", "-", "-", *metric_cells(m)] for name, m in result.baselines.items()]
+    table += [[name, "-", "-", "-", "-", *metric_cells(m)] for name, m in result.baselines.items()]
     widths = [max(len(row[i]) for row in [headers, *table]) for i in range(len(headers))]
     lines = ["  ".join(h.rjust(w) for h, w in zip(headers, widths, strict=True))]
     lines += ["  ".join(c.rjust(w) for c, w in zip(row, widths, strict=True)) for row in table]

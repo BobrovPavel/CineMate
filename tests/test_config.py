@@ -6,6 +6,7 @@ from cinemate.config import RecommenderSettings
 def test_defaults():
     s = RecommenderSettings()
     assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (60, 40.0, 1, 0.75)
+    assert s.significance == 0
 
 
 def test_from_env_empty_or_missing_gives_defaults():
@@ -19,10 +20,11 @@ def test_from_env_reads_all_variables():
         "REC_LAMBDA": "2.5",
         "REC_MIN_OVERLAP": "4",
         "REC_POP_PENALTY": "0",
+        "REC_SIGNIFICANCE": "5",
         "REC_MIN_USER_RATINGS": "20",
         "REC_FALLBACK_POOL_FACTOR": "1",
     }
-    assert RecommenderSettings.from_env(env) == RecommenderSettings(10, 2.5, 4, 0.0, 20, 1)
+    assert RecommenderSettings.from_env(env) == RecommenderSettings(10, 2.5, 4, 0.0, 20, 1, 5)
 
 
 def test_from_env_reads_os_environ(monkeypatch):
@@ -44,6 +46,9 @@ def test_from_env_reads_os_environ(monkeypatch):
         ("REC_POP_PENALTY", "y"),
         ("REC_POP_PENALTY", "-0.1"),
         ("REC_POP_PENALTY", "nan"),
+        ("REC_SIGNIFICANCE", "x"),
+        ("REC_SIGNIFICANCE", "-1"),
+        ("REC_SIGNIFICANCE", "2.5"),
         ("REC_MIN_USER_RATINGS", "abc"),
         ("REC_MIN_USER_RATINGS", "0"),
         ("REC_MIN_USER_RATINGS", "2.5"),

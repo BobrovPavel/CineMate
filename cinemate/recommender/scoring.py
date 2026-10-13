@@ -14,6 +14,7 @@ def recommend(
     min_overlap: int = 5,
     lam: float = 5.0,
     pop_penalty: float = 1.0,
+    significance: int = 0,
 ) -> list[tuple[int, float]]:
     """Recommend up to ``n`` movies for ``user_index``.
 
@@ -24,7 +25,8 @@ def recommend(
 
     where ``c`` is the number of neighbours who rated ``m`` and ``likes(m)`` is the number of
     ``+1`` ratings of ``m`` among all users. ``pop_penalty`` is the exponent of the popularity
-    penalty: ``1.0`` is the formula above, ``0.0`` disables it. Dislikes of neighbours lower
+    penalty: ``1.0`` is the formula above, ``0.0`` disables it. ``significance`` is passed to
+    ``find_neighbors``. Dislikes of neighbours lower
     the score. Movies the user has already rated are excluded.
 
     Returns ``(movie_index, score)`` pairs sorted by score descending (ties by movie index
@@ -35,7 +37,9 @@ def recommend(
         raise ValueError("pop_penalty must be >= 0")
     if n <= 0:
         return []
-    neighbors = find_neighbors(matrix, user_index, k=k, min_overlap=min_overlap)
+    neighbors = find_neighbors(
+        matrix, user_index, k=k, min_overlap=min_overlap, significance=significance
+    )
     if not neighbors:
         return []
 
