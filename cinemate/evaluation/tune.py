@@ -6,7 +6,14 @@ from itertools import product
 
 from cinemate.binarize import Binarizer
 from cinemate.config import RecommenderSettings
-from cinemate.evaluation.runner import MethodMetrics, Split, evaluate_seeds, format_metric_cells
+from cinemate.evaluation.runner import (
+    MethodMetrics,
+    NewUserPick,
+    Split,
+    evaluate_seeds,
+    format_metric_cells,
+    new_users_line,
+)
 from cinemate.movielens import Rating
 
 GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty")
@@ -33,6 +40,7 @@ class TuneResult:
     n_users: int
     new_user_ratings: int | None = None
     seeds: tuple[int, ...] = (0,)
+    new_user_pick: NewUserPick = "random"
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -50,6 +58,7 @@ def tune(
     seed: int = 0,
     settings: RecommenderSettings | None = None,
     extra_splits: Sequence[Split] = (),
+    new_user_pick: NewUserPick = "random",
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
     ``pop_penalty``; the last is optional and defaults to ``[1.0]``).
@@ -63,6 +72,7 @@ def tune(
     ``train``/``test`` with ``seed`` form the first split; ``extra_splits`` add more seeds.
     Every combination is evaluated on each split and the metrics are averaged (precision,
     recall and hit rate also get a standard deviation); rows sort by mean precision.
+    ``new_user_pick`` is passed to ``evaluate`` (see there).
     """
     grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
@@ -79,6 +89,7 @@ def tune(
             splits, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
             top_n=top_n, pop_penalty=float(pop_penalty),
             new_user_ratings=new_user_ratings, settings=settings,
+            new_user_pick=new_user_pick,
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users
@@ -90,6 +101,7 @@ def tune(
         n_users=n_users,
         new_user_ratings=new_user_ratings,
         seeds=tuple(s.seed for s in splits),
+        new_user_pick=new_user_pick,
     )
 
 
@@ -124,5 +136,5 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
     lines.append(f"users evaluated: {result.n_users}")
     lines.append(f"seeds: {','.join(map(str, result.seeds))}")
     if result.new_user_ratings is not None:
-        lines.append(f"new users: {result.new_user_ratings} ratings each")
+        lines.append(new_users_line(result.new_user_ratings, result.new_user_pick))
     return "\n".join(lines)
