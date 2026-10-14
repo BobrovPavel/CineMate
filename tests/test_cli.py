@@ -120,7 +120,7 @@ def test_evaluate_defaults_come_from_recommender_settings():
         settings.min_overlap,
         settings.pop_penalty,
     )
-    assert (args.k, args.pop_penalty) == (60, 0.75)
+    assert (args.k, args.pop_penalty) == (150, 0.75)
 
 
 def test_evaluate_help_lists_arguments(capsys):
