@@ -131,7 +131,7 @@ URL базы данных выбирается так: аргумент `--datab
 | `TMDB_API_KEY`        | `enrich-movies`                                    | не задан (команда не работает) |
 | `CORS_ORIGINS`        | API: источники для прямых запросов из браузера (через запятую, без `*`); нужен только если `NEXT_PUBLIC_API_URL` указывает на другой origin | `http://localhost:3000` |
 | `COOKIE_SECURE`       | `serve`: флаг `Secure` у cookie сессии (`1/true/yes/on` — включить, `0/false/no/off` — выключить; `--cookie-secure` важнее) | выключено |
-| `REC_K`               | API: число соседей рекомендателя (>= 1)            | `60`                        |
+| `REC_K`               | API: число соседей рекомендателя (>= 1)            | `150`                       |
 | `REC_LAMBDA`          | API: сила shrinkage (>= 0)                         | `40`                        |
 | `REC_MIN_OVERLAP`     | API: минимум общих оценок у соседа (>= 1)          | `1`                         |
 | `REC_POP_PENALTY`     | API: показатель штрафа за популярность (>= 0)      | `0.75`                      |

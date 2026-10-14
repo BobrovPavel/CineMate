@@ -5,7 +5,7 @@ from cinemate.config import RecommenderSettings
 
 def test_defaults():
     s = RecommenderSettings()
-    assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (60, 40.0, 1, 0.75)
+    assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (150, 40.0, 1, 0.75)
     assert s.significance == 0
 
 
@@ -25,6 +25,10 @@ def test_from_env_reads_all_variables():
         "REC_FALLBACK_POOL_FACTOR": "1",
     }
     assert RecommenderSettings.from_env(env) == RecommenderSettings(10, 2.5, 4, 0.0, 20, 1, 5)
+
+
+def test_previous_k_is_still_accepted():
+    assert RecommenderSettings.from_env({"REC_K": "60"}).k == 60
 
 
 def test_from_env_reads_os_environ(monkeypatch):

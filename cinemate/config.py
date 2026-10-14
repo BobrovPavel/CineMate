@@ -10,12 +10,12 @@ from dataclasses import dataclass
 class RecommenderSettings:
     """Parameters of the recommender: collaborative filtering and the switch to the fallback.
 
-    Defaults were chosen from runs 2, 5 and 6 (docs/EVALUATION.md): ``min_overlap=1``,
-    K=60 and ``pop_penalty=0.75`` as a balance of precision and coverage, CF from 5 ratings
-    and an exact top by likes in the fallback.
+    Defaults were chosen from runs 2, 5, 6 and 8 (docs/EVALUATION.md): ``min_overlap=1``,
+    K=150 (run 8, cold start from onboarding cards) and ``pop_penalty=0.75`` as a balance of
+    precision and coverage, CF from 5 ratings and an exact top by likes in the fallback.
     """
 
-    k: int = 60
+    k: int = 150
     lam: float = 40.0
     min_overlap: int = 1
     pop_penalty: float = 0.75
