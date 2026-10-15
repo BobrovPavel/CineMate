@@ -42,7 +42,10 @@ def head_revision(script_location: Path | None = None) -> str:
     """The latest revision id of the migration scripts."""
     script = ScriptDirectory(str(script_location or migrations_dir()))
     head = script.get_current_head()
-    assert head is not None
+    if head is None:
+        raise RuntimeError(
+            f"no migration scripts found in {script.dir}; set {MIGRATIONS_DIR_ENV} if needed"
+        )
     return head
 
 

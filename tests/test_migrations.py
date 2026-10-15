@@ -206,3 +206,10 @@ def test_migrations_dir_defaults_to_checkout(monkeypatch):
     monkeypatch.delenv(MIGRATIONS_DIR_ENV, raising=False)
     assert migrations_dir() == DEFAULT_MIGRATIONS_DIR
     assert (DEFAULT_MIGRATIONS_DIR / "env.py").is_file()
+
+
+def test_head_revision_without_scripts_fails_clearly(tmp_path):
+    empty = tmp_path / "empty"
+    (empty / "versions").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match=MIGRATIONS_DIR_ENV):
+        head_revision(empty)
