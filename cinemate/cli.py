@@ -16,6 +16,13 @@ from cinemate.config import RecommenderSettings
 from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
 from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
+from cinemate.db.migrations import (
+    SchemaNotMigratedError,
+    current_revision,
+    has_tables,
+    stamp_head,
+    upgrade_head,
+)
 from cinemate.db.session import create_all, make_engine
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import (
@@ -334,6 +341,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="only count events at or after this ISO date/time, e.g. 2026-10-01 "
         "(UTC if no zone); affects good session rates, not retention",
     )
+    mg = sub.add_parser("migrate", help="apply database migrations (alembic upgrade head)")
+    mg.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    mg.add_argument(
+        "--stamp-existing",
+        action="store_true",
+        help="mark an existing database created without migrations (create_all) as up to date "
+        "without changing its tables",
+    )
     sv = sub.add_parser("serve", help="run the web API")
     sv.add_argument("--host", default="127.0.0.1", help="bind address (default: %(default)s)")
     sv.add_argument("--port", type=int, default=8000, help="bind port (default: %(default)s)")
@@ -370,7 +385,46 @@ def _run_serve(args: argparse.Namespace) -> int:
     except (ArgumentError, ImportError):
         print("cinemate serve: error: invalid database URL", file=sys.stderr)
         return 2
+    except SchemaNotMigratedError as exc:
+        print(f"cinemate serve: error: {exc}", file=sys.stderr)
+        return 2
     uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+def _run_migrate(args: argparse.Namespace) -> int:
+    try:
+        engine = make_engine(resolve_database_url(args.database_url))
+    except (ArgumentError, ImportError):
+        print("cinemate migrate: error: invalid database URL", file=sys.stderr)
+        return 2
+    if args.stamp_existing:
+        if current_revision(engine) is not None:
+            print(
+                "cinemate migrate: error: the database is already under migration control; "
+                "run `cinemate migrate` without --stamp-existing",
+                file=sys.stderr,
+            )
+            return 2
+        if not has_tables(engine):
+            print(
+                "cinemate migrate: error: the database has no tables to stamp; "
+                "run `cinemate migrate` without --stamp-existing",
+                file=sys.stderr,
+            )
+            return 2
+        stamp_head(engine)
+        print("stamped the existing database as up to date")
+        return 0
+    if current_revision(engine) is None and has_tables(engine):
+        print(
+            "cinemate migrate: error: the database was created without migrations; "
+            "run `cinemate migrate --stamp-existing` first",
+            file=sys.stderr,
+        )
+        return 2
+    upgrade_head(engine)
+    print("database schema is up to date")
     return 0
 
 
@@ -611,6 +665,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_metrics(args)
     if args.command == "enrich-movies":
         return _run_enrich(args)
+    if args.command == "migrate":
+        return _run_migrate(args)
     if args.command == "serve":
         return _run_serve(args)
     return 0

@@ -11,7 +11,8 @@ from cinemate.api.routes import router
 from cinemate.cli import resolve_database_url
 from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.session import create_all, make_engine
+from cinemate.db.migrations import ensure_schema
+from cinemate.db.session import make_engine
 
 DEFAULT_CORS_ORIGINS = ["http://localhost:3000"]
 
@@ -64,12 +65,13 @@ def create_app(
     ``cookie_secure`` sets the ``Secure`` flag of the session cookie (off for local development).
     ``cors_origins`` overrides the ``CORS_ORIGINS`` environment variable.
     ``recommender_settings`` overrides the ``REC_*`` environment variables; invalid ones raise
-    ``ValueError`` at startup.
+    ``ValueError`` at startup. A database that is not on the latest migration revision raises
+    ``SchemaNotMigratedError`` (in-memory SQLite and empty SQLite files are set up automatically).
     """
     origins = resolve_cors_origins(cors_origins)
     settings = recommender_settings or RecommenderSettings.from_env()
     engine = make_engine(resolve_database_url(database_url))
-    create_all(engine)
+    ensure_schema(engine)
     session_factory = sessionmaker(engine, expire_on_commit=False, class_=Session)
 
     app = FastAPI(title="CineMate")

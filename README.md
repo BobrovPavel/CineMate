@@ -154,6 +154,24 @@ URL базы данных выбирается так: аргумент `--datab
   `CORS_ORIGINS` должен точно совпадать с адресом сайта.
 - **Нет постеров и описаний** — не выполнен `cinemate enrich-movies` (нужен `TMDB_API_KEY`).
 
+## Миграции базы
+
+Схема БД управляется Alembic (`alembic.ini`, каталог `migrations/`). URL базы берётся так же, как
+у остальных команд: `--database-url`, затем `DATABASE_URL`, затем `sqlite:///cinemate.db`.
+
+- Применить миграции: `cinemate migrate` (то же, что `alembic upgrade head`). Повторный запуск
+  ничего не меняет.
+- Локальная база, созданная раньше без миграций (через `create_all`): один раз выполните
+  `cinemate migrate --stamp-existing` — команда проставит последнюю ревизию, не трогая таблицы и
+  данные; дальше работает обычный `cinemate migrate`.
+- Создать ревизию после изменения `cinemate/db/models.py`:
+  `alembic revision --autogenerate -m "описание"`, проверьте файл в `migrations/versions/` и
+  примените его через `cinemate migrate`.
+- `cinemate serve` на in-memory SQLite создаёт схему сам; пустой файл SQLite (в том числе
+  `cinemate.db` по умолчанию) инициализируется миграциями автоматически. На любой другой базе
+  (например, PostgreSQL) сервер не стартует, пока схема не на актуальной ревизии: выполните
+  `cinemate migrate`.
+
 ## Docker
 
 Весь продукт (PostgreSQL, API и фронтенд) поднимается одной командой. Драйвер PostgreSQL ставится
@@ -166,20 +184,27 @@ extra `postgres`; образ API собирается с ним.
    cp .env.example .env
    ```
 
-2. Соберите и запустите сервисы (порядок задан healthcheck'ами: `db` → `api` → `frontend`):
+2. Примените миграции базы (до первого `up`: API не стартует на базе без актуальной схемы;
+   команда сама поднимет `db`):
+
+   ```
+   docker compose run --rm app migrate
+   ```
+
+3. Соберите и запустите сервисы (порядок задан healthcheck'ами: `db` → `api` → `frontend`):
 
    ```
    docker compose up --build -d
    ```
 
-3. Выполните первичный импорт данных (один раз):
+4. Выполните первичный импорт данных (один раз):
 
    ```
    docker compose run --rm app import-movielens --data-dir data
    docker compose run --rm app enrich-movies    # по желанию, нужен TMDB_API_KEY в .env
    ```
 
-4. Откройте сайт: <http://localhost:3000>. API наружу не публикуется, фронтенд проксирует `/api`.
+5. Откройте сайт: <http://localhost:3000>. API наружу не публикуется, фронтенд проксирует `/api`.
 
 Другие разовые команды: `docker compose run --rm app metrics`. Сервис `app` относится к профилю
 `tools`, поэтому `docker compose up` его не запускает.
