@@ -11,6 +11,7 @@ from cinemate.evaluation.runner import (
     NewUserPick,
     NewUserSeen,
     Split,
+    established_users_line,
     evaluate_seeds,
     format_metric_cells,
     new_users_line,
@@ -44,6 +45,8 @@ class TuneResult:
     seeds: tuple[int, ...] = (0,)
     new_user_pick: NewUserPick = "random"
     new_user_seen: NewUserSeen = "all"
+    user_fraction: float = 1.0
+    established_users: tuple[int, int] | None = None
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -64,6 +67,7 @@ def tune(
     new_user_pick: NewUserPick = "random",
     new_user_seen: NewUserSeen = "all",
     blend_full_at: Sequence[float] = (),
+    user_fraction: float = 1.0,
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
     ``pop_penalty``, ``significance``; the last two are optional and default to ``[1.0]`` and
@@ -78,8 +82,8 @@ def tune(
     ``train``/``test`` with ``seed`` form the first split; ``extra_splits`` add more seeds.
     Every combination is evaluated on each split and the metrics are averaged (precision,
     recall and hit rate also get a standard deviation); rows sort by mean precision.
-    ``new_user_pick``, ``new_user_seen`` and ``blend_full_at`` (``hybrid(T=...)`` baseline rows)
-    are passed to ``evaluate`` (see there).
+    ``new_user_pick``, ``new_user_seen``, ``blend_full_at`` (``hybrid(T=...)`` baseline rows)
+    and ``user_fraction`` are passed to ``evaluate`` (see there).
     """
     grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
@@ -89,6 +93,7 @@ def tune(
     rows: list[TuneRow] = []
     baselines = {"popular": MethodMetrics(0.0, 0.0, 0.0, 0.0)}
     n_users = 0
+    established: tuple[int, int] | None = None
     for i, (k, lam, min_overlap, pop_penalty, significance) in enumerate(
         product(*(grid[key] for key in GRID_KEYS))
     ):
@@ -97,10 +102,11 @@ def tune(
             top_n=top_n, pop_penalty=float(pop_penalty), significance=int(significance),
             new_user_ratings=new_user_ratings, settings=settings,
             new_user_pick=new_user_pick, new_user_seen=new_user_seen,
-            blend_full_at=blend_full_at,
+            blend_full_at=blend_full_at, user_fraction=user_fraction,
         )  # fmt: skip
         if i == 0:
             baselines, n_users = result.baselines, result.n_users
+            established = result.established_users
         rows.append(
             TuneRow(
                 int(k), float(lam), int(min_overlap), result.cf, float(pop_penalty),
@@ -116,6 +122,8 @@ def tune(
         seeds=tuple(s.seed for s in splits),
         new_user_pick=new_user_pick,
         new_user_seen=new_user_seen,
+        user_fraction=user_fraction,
+        established_users=established,
     )
 
 
@@ -161,4 +169,7 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         lines.append(
             new_users_line(result.new_user_ratings, result.new_user_pick, result.new_user_seen)
         )
+    extra = established_users_line(result.user_fraction, result.established_users)
+    if extra:
+        lines.append(extra)
     return "\n".join(lines)
