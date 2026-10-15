@@ -1,5 +1,6 @@
 """Alembic helpers: run migrations, stamp ``head`` and check the schema at startup."""
 
+import os
 from pathlib import Path
 
 from alembic import command
@@ -10,7 +11,8 @@ from sqlalchemy import Engine, inspect
 
 from cinemate.db.session import create_all
 
-MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+DEFAULT_MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+MIGRATIONS_DIR_ENV = "CINEMATE_MIGRATIONS_DIR"
 VERSION_TABLE = "alembic_version"
 
 
@@ -18,17 +20,27 @@ class SchemaNotMigratedError(RuntimeError):
     """The database schema is not on the latest migration revision."""
 
 
+def migrations_dir() -> Path:
+    """Migration scripts: env ``CINEMATE_MIGRATIONS_DIR``, else ``migrations/`` of the checkout.
+
+    The default only works for a source checkout or an editable install; the Docker image sets
+    the variable because the package is installed into site-packages there.
+    """
+    override = os.environ.get(MIGRATIONS_DIR_ENV)
+    return Path(override) if override else DEFAULT_MIGRATIONS_DIR
+
+
 def alembic_config(engine: Engine, script_location: Path | None = None) -> Config:
     """Alembic config bound to ``engine`` (``migrations/env.py`` reuses it, no URL needed)."""
     config = Config()
-    config.set_main_option("script_location", str(script_location or MIGRATIONS_DIR))
+    config.set_main_option("script_location", str(script_location or migrations_dir()))
     config.attributes["engine"] = engine
     return config
 
 
 def head_revision(script_location: Path | None = None) -> str:
     """The latest revision id of the migration scripts."""
-    script = ScriptDirectory(str(script_location or MIGRATIONS_DIR))
+    script = ScriptDirectory(str(script_location or migrations_dir()))
     head = script.get_current_head()
     assert head is not None
     return head

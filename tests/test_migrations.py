@@ -7,11 +7,13 @@ from sqlalchemy import inspect, text
 from cinemate.api.app import create_app
 from cinemate.cli import main
 from cinemate.db.migrations import (
-    MIGRATIONS_DIR,
+    DEFAULT_MIGRATIONS_DIR,
+    MIGRATIONS_DIR_ENV,
     SchemaNotMigratedError,
     current_revision,
     ensure_schema,
     head_revision,
+    migrations_dir,
     upgrade_head,
 )
 from cinemate.db.models import Base
@@ -118,7 +120,7 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
-    shutil.copytree(MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
     (scripts / "versions" / "0002_add_note.py").write_text(
         textwrap.dedent(
             """
@@ -188,3 +190,19 @@ def test_serve_reports_unmigrated_database(db_url, capsys, monkeypatch):
     create_all(make_engine(db_url))
     assert main(["serve", "--database-url", db_url]) == 2
     assert "cinemate migrate" in capsys.readouterr().err
+
+
+def test_migrations_dir_can_be_overridden_by_env(monkeypatch, tmp_path):
+    copy = tmp_path / "elsewhere"
+    shutil.copytree(DEFAULT_MIGRATIONS_DIR, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    monkeypatch.setenv(MIGRATIONS_DIR_ENV, str(copy))
+    assert migrations_dir() == copy
+    engine = make_engine(f"sqlite:///{tmp_path / 'e.db'}")
+    upgrade_head(engine)
+    assert current_revision(engine) == head_revision()
+
+
+def test_migrations_dir_defaults_to_checkout(monkeypatch):
+    monkeypatch.delenv(MIGRATIONS_DIR_ENV, raising=False)
+    assert migrations_dir() == DEFAULT_MIGRATIONS_DIR
+    assert (DEFAULT_MIGRATIONS_DIR / "env.py").is_file()
