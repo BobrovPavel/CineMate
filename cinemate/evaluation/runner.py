@@ -68,6 +68,8 @@ class EvaluationResult:
     seeds: tuple[int, ...] = (0,)
     new_user_pick: NewUserPick = "random"
     new_user_seen: NewUserSeen = "all"
+    user_fraction: float = 1.0
+    established_users: tuple[int, int] | None = None
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -137,6 +139,14 @@ def new_users_line(n_ratings: int, pick: NewUserPick, seen: NewUserSeen = "all")
     return f"new users: {n_ratings} ratings each{suffix}"
 
 
+def established_users_line(user_fraction: float, established: tuple[int, int] | None) -> str | None:
+    """Table line ``established users: <kept> of <total> (fraction F)``; ``None`` at ``F = 1``."""
+    if user_fraction >= 1.0 or established is None:
+        return None
+    kept, total = established
+    return f"established users: {kept} of {total} (fraction {user_fraction:g})"
+
+
 def parse_seeds(text: str) -> list[int]:
     """Parse ``0,1,2``; raise ``ValueError`` on an empty list, bad numbers or duplicates."""
     try:
@@ -176,6 +186,8 @@ def evaluate_seeds(
         seeds=tuple(seeds),
         new_user_pick=first.new_user_pick,
         new_user_seen=first.new_user_seen,
+        user_fraction=first.user_fraction,
+        established_users=first.established_users,
     )
 
 
@@ -249,6 +261,7 @@ def evaluate(
     blend_full_at: Sequence[float] = (),
     item_min_overlap: int = 3,
     item_lam: float = 5.0,
+    user_fraction: float = 1.0,
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -296,6 +309,12 @@ def evaluate(
     site, which only knows what the user rated or marked: only the ``N`` ratings left in the
     matrix are excluded, so dropped train ratings may be recommended (they are still not
     relevant; only test likes are). Test ratings are never excluded. Requires ``new_user_ratings``.
+
+    ``user_fraction`` ``F`` (``0 < F <= 1``, default ``1.0`` = no change) thins out the
+    "established" (neighbour) users: a random ``F`` share of them, at least one, stays in the
+    matrix and the rest are removed entirely. The set of "new" (evaluated) users does not
+    depend on ``F``; thinning is deterministic for a ``seed``. It measures how CF quality
+    depends on the size of the user base. Requires ``new_user_ratings``.
     """
     if new_user_ratings is not None and new_user_ratings < 1:
         raise ValueError("new_user_ratings must be at least 1")
@@ -307,6 +326,10 @@ def evaluate(
         raise ValueError(f"unknown new_user_seen: {new_user_seen!r}")
     if new_user_seen != "all" and new_user_ratings is None:
         raise ValueError("new_user_seen requires new_user_ratings")
+    if not 0 < user_fraction <= 1:
+        raise ValueError("user_fraction must be in (0, 1]")
+    if user_fraction != 1.0 and new_user_ratings is None:
+        raise ValueError("user_fraction requires new_user_ratings")
     if any(not t > 0 for t in blend_full_at):
         raise ValueError("blend_full_at values must be > 0")
     settings = settings or RecommenderSettings()
@@ -315,10 +338,13 @@ def evaluate(
     for r in train:
         seen[r.user_id].add(r.movie_id)
     new_users: set[int] | None = None
+    established: tuple[int, int] | None = None
     if new_user_ratings is not None:
         train, new_users = _truncate_new_users(
             train, new_user_ratings, seed, binarizer, new_user_pick
         )
+        if user_fraction != 1.0:
+            train, established = _thin_established_users(train, new_users, user_fraction, seed)
         if new_user_seen == "kept":
             # Established users keep all ratings, new users only the ones left in the matrix.
             seen = defaultdict(set)
@@ -454,7 +480,27 @@ def evaluate(
         new_user_ratings=new_user_ratings,
         new_user_pick=new_user_pick,
         new_user_seen=new_user_seen,
+        user_fraction=user_fraction,
+        established_users=established,
     )
+
+
+def _thin_established_users(
+    train: list[Rating], new_users: set[int], fraction: float, seed: int
+) -> tuple[list[Rating], tuple[int, int]]:
+    """Keep a random ``fraction`` (at least one user) of the non-"new" users, drop the rest.
+
+    Uses its own generator so the choice of "new" users never depends on ``fraction``.
+    Returns the reduced train list and ``(kept, total)`` established users.
+    """
+    established = sorted({r.user_id for r in train} - new_users)
+    if not established:
+        return train, (0, 0)
+    keep_count = min(len(established), max(1, round(fraction * len(established))))
+    rng = random.Random(f"user-fraction:{seed}")
+    kept = set(rng.sample(established, keep_count))
+    dropped = set(established) - kept
+    return [r for r in train if r.user_id not in dropped], (keep_count, len(established))
 
 
 def _truncate_new_users(

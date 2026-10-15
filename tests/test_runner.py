@@ -419,3 +419,77 @@ def test_evaluate_item_based_params_change_row():
     strict = run(likes(1, 6, 7), item_min_overlap=100).baselines["item_based"]
     assert strict.coverage == 0.0
     assert loose.coverage > 0.0
+
+
+def _spy_matrix(monkeypatch):
+    from cinemate.evaluation import runner
+
+    captured = {}
+    real_build = runner.build_matrix
+
+    def spy(ratings, binarizer):
+        captured["train"] = list(ratings)
+        return real_build(captured["train"], binarizer)
+
+    monkeypatch.setattr(runner, "build_matrix", spy)
+    return captured
+
+
+def test_user_fraction_thins_established_users_only(monkeypatch):
+    train, test = cold_data()
+    captured = _spy_matrix(monkeypatch)
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 4}
+    full = evaluate(train, test, B, **kw)
+    full_users = {r.user_id for r in captured["train"]}
+    half = evaluate(train, test, B, user_fraction=0.5, **kw)
+    half_users = {r.user_id for r in captured["train"]}
+    assert full.established_users is None
+    assert half.established_users == (5, 10)
+    assert half.user_fraction == 0.5
+    assert len(full_users) == 20
+    assert len(half_users) == 15  # 10 new + half of the 10 established
+    assert half.n_users == full.n_users == 10
+
+
+def test_user_fraction_keeps_the_same_new_users_for_any_fraction(monkeypatch):
+    train, test = cold_data()
+    captured = _spy_matrix(monkeypatch)
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 2}
+    new_sets = []
+    for fraction in (1.0, 0.5, 0.1):
+        evaluate(train, test, B, user_fraction=fraction, **kw)
+        counts = {}
+        for r in captured["train"]:
+            counts[r.user_id] = counts.get(r.user_id, 0) + 1
+        new_sets.append({u for u, c in counts.items() if c == 3})
+    assert new_sets[0] == new_sets[1] == new_sets[2]
+    assert len(new_sets[0]) == 10
+
+
+def test_user_fraction_keeps_at_least_one_established_user():
+    train, test = cold_data()
+    result = evaluate(
+        train, test, B, min_overlap=1, new_user_ratings=3, seed=1, user_fraction=0.001
+    )
+    assert result.established_users == (1, 10)
+
+
+def test_user_fraction_one_matches_default_and_is_deterministic():
+    train, test = cold_data()
+    kw = {"min_overlap": 1, "top_n": 3, "new_user_ratings": 3, "seed": 4}
+    assert evaluate(train, test, B, user_fraction=1.0, **kw) == evaluate(train, test, B, **kw)
+    first = evaluate(train, test, B, user_fraction=0.3, **kw)
+    assert evaluate(train, test, B, user_fraction=0.3, **kw) == first
+
+
+@pytest.mark.parametrize("fraction", [0, -0.5, 1.5])
+def test_user_fraction_out_of_range(fraction):
+    train, test = cold_data()
+    with pytest.raises(ValueError, match="user_fraction"):
+        evaluate(train, test, B, new_user_ratings=3, user_fraction=fraction)
+
+
+def test_user_fraction_requires_new_user_ratings():
+    train, test = cold_data()
+    with pytest.raises(ValueError, match="requires new_user_ratings"):
+        evaluate(train, test, B, user_fraction=0.5)

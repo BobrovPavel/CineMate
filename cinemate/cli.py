@@ -22,6 +22,7 @@ from cinemate.evaluation.runner import (
     EvaluationResult,
     MethodMetrics,
     Split,
+    established_users_line,
     evaluate_seeds,
     format_metric_cells,
     new_users_line,
@@ -87,6 +88,9 @@ def format_table(result: EvaluationResult, top_n: int = 10) -> str:
         lines.append(
             new_users_line(result.new_user_ratings, result.new_user_pick, result.new_user_seen)
         )
+    extra = established_users_line(result.user_fraction, result.established_users)
+    if extra:
+        lines.append(extra)
     return "\n".join(lines)
 
 
@@ -188,6 +192,14 @@ def build_parser() -> argparse.ArgumentParser:
         "or only the ones kept in the matrix, as the site does (default: %(default)s)",
     )
     ev.add_argument(
+        "--user-fraction",
+        type=float,
+        default=1.0,
+        help="with --new-user-ratings: keep only this share (0 < F <= 1) of the established "
+        "(neighbour) users, random by seed, to see how quality depends on the user base "
+        "size (default: %(default)s)",
+    )
+    ev.add_argument(
         "--blend-full-at",
         default="10,30",
         help="comma-separated hybrid thresholds T (ratings at which the hybrid is fully CF); "
@@ -273,6 +285,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="with --new-user-ratings: exclude from the lists all train ratings of a 'new' user "
         "or only the ones kept in the matrix, as the site does (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--user-fraction",
+        type=float,
+        default=1.0,
+        help="with --new-user-ratings: keep only this share (0 < F <= 1) of the established "
+        "(neighbour) users, random by seed, to see how quality depends on the user base "
+        "size (default: %(default)s)",
     )
     tu.add_argument(
         "--blend-full-at",
@@ -473,6 +493,15 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.item_lambda >= 0:
         print("cinemate evaluate: error: --item-lambda must be >= 0", file=sys.stderr)
         return 2
+    if not 0 < args.user_fraction <= 1:
+        print("cinemate evaluate: error: --user-fraction must be in (0, 1]", file=sys.stderr)
+        return 2
+    if args.user_fraction != 1.0 and args.new_user_ratings is None:
+        print(
+            "cinemate evaluate: error: --user-fraction requires --new-user-ratings",
+            file=sys.stderr,
+        )
+        return 2
     if not _check_seeds(args, "evaluate"):
         return 2
     blend = _parse_blend(args, "evaluate")
@@ -501,6 +530,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         blend_full_at=blend,
         item_min_overlap=args.item_min_overlap,
         item_lam=args.item_lambda,
+        user_fraction=args.user_fraction,
     )
     print(format_table(result, args.top_n))
     return 0
@@ -531,6 +561,12 @@ def _run_tune(args: argparse.Namespace) -> int:
     if args.new_user_seen != "all" and args.new_user_ratings is None:
         print("cinemate tune: error: --new-user-seen requires --new-user-ratings", file=sys.stderr)
         return 2
+    if not 0 < args.user_fraction <= 1:
+        print("cinemate tune: error: --user-fraction must be in (0, 1]", file=sys.stderr)
+        return 2
+    if args.user_fraction != 1.0 and args.new_user_ratings is None:
+        print("cinemate tune: error: --user-fraction requires --new-user-ratings", file=sys.stderr)
+        return 2
     if not _check_seeds(args, "tune"):
         return 2
     blend = _parse_blend(args, "tune")
@@ -557,6 +593,7 @@ def _run_tune(args: argparse.Namespace) -> int:
         new_user_pick=args.new_user_pick,
         new_user_seen=args.new_user_seen,
         blend_full_at=blend,
+        user_fraction=args.user_fraction,
     )
     print(format_tune_table(result, args.top_n))
     return 0

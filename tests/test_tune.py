@@ -257,3 +257,42 @@ def test_commands_run_with_seen_kept(command, monkeypatch, tmp_path, capsys):
         argv += ["--k", "3", "--lambda", "1"]
     assert main([*argv, "--new-user-pick", "onboarding", "--new-user-seen", "kept"]) == 0
     assert "new users: 5 ratings each (pick: onboarding, seen: kept)" in capsys.readouterr().out
+
+
+def test_tune_user_fraction_reported_in_table():
+    train = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    test = [Rating(u, 10, 5.0) for u in range(1, 21)]
+    grid = {"k": [3], "lam": [1.0], "min_overlap": [1]}
+    kw = {"top_n": 3, "new_user_ratings": 5}
+    result = tune(train, test, B, grid, user_fraction=0.5, **kw)
+    assert result.user_fraction == 0.5
+    assert result.established_users is not None
+    assert "established users: 5 of 10 (fraction 0.5)" in format_tune_table(result, 3)
+    assert "established users" not in format_tune_table(tune(train, test, B, grid, **kw), 3)
+
+
+@pytest.mark.parametrize("command", ["tune", "evaluate"])
+def test_user_fraction_requires_new_user_ratings_cli(command, capsys):
+    assert main([command, "--user-fraction", "0.5"]) == 2
+    assert "--user-fraction requires --new-user-ratings" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["tune", "evaluate"])
+@pytest.mark.parametrize("value", ["0", "1.5"])
+def test_user_fraction_range_cli(command, value, capsys):
+    assert main([command, "--user-fraction", value, "--new-user-ratings", "5"]) == 2
+    assert "--user-fraction must be in (0, 1]" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["tune", "evaluate"])
+def test_commands_run_with_user_fraction(command, monkeypatch, tmp_path, capsys):
+    from cinemate import cli
+
+    ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
+    argv = [command, "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
+    if command == "tune":
+        argv += ["--k", "3", "--lambda", "1"]
+    assert main([*argv, "--new-user-pick", "onboarding", "--user-fraction", "0.5"]) == 0
+    assert "established users:" in capsys.readouterr().out
