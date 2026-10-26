@@ -86,12 +86,30 @@ cinemate tune --source csv --ratings-csv data/ratings.csv --types Film,TvSeries
 
 Перед таблицей печатается сводка по набору данных (пользователи, фильмы, оценки, плотность, доли `+1`/`-1`/отброшенных) — для обоих источников, чтобы сравнение с MovieLens было честным.
 
+## Внешний набор оценок
+
+Оценки из `ratings.csv` (формат — в разделе выше) можно загрузить в ту же БД, что и MovieLens: фильмы, пользователей и оценки. Порядок команд:
+
+```
+cinemate migrate
+cinemate import-movielens
+cinemate import-ratings-csv --file data/ratings.csv [--types Film,TvSeries] [--rel-threshold 0.5]
+```
+
+В Docker: `docker compose run --rm app import-ratings-csv --file data/ratings.csv`.
+
+- Файл кладите в `data/` — каталог не коммитится.
+- Фильмы, общие с MovieLens, склеиваются в одну запись по нормализованному `title_original` и году (сравнение с `title` и `original_title`); `title` существующего фильма не меняется, ему проставляется `external_ratings_id`. Неоднозначные случаи (несколько кандидатов или конфликт) создают отдельный фильм и попадают в `movies ambiguous`.
+- Пользователи хранятся как `is_synthetic=True`, только с идентификатором из файла, без имён; создаются при наличии хотя бы одной оценки (пользователи с менее чем 20 оценками остаются без оценок и не создаются). Сырые оценки 1–10 не хранятся, только `+1`/`-1`.
+- Повторный запуск ничего не добавляет и не меняет; `Movie.popularity_score` пересчитывается.
+- Постеры и описания для таких фильмов не подтягиваются: у них нет `tmdb_id`.
+
 ## Переменные окружения
 
 | Переменная     | Назначение                                                        |
 | -------------- | ----------------------------------------------------------------- |
 | `TMDB_API_KEY` | ключ TMDB API для `enrich-movies`                                 |
-| `DATABASE_URL` | URL БД для `import-movielens`, `enrich-movies`, `metrics`, `serve` |
+| `DATABASE_URL` | URL БД для `import-movielens`, `import-ratings-csv`, `enrich-movies`, `metrics`, `serve` |
 
 URL базы данных выбирается так: аргумент `--database-url` → переменная `DATABASE_URL` →
 `sqlite:///cinemate.db`. Шаблон переменных — в `.env.example`; настоящий `.env` не

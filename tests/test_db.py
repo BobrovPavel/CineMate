@@ -97,3 +97,15 @@ def test_make_engine_accepts_postgres_url_without_connecting():
     engine = make_engine("postgresql+psycopg://user:secret@localhost:5432/cinemate")
     assert engine.dialect.name == "postgresql"
     assert engine.url.host == "localhost"
+
+
+def test_external_ratings_id_unique_for_movies_and_users(session):
+    session.add_all([Movie(title="A", external_ratings_id=1), User(external_ratings_id=1)])
+    session.commit()
+    session.add(Movie(title="B", external_ratings_id=1))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+    session.add(User(external_ratings_id=1))
+    with pytest.raises(IntegrityError):
+        session.commit()

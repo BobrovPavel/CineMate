@@ -27,12 +27,16 @@ class Base(DeclarativeBase):
 
 class Movie(Base):
     __tablename__ = "movies"
+    __table_args__ = (
+        UniqueConstraint("external_ratings_id", name="uq_movies_external_ratings_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tmdb_id: Mapped[int | None] = mapped_column(Integer)
     imdb_id: Mapped[str | None] = mapped_column(String(16))
     external_movielens_id: Mapped[int | None] = mapped_column(Integer, unique=True)
     external_kinopoisk_id: Mapped[int | None] = mapped_column(Integer)
+    external_ratings_id: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(512))
     original_title: Mapped[str | None] = mapped_column(String(512))
     year: Mapped[int | None] = mapped_column(Integer)
@@ -45,6 +49,7 @@ class Movie(Base):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("external_ratings_id", name="uq_users_external_ratings_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_token: Mapped[str | None] = mapped_column(String(128), unique=True)
@@ -52,6 +57,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     is_synthetic: Mapped[bool] = mapped_column(default=False)
     external_movielens_id: Mapped[int | None] = mapped_column(Integer, unique=True)
+    external_ratings_id: Mapped[int | None] = mapped_column(Integer)
 
 
 class Rating(Base):

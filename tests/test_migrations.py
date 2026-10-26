@@ -2,6 +2,7 @@ import shutil
 import textwrap
 
 import pytest
+from alembic import command
 from sqlalchemy import inspect, text
 
 from cinemate.api.app import create_app
@@ -10,6 +11,7 @@ from cinemate.db.migrations import (
     DEFAULT_MIGRATIONS_DIR,
     MIGRATIONS_DIR_ENV,
     SchemaNotMigratedError,
+    alembic_config,
     current_revision,
     ensure_schema,
     head_revision,
@@ -34,7 +36,8 @@ def _describe(engine):
             },
             "pk": insp.get_pk_constraint(table)["constrained_columns"],
             "unique": sorted(
-                (u["name"], tuple(u["column_names"])) for u in insp.get_unique_constraints(table)
+                (u["name"] or "", tuple(u["column_names"]))
+                for u in insp.get_unique_constraints(table)
             ),
             "indexes": sorted(
                 (i["name"], tuple(i["column_names"])) for i in insp.get_indexes(table)
@@ -121,14 +124,14 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
-    (scripts / "versions" / "0002_add_note.py").write_text(
+    (scripts / "versions" / "0003_add_note.py").write_text(
         textwrap.dedent(
             """
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "0002"
-            down_revision = "0001"
+            revision = "0003"
+            down_revision = "0002"
             branch_labels = None
             depends_on = None
 
@@ -147,10 +150,29 @@ def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     upgrade_head(engine, scripts)
-    assert current_revision(engine) == head_revision(scripts) == "0002"
+    assert current_revision(engine) == head_revision(scripts) == "0003"
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, note FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]
+
+
+def test_migration_0002_adds_external_ratings_id_to_existing_database(db_url):
+    engine = make_engine(db_url)
+    command.upgrade(alembic_config(engine), "0001")
+    assert current_revision(engine) == "0001"
+    assert "external_ratings_id" not in {c["name"] for c in inspect(engine).get_columns("movies")}
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
+    assert main(["migrate", "--database-url", db_url]) == 0
+    assert current_revision(engine) == head_revision()
+    insp = inspect(engine)
+    for table in ("movies", "users"):
+        assert "external_ratings_id" in {c["name"] for c in insp.get_columns(table)}
+        assert ("external_ratings_id",) in {
+            tuple(u["column_names"]) for u in insp.get_unique_constraints(table)
+        }
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT title FROM movies")).scalars().all() == ["Alien"]
 
 
 def test_create_app_in_memory_works_as_before():

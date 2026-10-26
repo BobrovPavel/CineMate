@@ -23,6 +23,7 @@ from cinemate.db.migrations import (
     stamp_head,
     upgrade_head,
 )
+from cinemate.db.ratings_import import import_ratings_csv
 from cinemate.db.session import create_all, make_engine
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import (
@@ -353,6 +354,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DATA_DIR,
         help="where MovieLens is stored or downloaded to (default: %(default)s)",
     )
+    ir = sub.add_parser(
+        "import-ratings-csv", help="import movies, users and ratings from a ratings CSV"
+    )
+    ir.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    ir.add_argument(
+        "--file", type=Path, required=True, help="path to ratings.csv (user_rating on a 1-10 scale)"
+    )
+    ir.add_argument(
+        "--types",
+        default=None,
+        help="comma-separated movie types to keep, e.g. Film,TvSeries (default: all)",
+    )
+    ir.add_argument(
+        "--rel-threshold",
+        type=float,
+        default=0.5,
+        help="a rating at least this far above (below) the user's mean score is a like "
+        "(dislike) (default: %(default)s)",
+    )
     en = sub.add_parser("enrich-movies", help="fetch movie metadata from TMDB into the database")
     en.add_argument(
         "--database-url",
@@ -505,6 +525,45 @@ def _run_import(args: argparse.Namespace) -> int:
     print(
         f"movies added: {stats.movies_added}, users added: {stats.users_added}, "
         f"ratings added: {stats.ratings_added}, ratings skipped: {stats.ratings_skipped}, "
+        f"popularity updated: {stats.popularity_updated}"
+    )
+    return 0
+
+
+def _run_import_ratings_csv(args: argparse.Namespace) -> int:
+    command = args.command
+    if not args.rel_threshold > 0:
+        print(f"cinemate {command}: error: --rel-threshold must be > 0", file=sys.stderr)
+        return 2
+    types = [t for t in args.types.split(",") if t.strip()] if args.types is not None else None
+    try:
+        ratings = load_ratings(args.file, types)
+    except OSError as exc:
+        print(
+            f"cinemate {command}: error: cannot read {args.file}: {exc.strerror}", file=sys.stderr
+        )
+        return 2
+    except ValueError as exc:
+        print(f"cinemate {command}: error: {args.file}: {exc}", file=sys.stderr)
+        return 2
+    binarizer = RelativeMeanBinarizer.fit(
+        ratings, min_ratings=CSV_MIN_RATINGS, threshold=args.rel_threshold
+    )
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
+    with Session(engine) as session:
+        try:
+            stats = import_ratings_csv(session, args.file, binarizer, types)
+        except ValueError as exc:
+            print(f"cinemate {command}: error: {args.file}: {exc}", file=sys.stderr)
+            return 2
+    print(
+        f"movies merged: {stats.movies_merged}, movies added: {stats.movies_added}, "
+        f"movies ambiguous: {stats.movies_ambiguous}, "
+        f"movies skipped (no title): {stats.movies_skipped_no_title}, "
+        f"users added: {stats.users_added}, ratings added: {stats.ratings_added}, "
+        f"ratings skipped: {stats.ratings_skipped}, "
         f"popularity updated: {stats.popularity_updated}"
     )
     return 0
@@ -737,6 +796,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_tune(args)
     if args.command == "import-movielens":
         return _run_import(args)
+    if args.command == "import-ratings-csv":
+        return _run_import_ratings_csv(args)
     if args.command == "metrics":
         return _run_metrics(args)
     if args.command == "enrich-movies":
