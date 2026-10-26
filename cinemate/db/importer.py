@@ -1,5 +1,6 @@
 """Idempotent import of MovieLens into the database."""
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
+from cinemate.db.catalog import CatalogConflict, find_movie, link
 from cinemate.db.models import Movie, Rating, User
 from cinemate.db.popularity import update_popularity
 from cinemate.movielens import parse_links, parse_movies, parse_ratings
@@ -31,28 +33,35 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
     Finally ``Movie.popularity_score`` is recomputed as the number of ``+1`` ratings.
     """
     data_dir = Path(data_dir)
-    links = {link.movielens_id: link for link in parse_links(data_dir / "links.csv")}
-    movies = {
-        m.external_movielens_id: m
-        for m in session.scalars(select(Movie).where(Movie.external_movielens_id.is_not(None)))
-    }
+    links = {link_.movielens_id: link_ for link_ in parse_links(data_dir / "links.csv")}
+    movies: dict[int, Movie] = {}
     movies_added = 0
     for parsed in parse_movies(data_dir / "movies.csv"):
-        link = links.get(parsed.movielens_id)
-        movie = movies.get(parsed.movielens_id)
+        parsed_link = links.get(parsed.movielens_id)
+        tmdb = ("movie", parsed_link.tmdb_id) if parsed_link and parsed_link.tmdb_id else None
+        movie = find_movie(session, tmdb=tmdb, ids={"movielens": str(parsed.movielens_id)})
         if movie is None:
             movie = Movie(external_movielens_id=parsed.movielens_id)
             session.add(movie)
-            movies[parsed.movielens_id] = movie
             movies_added += 1
-        movie.title = parsed.title
-        if parsed.alt_title and not movie.original_title:
-            movie.original_title = parsed.alt_title
-        movie.year = parsed.year
-        movie.genres = list(parsed.genres)
-        if link is not None:
-            movie.imdb_id = link.imdb_id
-            movie.tmdb_id = link.tmdb_id
+        movies[parsed.movielens_id] = movie
+        # a movie matched through another source (or another MovieLens duplicate) only gets
+        # linked: its own data stays as it is
+        if movie.external_movielens_id == parsed.movielens_id:
+            movie.title = parsed.title
+            if parsed.alt_title and not movie.original_title:
+                movie.original_title = parsed.alt_title
+            movie.year = parsed.year
+            movie.genres = list(parsed.genres)
+        if tmdb is not None and movie.tmdb_id is None:
+            movie.tmdb_type, movie.tmdb_id = tmdb
+        if parsed_link is not None and parsed_link.imdb_id and movie.imdb_id is None:
+            movie.imdb_id = parsed_link.imdb_id
+        link(session, movie, "movielens", parsed.movielens_id)
+        if parsed_link is not None and parsed_link.imdb_id:
+            # an IMDb id that belongs to another movie is left unlinked
+            with contextlib.suppress(CatalogConflict):
+                link(session, movie, "imdb", parsed_link.imdb_id)
 
     users = {
         u.external_movielens_id: u

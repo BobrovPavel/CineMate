@@ -4,6 +4,7 @@ import textwrap
 import pytest
 from alembic import command
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from cinemate.api.app import create_app
 from cinemate.cli import main
@@ -124,14 +125,14 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
-    (scripts / "versions" / "0004_add_note.py").write_text(
+    (scripts / "versions" / "0005_add_note.py").write_text(
         textwrap.dedent(
             """
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "0004"
-            down_revision = "0003"
+            revision = "0005"
+            down_revision = "0004"
             branch_labels = None
             depends_on = None
 
@@ -150,7 +151,7 @@ def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     upgrade_head(engine, scripts)
-    assert current_revision(engine) == head_revision(scripts) == "0004"
+    assert current_revision(engine) == head_revision(scripts) == "0005"
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, note FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]
@@ -244,8 +245,117 @@ def test_migration_0003_adds_title_ru_to_existing_database(db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0003"
+    assert current_revision(engine) == head_revision() == "0004"
     assert "title_ru" in {c["name"] for c in inspect(engine).get_columns("movies")}
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, title_ru FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]
+
+
+def _run(engine, sql, **params):
+    with engine.begin() as conn:
+        return conn.execute(text(sql), params)
+
+
+def test_migration_0004_moves_ids_and_merges_tmdb_duplicates(db_url):
+    engine = make_engine(db_url)
+    command.upgrade(alembic_config(engine), "0003")
+    for movie_id, ml, imdb, tmdb, ratings_id in [
+        (1, 10, "tt1", 862, None),
+        (2, 20, "tt1", 862, 5),  # duplicate of 1 (same TMDB id)
+        (3, 30, None, None, None),
+        (4, 40, "tt4", 99, None),
+    ]:
+        _run(
+            engine,
+            "INSERT INTO movies (id, title, genres, external_movielens_id, imdb_id, tmdb_id,"
+            " external_ratings_id) VALUES (:i, 't', '[]', :ml, :imdb, :tmdb, :r)",
+            i=movie_id,
+            ml=ml,
+            imdb=imdb,
+            tmdb=tmdb,
+            r=ratings_id,
+        )
+    _run(engine, "UPDATE movies SET overview = 'описание' WHERE id = 2")
+    for user_id in (1, 2, 3):
+        _run(
+            engine,
+            "INSERT INTO users (id, is_synthetic, created_at) VALUES (:i, 1, '2026-01-01')",
+            i=user_id,
+        )
+    for user_id, movie_id, value, created in [
+        (1, 1, 1, "2026-01-01"),
+        (1, 2, -1, "2026-02-01"),  # later: wins
+        (2, 1, 1, "2026-03-01"),  # later: stays
+        (2, 2, -1, "2026-01-01"),
+        (3, 2, 1, "2026-01-01"),  # only rated the duplicate
+    ]:
+        _run(
+            engine,
+            "INSERT INTO ratings (user_id, movie_id, value, created_at) VALUES (:u, :m, :v, :c)",
+            u=user_id,
+            m=movie_id,
+            v=value,
+            c=created,
+        )
+    _run(engine, "INSERT INTO seen_marks (user_id, movie_id, type) VALUES (1, 1, 'not_seen')")
+    _run(engine, "INSERT INTO seen_marks (user_id, movie_id, type) VALUES (1, 2, 'watched')")
+    _run(engine, "INSERT INTO seen_marks (user_id, movie_id, type) VALUES (3, 2, 'watched')")
+    _run(
+        engine,
+        "INSERT INTO events (user_id, session_id, type, movie_id, created_at)"
+        " VALUES (1, 's', 'impression', 2, '2026-01-01')",
+    )
+
+    upgrade_head(engine)
+
+    with engine.connect() as conn:
+
+        def rows(sql):
+            return [tuple(r) for r in conn.execute(text(sql))]
+
+        assert rows("SELECT id, tmdb_type, tmdb_id, overview FROM movies ORDER BY id") == [
+            (1, "movie", 862, "описание"),
+            (3, None, None, None),
+            (4, "movie", 99, None),
+        ]
+        assert rows(
+            "SELECT source, external_id, movie_id FROM movie_external_ids ORDER BY 1, 2"
+        ) == [
+            ("imdb", "tt1", 1),
+            ("imdb", "tt4", 4),
+            ("movielens", "10", 1),
+            ("movielens", "20", 1),
+            ("movielens", "30", 3),
+            ("movielens", "40", 4),
+            ("ratings_csv", "5", 1),
+        ]
+        assert rows("SELECT user_id, movie_id, value FROM ratings ORDER BY user_id") == [
+            (1, 1, -1),
+            (2, 1, 1),
+            (3, 1, 1),
+        ]
+        assert rows("SELECT user_id, movie_id, type FROM seen_marks ORDER BY user_id") == [
+            (1, 1, "watched"),
+            (3, 1, "watched"),
+        ]
+        assert rows("SELECT movie_id FROM events") == [(1,)]
+        assert rows("SELECT popularity_score FROM movies WHERE id = 1") == [(2.0,)]
+    with pytest.raises(IntegrityError):
+        _run(
+            engine,
+            "INSERT INTO movies (title, genres, tmdb_type, tmdb_id)"
+            " VALUES ('x', '[]', 'movie', 862)",
+        )
+    with pytest.raises(IntegrityError):
+        _run(
+            engine,
+            "INSERT INTO movies (title, genres, tmdb_type, tmdb_id) VALUES ('x', '[]', 'film', 1)",
+        )
+    # tv and movie ids live in separate spaces; NULL pairs may repeat
+    _run(
+        engine,
+        "INSERT INTO movies (title, genres, tmdb_type, tmdb_id) VALUES ('x', '[]', 'tv', 862)",
+    )
+    _run(engine, "INSERT INTO movies (title, genres) VALUES ('y', '[]')")
+    _run(engine, "INSERT INTO movies (title, genres) VALUES ('z', '[]')")

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import MovieLensBinarizer
 from cinemate.cli import main
+from cinemate.db.catalog import find_movie, merge_movies
 from cinemate.db.importer import ImportStats, import_movielens
 from cinemate.db.models import Movie, Rating, User
 from cinemate.db.session import create_all, make_engine
@@ -226,3 +227,55 @@ def test_reimport_fixes_old_titles(tmp_path):
         _write_titles(data, ["Blair Witch Project, The (1999)", "Jumanji (1995)"])
         import_movielens(session, data, MovieLensBinarizer())
         assert toy.title == "The Blair Witch Project"
+
+
+def test_import_writes_external_ids_and_tmdb_pair(tmp_path):
+    data = _write_dataset(tmp_path)
+    with _session() as session:
+        import_movielens(session, data, MovieLensBinarizer())
+        toy = session.scalar(select(Movie).where(Movie.title == "Toy Story"))
+        assert (toy.tmdb_type, toy.tmdb_id) == ("movie", 862)
+        assert find_movie(session, ids={"movielens": "1"}) is toy
+        assert find_movie(session, ids={"imdb": "tt0114709"}) is toy
+        assert find_movie(session, tmdb=("movie", 862)) is toy
+
+
+def test_import_links_movielens_duplicates_to_one_movie_and_is_idempotent(tmp_path):
+    (tmp_path / "movies.csv").write_text(
+        "movieId,title,genres\n1,Heat (1995),Crime\n2,Heat (1995),Crime\n", encoding="utf-8"
+    )
+    (tmp_path / "links.csv").write_text(
+        "movieId,imdbId,tmdbId\n1,0113277,949\n2,0113277,949\n", encoding="utf-8"
+    )
+    (tmp_path / "ratings.csv").write_text(
+        "userId,movieId,rating,timestamp\n10,1,5.0,1\n10,2,5.0,2\n11,2,5.0,3\n", encoding="utf-8"
+    )
+    with _session() as session:
+        first = import_movielens(session, tmp_path, MovieLensBinarizer())
+        assert first.movies_added == 1
+        assert session.scalar(select(func.count()).select_from(Movie)) == 1
+        assert session.scalar(select(func.count()).select_from(Rating)) == 2
+        assert find_movie(session, ids={"movielens": "2"}) is find_movie(
+            session, ids={"movielens": "1"}
+        )
+        snapshot = _snapshot(session)
+        second = import_movielens(session, tmp_path, MovieLensBinarizer())
+        assert (second.movies_added, second.users_added, second.ratings_added) == (0, 0, 0)
+        assert _snapshot(session) == snapshot
+
+
+def test_import_after_merge_does_not_recreate_dropped_duplicate(tmp_path):
+    (tmp_path / "movies.csv").write_text(
+        "movieId,title,genres\n1,Heat (1995),Crime\n2,Heat (1995),Crime\n", encoding="utf-8"
+    )
+    (tmp_path / "links.csv").write_text("movieId,imdbId,tmdbId\n1,,\n2,,\n", encoding="utf-8")
+    (tmp_path / "ratings.csv").write_text("userId,movieId,rating,timestamp\n", encoding="utf-8")
+    with _session() as session:
+        import_movielens(session, tmp_path, MovieLensBinarizer())
+        keep = find_movie(session, ids={"movielens": "1"})
+        drop = find_movie(session, ids={"movielens": "2"})
+        merge_movies(session, keep.id, drop.id)
+        session.commit()
+        stats = import_movielens(session, tmp_path, MovieLensBinarizer())
+        assert stats.movies_added == 0
+        assert session.scalar(select(func.count()).select_from(Movie)) == 1

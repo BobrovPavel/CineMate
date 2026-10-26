@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import RelativeMeanBinarizer
 from cinemate.cli import main
+from cinemate.db.catalog import link
 from cinemate.db.models import Movie, Rating, User
 from cinemate.db.ratings_import import import_ratings_csv, normalize_title
 from cinemate.db.session import create_all, make_engine
@@ -138,7 +139,9 @@ def test_title_falls_back_to_original_and_skips_without_any(tmp_path):
 
 def test_existing_external_movie_only_fills_empty_fields(tmp_path):
     session = _session()
-    session.add(Movie(title="Keep", external_ratings_id=5, year=2000, genres=[]))
+    keep = Movie(title="Keep", external_ratings_id=5, year=2000, genres=[])
+    session.add(keep)
+    link(session, keep, "ratings_csv", 5)
     session.commit()
     _run(session, _write(tmp_path, '1,5,Other,Heat,Film,1995,"драма",,10\n'))
     movie = session.scalars(select(Movie)).one()
