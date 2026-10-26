@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://cinemate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/cinemate
       COOKIE_SECURE: ${COOKIE_SECURE:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
       REC_K: ${REC_K:-}
       REC_LAMBDA: ${REC_LAMBDA:-}
       REC_MIN_OVERLAP: ${REC_MIN_OVERLAP:-}

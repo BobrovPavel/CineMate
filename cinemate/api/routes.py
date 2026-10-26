@@ -11,6 +11,7 @@ from cinemate.api.deps import (
     get_current_user,
     get_db_session,
     get_matrix_store,
+    get_tmdb_client,
     session_token,
 )
 from cinemate.api.schemas import (
@@ -21,15 +22,19 @@ from cinemate.api.schemas import (
     RatingIn,
     RecommendationItem,
     RecommendationsOut,
+    ResolveIn,
+    SearchResultOut,
     SeenIn,
     SessionOut,
     WriteOut,
 )
+from cinemate.db.catalog import import_from_tmdb
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, User
 from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.recommendations import get_recommendations
+from cinemate.services.search import search_movies
 from cinemate.services.users import (
     create_session_user,
     get_ratings,
@@ -38,6 +43,7 @@ from cinemate.services.users import (
     set_rating,
     set_seen_mark,
 )
+from cinemate.tmdb import TmdbClient, TmdbError
 
 COOKIE_MAX_AGE = 365 * 24 * 3600
 
@@ -192,6 +198,63 @@ def recommendations(
             for item in result.items
         ],
     )
+
+
+@router.get("/search", response_model=list[SearchResultOut])
+def search(
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    client: Annotated[TmdbClient, Depends(get_tmdb_client)],
+    q: Annotated[str, Query(min_length=2, max_length=100)],
+    page: Annotated[int, Query(ge=1, le=100)] = 1,
+) -> list[SearchResultOut]:
+    """Search movies and TV shows in TMDB; the language follows ``Accept-Language``."""
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=422, detail="q must have at least 2 characters")
+    pool = pool_from_accept_language(request.headers.get("accept-language"))
+    try:
+        results = search_movies(
+            session,
+            client,
+            request.app.state.search_cache,
+            user,
+            q,
+            "ru-RU" if pool == "ru" else "en-US",
+            page,
+        )
+    except TmdbError as exc:
+        raise HTTPException(status_code=502, detail="ошибка TMDB") from exc
+    return [
+        SearchResultOut(
+            tmdb_type=r.item.tmdb_type,
+            tmdb_id=r.item.tmdb_id,
+            title=r.item.title,
+            original_title=r.item.original_title,
+            year=r.item.year,
+            poster_path=r.item.poster_path,
+            movie_id=r.movie_id,
+            user_value=r.user_value,
+        )
+        for r in results
+    ]
+
+
+@router.post("/movies/resolve", response_model=MovieCard)
+def resolve_movie(
+    body: ResolveIn,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    client: Annotated[TmdbClient, Depends(get_tmdb_client)],
+) -> MovieCard:
+    """Our card for a TMDB movie or show, creating it in the catalog on first use."""
+    try:
+        movie = import_from_tmdb(session, client, body.tmdb_type, body.tmdb_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="movie not found") from exc
+    except TmdbError as exc:
+        raise HTTPException(status_code=502, detail="ошибка TMDB") from exc
+    return _card(movie)
 
 
 @router.get("/movies/{movie_id}", response_model=MovieCard)

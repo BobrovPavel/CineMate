@@ -123,3 +123,32 @@ export type ProfileItem = {
 export function fetchProfile(): Promise<ProfileItem[]> {
   return apiFetch("/api/profile");
 }
+
+export type SearchResult = {
+  tmdb_type: "movie" | "tv";
+  tmdb_id: number;
+  title: string;
+  original_title: string | null;
+  year: number | null;
+  poster_path: string | null;
+  movie_id: number | null;
+  user_value: 1 | -1 | null;
+};
+
+export function searchMovies(query: string, signal?: AbortSignal): Promise<SearchResult[]> {
+  return apiFetch(`/api/search?q=${encodeURIComponent(query)}`, { signal });
+}
+
+export function resolveMovie(tmdbType: "movie" | "tv", tmdbId: number): Promise<{ id: number }> {
+  return apiFetch("/api/movies/resolve", {
+    method: "POST",
+    body: JSON.stringify({ tmdb_type: tmdbType, tmdb_id: tmdbId }),
+  });
+}
+
+export function postWatched(movieId: number): Promise<WriteResult> {
+  return apiFetch("/api/seen", {
+    method: "POST",
+    body: JSON.stringify({ movie_id: movieId, type: "watched" }),
+  });
+}

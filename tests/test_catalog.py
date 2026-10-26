@@ -157,3 +157,117 @@ def test_merge_keeps_tmdb_pair_of_keep_when_both_have_one(session):
     merge_movies(session, keep_id, drop.id)
     assert find_movie(session, tmdb=("movie", 1)).id == keep_id
     assert find_movie(session, tmdb=("movie", 2)) is None
+
+
+# --- import_from_tmdb ---
+
+
+def _details(**kw):
+    from cinemate.tmdb import TmdbDetails
+
+    base = dict(
+        tmdb_type="movie",
+        tmdb_id=10,
+        title="Leviathan",
+        original_title="Левиафан",
+        year=2014,
+        poster_path="/p.jpg",
+        runtime=140,
+        genres=["Drama"],
+        imdb_id="tt2802154",
+        title_ru="Левиафан",
+        overview_ru="Описание",
+        overview="Overview",
+    )
+    base.update(kw)
+    return TmdbDetails(**base)
+
+
+class _FakeClient:
+    def __init__(self, details=None, on_fetch=None):
+        self.details = details
+        self.on_fetch = on_fetch
+        self.calls = 0
+
+    def fetch_details(self, tmdb_type, tmdb_id):
+        self.calls += 1
+        if self.on_fetch:
+            self.on_fetch()
+        return self.details
+
+
+def test_import_from_tmdb_creates_movie_and_imdb_link(session):
+    from cinemate.db.catalog import import_from_tmdb
+
+    client = _FakeClient(_details())
+    movie = import_from_tmdb(session, client, "movie", 10)
+    assert (movie.title, movie.original_title, movie.title_ru) == (
+        "Leviathan",
+        "Левиафан",
+        "Левиафан",
+    )
+    assert (movie.year, movie.runtime, movie.genres, movie.poster_path) == (
+        2014,
+        140,
+        ["Drama"],
+        "/p.jpg",
+    )
+    assert movie.overview == "Описание"
+    assert find_movie(session, ids={"imdb": "tt2802154"}) is movie
+
+
+def test_import_from_tmdb_falls_back_to_english_overview(session):
+    from cinemate.db.catalog import import_from_tmdb
+
+    client = _FakeClient(_details(title_ru=None, overview_ru=None))
+    movie = import_from_tmdb(session, client, "movie", 10)
+    assert movie.overview == "Overview"
+    assert movie.title_ru is None
+
+
+def test_import_from_tmdb_is_idempotent(session):
+    from cinemate.db.catalog import import_from_tmdb
+
+    client = _FakeClient(_details())
+    first = import_from_tmdb(session, client, "movie", 10)
+    second = import_from_tmdb(session, client, "movie", 10)
+    assert first is second
+    assert client.calls == 1
+    assert len(session.scalars(select(Movie)).all()) == 1
+
+
+def test_import_from_tmdb_unknown_pair(session):
+    from cinemate.db.catalog import import_from_tmdb
+
+    with pytest.raises(LookupError):
+        import_from_tmdb(session, _FakeClient(None), "tv", 1)
+
+
+def test_import_from_tmdb_imdb_taken_by_other_movie_keeps_pair(session):
+    from cinemate.db.catalog import import_from_tmdb
+
+    other = _movie(session, "other")
+    link(session, other, "imdb", "tt2802154")
+    movie = import_from_tmdb(session, _FakeClient(_details()), "movie", 10)
+    assert movie.id != other.id
+    assert find_movie(session, ids={"imdb": "tt2802154"}) is other
+    assert find_movie(session, tmdb=("movie", 10)) is movie
+
+
+def test_import_from_tmdb_race_returns_winner(tmp_path):
+    from cinemate.db.catalog import import_from_tmdb
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'race.db'}")
+    create_all(engine)
+
+    def other_request_wins():
+        with Session(engine) as other:
+            other.add(Movie(title="Winner", tmdb_type="movie", tmdb_id=10))
+            other.commit()
+
+    with Session(engine) as s:
+        client = _FakeClient(_details(), on_fetch=other_request_wins)
+        movie = import_from_tmdb(s, client, "movie", 10)
+        assert movie.title == "Winner"
+        s.commit()
+        assert len(s.scalars(select(Movie)).all()) == 1
