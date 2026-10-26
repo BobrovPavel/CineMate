@@ -86,7 +86,7 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
     import cinemate.cli as cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     code = main(["tune", "--k", "3,5", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"])
     out = capsys.readouterr().out
@@ -131,7 +131,7 @@ def test_tune_command_significance(monkeypatch, tmp_path, capsys):
     import cinemate.cli as cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = ["tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
     assert main([*argv, "--significance", "0,5"]) == 0
@@ -151,7 +151,7 @@ def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):
     import cinemate.cli as cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = ["tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
     assert main([*argv, "--pop-penalty", "0,0.5,1"]) == 0
@@ -186,7 +186,7 @@ def test_evaluate_command_cold_start(monkeypatch, tmp_path, capsys):
     from cinemate import cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = ["evaluate", "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
     assert main(argv) == 0
@@ -214,7 +214,7 @@ def test_commands_run_with_onboarding_pick(command, monkeypatch, tmp_path, capsy
     from cinemate import cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = [command, "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
     if command == "tune":
@@ -254,7 +254,7 @@ def test_commands_run_with_seen_kept(command, monkeypatch, tmp_path, capsys):
     from cinemate import cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = [command, "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
     if command == "tune":
@@ -293,7 +293,7 @@ def test_commands_run_with_user_fraction(command, monkeypatch, tmp_path, capsys)
     from cinemate import cli
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = [command, "--min-overlap", "1", "--top-n", "3", "--new-user-ratings", "5"]
     if command == "tune":

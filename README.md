@@ -57,6 +57,33 @@ cinemate tune --k 20,40,80 --lambda 2,5,10 --min-overlap 1,2,3
 cinemate import-movielens --database-url sqlite:///cinemate.db --data-dir data
 ```
 
+### Набор ml-32m
+
+`evaluate`, `tune` и `import-movielens` принимают `--dataset {ml-latest-small,ml-32m}` (по умолчанию
+`ml-latest-small`). `ml-32m` — около 32 млн оценок, 200 тысяч пользователей, 87 тысяч фильмов:
+архив ≈ 240 МБ, после распаковки в `data/ml-32m` ≈ 900 МБ (`data/` в `.gitignore`). Если GroupLens
+публикует рядом с архивом файл `.md5`, скачанный архив проверяется по нему.
+
+Отбор пользователей общий для трёх команд: `--min-user-ratings N` (по умолчанию 0) и
+`--max-users N` (случайная выборка среди подходящих, детерминированная по `--seed`). `ratings.csv`
+читается в два прохода: первый считает оценки по пользователям, второй отдаёт оценки выбранных;
+весь файл в память не загружается. Повторный `import-movielens` пропускает пользователей,
+которые уже есть в базе, вместе с их оценками; оценки пишутся пачками по 10 000 строк, прогресс
+печатается раз в 1 млн прочитанных оценок.
+
+```
+cinemate import-movielens --dataset ml-32m --min-user-ratings 50 --max-users 30000
+cinemate evaluate --dataset ml-32m --min-user-ratings 50 --max-users 5000
+```
+
+Время импорта пока не замерено на полном наборе; по порядку величины (оценка, а не измерение)
+на SQLite это единицы минут на каждый миллион записанных оценок, а чтение двух проходов по файлу —
+около минуты. Рекомендуемый отбор `--min-user-ratings 50 --max-users 30000`.
+
+Лицензия `ml-32m` та же, что у `ml-latest-small`: только некоммерческое использование, атрибуция
+GroupLens (F. Maxwell Harper and Joseph A. Konstan, *The MovieLens Datasets: History and Context*,
+ACM TiiS 5(4), 2015).
+
 ### `cinemate enrich-movies`
 
 Дополняет фильмы с `tmdb_id` описанием, постером и длительностью через TMDB. Требуется

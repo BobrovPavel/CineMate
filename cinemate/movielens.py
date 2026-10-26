@@ -1,7 +1,9 @@
 """Parsers for MovieLens CSV files (movies, ratings, links)."""
 
 import csv
+import random
 import re
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,3 +103,33 @@ def parse_links(path: Path | str) -> Iterator[Link]:
             f"tt{int(imdb):07d}" if imdb else None,
             int(tmdb) if tmdb else None,
         )
+
+
+def select_users(
+    path: Path | str, *, min_user_ratings: int = 0, max_users: int | None = None, seed: int = 0
+) -> set[int]:
+    """First pass over ``ratings.csv``: users with at least ``min_user_ratings`` ratings.
+
+    With ``max_users`` a deterministic (by ``seed``) sample of that size is taken from them.
+    Only per-user counters are kept in memory, not the ratings.
+    """
+    counts: Counter[int] = Counter()
+    for row in _rows(path):
+        counts[int(row["userId"])] += 1
+    eligible = sorted(u for u, n in counts.items() if n >= min_user_ratings)
+    if max_users is not None and len(eligible) > max_users:
+        eligible = random.Random(seed).sample(eligible, max_users)
+    return set(eligible)
+
+
+def iter_ratings(
+    path: Path | str, *, min_user_ratings: int = 0, max_users: int | None = None, seed: int = 0
+) -> Iterator[Rating]:
+    """Yield ratings of the selected users in two passes; without a limit it is one plain pass."""
+    if min_user_ratings <= 0 and max_users is None:
+        yield from parse_ratings(path)
+        return
+    users = select_users(path, min_user_ratings=min_user_ratings, max_users=max_users, seed=seed)
+    for row in _rows(path):
+        if int(row["userId"]) in users:
+            yield Rating(int(row["userId"]), int(row["movieId"]), float(row["rating"]))

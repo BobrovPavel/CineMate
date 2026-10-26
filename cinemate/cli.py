@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from cinemate import __version__
 from cinemate.binarize import Binarizer, MovieLensBinarizer, RelativeMeanBinarizer
 from cinemate.config import RecommenderSettings
-from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
+from cinemate.datasets import DATASET_DIR, DATASETS, DEFAULT_DATA_DIR, ensure_movielens
 from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
 from cinemate.db.migrations import (
@@ -38,7 +38,7 @@ from cinemate.evaluation.runner import (
 )
 from cinemate.evaluation.summary import describe_ratings, format_summary
 from cinemate.evaluation.tune import format_tune_table, tune
-from cinemate.movielens import Rating, parse_ratings
+from cinemate.movielens import Rating, iter_ratings, parse_ratings
 from cinemate.ratings_csv import CSV_MIN_RATINGS, load_ratings
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
 from cinemate.tmdb import TmdbClient, TmdbError
@@ -123,7 +123,37 @@ def _positive_int(text: str) -> int:
     return value
 
 
+def _non_negative_int(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be at least 0")
+    return value
+
+
+def _add_dataset_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--dataset",
+        choices=DATASETS,
+        default=DATASET_DIR,
+        help="MovieLens dataset to download and read (default: %(default)s)",
+    )
+    p.add_argument(
+        "--min-user-ratings",
+        type=_non_negative_int,
+        default=0,
+        help="keep only users with at least N ratings (default: %(default)s)",
+    )
+    p.add_argument(
+        "--max-users",
+        type=_positive_int,
+        default=None,
+        help="keep a random sample (by --seed) of at most N of the eligible users "
+        "(default: no limit)",
+    )
+
+
 def _add_source_args(p: argparse.ArgumentParser) -> None:
+    _add_dataset_args(p)
     p.add_argument(
         "--source",
         choices=["movielens", "csv"],
@@ -343,6 +373,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_source_args(tu)
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
+    _add_dataset_args(imp)
+    imp.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="seed of the --max-users sample (default: %(default)s)",
+    )
     imp.add_argument(
         "--database-url",
         default=None,
@@ -525,13 +562,25 @@ def _run_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_progress(read: int) -> None:
+    print(f"ratings read: {read}", flush=True)
+
+
 def _run_import(args: argparse.Namespace) -> int:
-    dataset = ensure_movielens(args.data_dir)
+    dataset = ensure_movielens(args.data_dir, args.dataset)
     engine = _open_engine(args)
     if engine is None:
         return 2
     with Session(engine) as session:
-        stats = import_movielens(session, dataset, MovieLensBinarizer())
+        stats = import_movielens(
+            session,
+            dataset,
+            MovieLensBinarizer(),
+            min_user_ratings=args.min_user_ratings,
+            max_users=args.max_users,
+            seed=args.seed,
+            progress=_print_progress,
+        )
     print(
         f"movies added: {stats.movies_added}, movies merged: {stats.movies_merged}, "
         f"users added: {stats.users_added}, "
@@ -636,8 +685,17 @@ def _load_source(args: argparse.Namespace, command: str) -> tuple[list[Rating], 
             if value is not None:
                 print(f"cinemate {command}: error: {flag} requires --source csv", file=sys.stderr)
                 return None
-        dataset = ensure_movielens(args.data_dir)
-        return list(parse_ratings(dataset / "ratings.csv")), MovieLensBinarizer()
+        dataset = ensure_movielens(args.data_dir, args.dataset)
+        path = dataset / "ratings.csv"
+        if args.min_user_ratings <= 0 and args.max_users is None:
+            return list(parse_ratings(path)), MovieLensBinarizer()
+        selected = iter_ratings(
+            path,
+            min_user_ratings=args.min_user_ratings,
+            max_users=args.max_users,
+            seed=args.seed,
+        )
+        return list(selected), MovieLensBinarizer()
     if args.ratings_csv is None:
         print(f"cinemate {command}: error: --source csv requires --ratings-csv", file=sys.stderr)
         return None

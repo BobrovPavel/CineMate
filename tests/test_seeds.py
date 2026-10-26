@@ -131,7 +131,7 @@ def test_seeds_option_rejects_bad_lists(command, value, capsys):
 
 @pytest.mark.parametrize("command", ["evaluate", "tune"])
 def test_commands_with_seeds(command, monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(RATINGS))
     argv = [command, "--min-overlap", "1", "--top-n", "3", "--seeds", "0,1,2"]
     if command == "tune":

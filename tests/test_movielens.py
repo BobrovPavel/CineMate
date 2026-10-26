@@ -2,7 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from cinemate.movielens import Link, Movie, Rating, parse_links, parse_movies, parse_ratings
+from cinemate.movielens import (
+    Link,
+    Movie,
+    Rating,
+    iter_ratings,
+    parse_links,
+    parse_movies,
+    parse_ratings,
+    select_users,
+)
 
 
 def _write(tmp_path: Path, name: str, text: str) -> Path:
@@ -89,3 +98,38 @@ def test_parse_movies_title_with_extra_parentheses(tmp_path: Path) -> None:
 def test_title_normalization(tmp_path: Path, raw: str, title: str, year: int | None, alt) -> None:
     path = _write(tmp_path, "movies.csv", f'movieId,title,genres\n1,"{raw}",Drama\n')
     assert list(parse_movies(path)) == [Movie(1, title, year, ("Drama",), alt)]
+
+
+def _write_ratings(path: Path, counts: dict[int, int]) -> Path:
+    lines = ["userId,movieId,rating,timestamp"]
+    for user, n in counts.items():
+        lines += [f"{user},{m},4.0,1" for m in range(1, n + 1)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_select_users_min_ratings(tmp_path: Path) -> None:
+    path = _write_ratings(tmp_path / "r.csv", {1: 2, 2: 5, 3: 3})
+    assert select_users(path, min_user_ratings=3) == {2, 3}
+
+
+def test_select_users_max_users_is_deterministic(tmp_path: Path) -> None:
+    path = _write_ratings(tmp_path / "r.csv", {u: 3 for u in range(1, 31)})
+    first = select_users(path, max_users=5, seed=7)
+    assert len(first) == 5
+    assert select_users(path, max_users=5, seed=7) == first
+    assert select_users(path, max_users=5, seed=8) != first
+    assert select_users(path, max_users=100) == set(range(1, 31))
+
+
+def test_iter_ratings_yields_only_selected_users(tmp_path: Path) -> None:
+    path = _write_ratings(tmp_path / "r.csv", {u: u for u in range(1, 21)})
+    selected = select_users(path, min_user_ratings=5, max_users=3, seed=1)
+    got = list(iter_ratings(path, min_user_ratings=5, max_users=3, seed=1))
+    assert {r.user_id for r in got} == selected
+    assert len(got) == sum(selected)
+
+
+def test_iter_ratings_without_limits_reads_everything(tmp_path: Path) -> None:
+    path = _write_ratings(tmp_path / "r.csv", {1: 2, 2: 1})
+    assert list(iter_ratings(path)) == list(parse_ratings(path))
