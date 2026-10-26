@@ -7,6 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _YEAR_RE = re.compile(r"^(?P<title>.*?)\s*\((?P<year>\d{4})\)\s*$")
+_TRAILING_PARENS_RE = re.compile(r"^(?P<head>.*?)\s*\((?P<inner>[^()]+)\)\s*$")
+_ARTICLES = (
+    "The", "A", "An", "Les", "La", "Le", "Las", "Los", "Lo", "Il", "El", "Das", "Der", "Die",
+    "Den", "Det", "De", "Het", "Een", "L'", "Un", "Une",
+)  # fmt: skip
+_TRAILING_ARTICLE_RE = re.compile(
+    r"^(?P<head>.*\S),\s+(?P<article>" + "|".join(re.escape(a) for a in _ARTICLES) + r")$",
+    re.IGNORECASE,
+)
 _NO_GENRES = "(no genres listed)"
 
 
@@ -16,6 +25,7 @@ class Movie:
     title: str
     year: int | None
     genres: tuple[str, ...]
+    alt_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,21 +47,42 @@ def _rows(path: Path | str) -> Iterator[dict[str, str]]:
         yield from csv.DictReader(f)
 
 
-def _split_title(raw: str) -> tuple[str, int | None]:
-    """Split ``Toy Story (1995)`` into ``("Toy Story", 1995)``; year is ``None`` if absent."""
+def _move_article(title: str) -> str:
+    """Turn ``Blair Witch Project, The`` into ``The Blair Witch Project``."""
+    match = _TRAILING_ARTICLE_RE.match(title)
+    if match is None:
+        return title
+    article = match["article"]
+    sep = "" if article.endswith("'") else " "
+    return f"{article}{sep}{match['head']}"
+
+
+def _split_title(raw: str) -> tuple[str, int | None, str | None]:
+    """Split ``Blair Witch Project, The (1999)`` into title, year and alternative title.
+
+    The trailing article moves to the front; parentheses right before the year hold the
+    alternative title (the first one wins) and are removed from the title. Without a year
+    the stripped input is returned as is.
+    """
     match = _YEAR_RE.match(raw.strip())
     if match is None:
-        return raw.strip(), None
-    return match["title"], int(match["year"])
+        return raw.strip(), None, None
+    title = match["title"]
+    alternatives: list[str] = []
+    while (paren := _TRAILING_PARENS_RE.match(title)) is not None and paren["inner"].strip():
+        alternatives.append(paren["inner"].strip())
+        title = paren["head"]
+    alt = _move_article(alternatives[-1]) if alternatives else None
+    return _move_article(title.strip()), int(match["year"]), alt
 
 
 def parse_movies(path: Path | str) -> Iterator[Movie]:
     """Yield movies from ``movies.csv``."""
     for row in _rows(path):
-        title, year = _split_title(row["title"])
+        title, year, alt_title = _split_title(row["title"])
         raw_genres = row["genres"].strip()
         genres = () if raw_genres in ("", _NO_GENRES) else tuple(raw_genres.split("|"))
-        yield Movie(int(row["movieId"]), title, year, genres)
+        yield Movie(int(row["movieId"]), title, year, genres, alt_title)
 
 
 def parse_ratings(path: Path | str) -> Iterator[Rating]:

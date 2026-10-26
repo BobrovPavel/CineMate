@@ -26,7 +26,8 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
 
     Movies and users are matched by their MovieLens id, so a repeated import updates movies
     in place and adds nothing new. Ratings the binarizer discards are counted as skipped;
-    a (user, movie) pair that already exists is left untouched and not counted at all.
+    the alternative title fills ``original_title`` only while it is empty, so a TMDB value is
+    kept; a (user, movie) pair that already exists is left untouched and not counted at all.
     Finally ``Movie.popularity_score`` is recomputed as the number of ``+1`` ratings.
     """
     data_dir = Path(data_dir)
@@ -45,6 +46,8 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
             movies[parsed.movielens_id] = movie
             movies_added += 1
         movie.title = parsed.title
+        if parsed.alt_title and not movie.original_title:
+            movie.original_title = parsed.alt_title
         movie.year = parsed.year
         movie.genres = list(parsed.genres)
         if link is not None:
