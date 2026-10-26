@@ -76,7 +76,7 @@ def test_evaluate_command_offline(monkeypatch, tmp_path, capsys):
 
     calls = {}
 
-    def fake_ensure(dest):
+    def fake_ensure(dest, name="ml-latest-small"):
         calls["dest"] = dest
         return tmp_path
 
@@ -251,7 +251,7 @@ def test_evaluate_command_pop_penalty(monkeypatch, tmp_path, capsys):
     from cinemate.movielens import Rating
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     import cinemate.evaluation.runner as runner
 
@@ -276,7 +276,7 @@ def test_evaluate_command_significance(monkeypatch, tmp_path, capsys):
     from cinemate.movielens import Rating
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     import cinemate.evaluation.runner as runner
 
@@ -303,7 +303,7 @@ def _stub_dataset(monkeypatch, tmp_path):
     from cinemate.movielens import Rating
 
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     return cli
 
@@ -348,7 +348,7 @@ def test_evaluate_command_prints_hybrid_rows(monkeypatch, tmp_path, capsys):
     import cinemate.cli as cli
 
     ratings = _cold_start_ratings()
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = ["evaluate", "--k", "5", "--min-overlap", "1", "--top-n", "3"]
     assert main([*argv, "--new-user-ratings", "3", "--blend-full-at", "5,10,30"]) == 0
@@ -371,7 +371,7 @@ def test_evaluate_command_prints_item_based_row(monkeypatch, tmp_path, capsys):
     import cinemate.cli as cli
 
     ratings = _cold_start_ratings()
-    monkeypatch.setattr(cli, "ensure_movielens", lambda dest: tmp_path)
+    monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
     argv = ["evaluate", "--k", "5", "--min-overlap", "1", "--top-n", "3"]
     assert main([*argv, "--new-user-ratings", "3", "--item-min-overlap", "2"]) == 0
@@ -395,7 +395,7 @@ def _write_csv_dataset(tmp_path):
 def _forbid_movielens(monkeypatch):
     import cinemate.cli as cli
 
-    def boom(dest):
+    def boom(dest, name="ml-latest-small"):
         raise AssertionError("ensure_movielens must not be called")
 
     monkeypatch.setattr(cli, "ensure_movielens", boom)
@@ -457,3 +457,52 @@ def test_source_csv_argument_errors(monkeypatch, tmp_path, capsys, command):
         err = capsys.readouterr().err
         assert err.startswith(f"cinemate {command}: error:")
         assert "Traceback" not in err
+
+
+def _write_ratings_csv(path, users: int, per_user: int) -> None:
+    lines = ["userId,movieId,rating,timestamp"]
+    for u in range(1, users + 1):
+        lines += [f"{u},{m},{5.0 if (u + m) % 2 else 1.0},1" for m in range(per_user)]
+    (path / "ratings.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_evaluate_ml_32m_with_user_selection(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+
+    seen = {}
+
+    def fake_ensure(dest, name="ml-latest-small"):
+        seen["name"] = name
+        return tmp_path
+
+    _write_ratings_csv(tmp_path, users=30, per_user=10)
+    monkeypatch.setattr(cli, "ensure_movielens", fake_ensure)
+    args = ["evaluate", "--dataset", "ml-32m", "--max-users", "12", "--min-user-ratings", "5"]
+    args += ["--k", "5", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
+    assert main(args) == 0
+    assert seen["name"] == "ml-32m"
+    assert "users evaluated:" in capsys.readouterr().out
+
+
+def test_dataset_choice_is_validated():
+    with pytest.raises(SystemExit):
+        main(["evaluate", "--dataset", "ml-1b"])
+
+
+def test_checksum_error_is_reported(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+    from cinemate.datasets import ChecksumError
+
+    def broken(dest, name="ml-latest-small"):
+        raise ChecksumError("bad md5")
+
+    monkeypatch.setattr(cli, "ensure_movielens", broken)
+    url = f"sqlite:///{tmp_path / 'db.sqlite'}"
+    assert main(["import-movielens", "--database-url", url, "--dataset", "ml-32m"]) == 2
+    assert "bad md5" in capsys.readouterr().err
+    assert main(["evaluate", "--dataset", "ml-32m"]) == 2
+
+
+def test_dataset_flags_rejected_for_csv_source(capsys):
+    assert main(["evaluate", "--source", "csv", "--ratings-csv", "x.csv", "--max-users", "5"]) == 2
+    assert "--max-users requires --source movielens" in capsys.readouterr().err

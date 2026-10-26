@@ -97,7 +97,7 @@ def test_reimport_updates_existing_movie(tmp_path):
 
 def test_cli_import_movielens(tmp_path, monkeypatch, capsys):
     data = _write_dataset(tmp_path)
-    monkeypatch.setattr("cinemate.cli.ensure_movielens", lambda d: d)
+    monkeypatch.setattr("cinemate.cli.ensure_movielens", lambda d, name="ml-latest-small": d)
     url = f"sqlite:///{tmp_path / 'db.sqlite'}"
     args = ["import-movielens", "--database-url", url, "--data-dir", str(data)]
     assert main(args) == 0
@@ -308,3 +308,124 @@ def test_import_merges_movie_when_tmdb_pair_owner_differs(tmp_path):
         again = import_movielens(session, tmp_path, MovieLensBinarizer())
         assert (again.movies_merged, again.movies_added, again.ratings_added) == (0, 0, 0)
         assert _snapshot(session) == snapshot
+
+
+def _write_many_users(path, users: int, per_user: int):
+    (path / "movies.csv").write_text(
+        "movieId,title,genres\n" + "".join(f"{m},Film {m} (2000),Drama\n" for m in range(1, 6)),
+        encoding="utf-8",
+    )
+    (path / "links.csv").write_text(
+        "movieId,imdbId,tmdbId\n" + "".join(f"{m},{m},{100 + m}\n" for m in range(1, 6)),
+        encoding="utf-8",
+    )
+    lines = ["userId,movieId,rating,timestamp"]
+    for u in range(1, users + 1):
+        lines += [f"{u},{m},5.0,1" for m in range(1, per_user + 1)]
+    (path / "ratings.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_existing_user_is_skipped_with_all_ratings(tmp_path):
+    data = _write_dataset(tmp_path)
+    with _session() as session:
+        session.add(User(external_movielens_id=10, is_synthetic=True, pool="world"))
+        session.commit()
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert (stats.users_added, stats.ratings_added) == (1, 1)
+        user = session.scalar(select(User).where(User.external_movielens_id == 10))
+        assert session.scalar(select(func.count()).where(Rating.user_id == user.id)) == 0
+
+
+def test_ratings_are_written_in_batches(tmp_path, monkeypatch):
+    monkeypatch.setattr("cinemate.db.importer.BATCH_SIZE", 7)
+    data = _write_many_users(tmp_path, users=6, per_user=5)
+    with _session() as session:
+        executed = []
+        original = session.execute
+
+        def spy(statement, params=None, *a, **kw):
+            if isinstance(params, list) and getattr(statement, "is_insert", False):
+                executed.append(len(params))
+            return original(statement, params, *a, **kw)
+
+        monkeypatch.setattr(session, "execute", spy)
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert stats.ratings_added == 30
+        assert executed == [7, 7, 7, 7, 2]
+        assert session.scalar(select(func.count()).select_from(Rating)) == 30
+
+
+def test_user_selection_and_progress(tmp_path, monkeypatch):
+    monkeypatch.setattr("cinemate.db.importer.PROGRESS_EVERY", 10)
+    data = _write_many_users(tmp_path, users=8, per_user=5)
+    with (data / "ratings.csv").open("a", encoding="utf-8") as f:
+        f.write("99,1,5.0,1\n")  # a user below the threshold
+    reads: list[int] = []
+    with _session() as session:
+        stats = import_movielens(
+            session,
+            data,
+            MovieLensBinarizer(),
+            min_user_ratings=3,
+            max_users=4,
+            seed=3,
+            progress=reads.append,
+        )
+        assert (stats.users_added, stats.ratings_added) == (4, 20)
+        ext = set(session.scalars(select(User.external_movielens_id)))
+        assert len(ext) == 4 and 99 not in ext
+        again = import_movielens(
+            session, data, MovieLensBinarizer(), min_user_ratings=3, max_users=4, seed=3
+        )
+        assert (again.users_added, again.ratings_added) == (0, 0)
+    assert reads == [10, 20]
+
+
+def test_movies_with_same_tmdb_pair_share_one_movie_and_one_rating(tmp_path):
+    data = _write_dataset(tmp_path)
+    (data / "movies.csv").write_text(
+        "movieId,title,genres\n1,Toy Story (1995),Animation\n3,Toy Story (1995),Animation\n",
+        encoding="utf-8",
+    )
+    (data / "links.csv").write_text("movieId,imdbId,tmdbId\n1,1,862\n3,1,862\n", encoding="utf-8")
+    (data / "ratings.csv").write_text(
+        "userId,movieId,rating,timestamp\n10,1,5.0,1\n10,3,5.0,2\n", encoding="utf-8"
+    )
+    with _session() as session:
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert stats.movies_added == 1
+        assert stats.ratings_added == 1
+        assert session.scalar(select(func.count()).select_from(Rating)) == 1
+
+
+def test_cli_import_ml_32m_selection(tmp_path, monkeypatch, capsys):
+    data = _write_many_users(tmp_path, users=6, per_user=5)
+    seen = {}
+
+    def fake_ensure(d, name="ml-latest-small"):
+        seen["name"] = name
+        return d
+
+    monkeypatch.setattr("cinemate.cli.ensure_movielens", fake_ensure)
+    url = f"sqlite:///{tmp_path / 'db.sqlite'}"
+    args = ["import-movielens", "--database-url", url, "--data-dir", str(data)]
+    args += ["--dataset", "ml-32m", "--min-user-ratings", "5", "--max-users", "3"]
+    assert main(args) == 0
+    assert seen["name"] == "ml-32m"
+    assert "users added: 3" in capsys.readouterr().out
+    assert main(args) == 0
+    assert "users added: 0" in capsys.readouterr().out
+
+
+def test_interleaved_and_duplicate_rows_are_written_once(tmp_path):
+    data = _write_dataset(tmp_path)
+    (data / "ratings.csv").write_text(
+        "userId,movieId,rating,timestamp\n"
+        "10,1,5.0,1\n10,1,5.0,2\n11,2,5.0,3\n10,2,5.0,4\n11,2,5.0,5\n",
+        encoding="utf-8",
+    )
+    with _session() as session:
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert (stats.users_added, stats.ratings_added) == (2, 3)
+        assert session.scalar(select(func.count()).select_from(Rating)) == 3
