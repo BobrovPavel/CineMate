@@ -30,6 +30,7 @@ def test_create_all_makes_tables():
     assert set(inspect(engine).get_table_names()) == {
         "movies",
         "movie_external_ids",
+        "tmdb_lookups",
         "users",
         "ratings",
         "seen_marks",

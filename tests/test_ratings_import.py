@@ -9,7 +9,7 @@ from cinemate.db.ratings_import import import_ratings_csv, normalize_title
 from cinemate.db.session import create_all, make_engine
 from cinemate.ratings_csv import load_ratings
 
-HEADER = "user_id,movie_id,title_ru,title_original,type,year,genres,kp_rating,user_rating\n"
+HEADER = "user_id,kp_id,title_ru,title_original,type,year,genres,kp_rating,user_rating\n"
 
 
 def _session():

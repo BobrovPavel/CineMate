@@ -65,6 +65,18 @@ class MovieExternalId(Base):
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"))
 
 
+class TmdbLookup(Base):
+    """Cache of TMDB lookups (``find`` by IMDb id, title search); ``tmdb_id`` NULL = no match."""
+
+    __tablename__ = "tmdb_lookups"
+
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    query_key: Mapped[str] = mapped_column(String(256), primary_key=True)
+    tmdb_type: Mapped[str | None] = mapped_column(String(8))
+    tmdb_id: Mapped[int | None] = mapped_column(Integer)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (

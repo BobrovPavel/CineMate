@@ -193,22 +193,40 @@ class TmdbClient:
         for raw in results:
             if not isinstance(raw, dict) or raw.get("media_type") not in MEDIA_TYPES:
                 continue
-            tmdb_id = _int_or_none(raw.get("id"))
-            tv = raw["media_type"] == "tv"
-            title = raw.get("name" if tv else "title")
-            if tmdb_id is None or not title:
-                continue
-            items.append(
-                TmdbSearchItem(
-                    tmdb_type=raw["media_type"],
-                    tmdb_id=tmdb_id,
-                    title=title,
-                    original_title=raw.get("original_name" if tv else "original_title") or None,
-                    year=_year(raw.get("first_air_date" if tv else "release_date")),
-                    poster_path=raw.get("poster_path") or None,
-                )
-            )
+            item = self._search_item(raw)
+            if item is not None:
+                items.append(item)
         return items
+
+    def find_by_imdb(self, imdb_id: str) -> TmdbSearchItem | None:
+        """The movie (else TV show) TMDB has for an IMDb id (``/find``), ``None`` if none."""
+        data = self._get_json(
+            f"/find/{urllib.parse.quote(imdb_id, safe='')}", external_source="imdb_id"
+        )
+        for media_type in MEDIA_TYPES:
+            results = (data or {}).get(f"{media_type}_results")
+            for raw in results if isinstance(results, list) else []:
+                if isinstance(raw, dict):
+                    item = self._search_item({**raw, "media_type": media_type})
+                    if item is not None:
+                        return item
+        return None
+
+    @staticmethod
+    def _search_item(raw: dict) -> TmdbSearchItem | None:
+        tmdb_id = _int_or_none(raw.get("id"))
+        tv = raw["media_type"] == "tv"
+        title = raw.get("name" if tv else "title")
+        if tmdb_id is None or not title:
+            return None
+        return TmdbSearchItem(
+            tmdb_type=raw["media_type"],
+            tmdb_id=tmdb_id,
+            title=title,
+            original_title=raw.get("original_name" if tv else "original_title") or None,
+            year=_year(raw.get("first_air_date" if tv else "release_date")),
+            poster_path=raw.get("poster_path") or None,
+        )
 
     def fetch_details(self, tmdb_type: str, tmdb_id: int) -> TmdbDetails | None:
         """English details plus the Russian translation of title and overview, if any.

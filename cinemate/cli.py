@@ -172,7 +172,7 @@ def _add_source_args(p: argparse.ArgumentParser) -> None:
         "--ratings-csv",
         type=Path,
         default=None,
-        help="with --source csv: path to ratings.csv (columns user_id, movie_id, user_rating 1-10)",
+        help="with --source csv: path to ratings.csv (user_id, kp_id/tmdb_id/imdb_id, user_rating)",
     )
     p.add_argument(
         "--types",
@@ -417,6 +417,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="a rating at least this far above (below) the user's mean score is a like "
         "(dislike) (default: %(default)s)",
     )
+    ir.add_argument(
+        "--no-tmdb",
+        action="store_true",
+        help="skip the TMDB /find and title search steps (TMDB_API_KEY is still used for "
+        "rows with tmdb_id)",
+    )
     en = sub.add_parser("enrich-movies", help="fetch movie metadata from TMDB into the database")
     en.add_argument(
         "--database-url",
@@ -627,15 +633,37 @@ def _run_import_ratings_csv(args: argparse.Namespace) -> int:
     binarizer = RelativeMeanBinarizer.fit(
         ratings, min_ratings=CSV_MIN_RATINGS, threshold=args.rel_threshold
     )
+    api_key = os.environ.get("TMDB_API_KEY")
+    if not api_key:
+        print(
+            f"cinemate {command}: warning: TMDB_API_KEY is not set, working as with --no-tmdb",
+            file=sys.stderr,
+        )
+    client = TmdbClient(api_key) if api_key else None
     engine = _open_engine(args)
     if engine is None:
         return 2
     with Session(engine) as session:
         try:
-            stats = import_ratings_csv(session, args.file, binarizer, types)
+            stats = import_ratings_csv(
+                session,
+                args.file,
+                binarizer,
+                types,
+                client=client,
+                use_tmdb=client is not None and not args.no_tmdb,
+            )
         except ValueError as exc:
             print(f"cinemate {command}: error: {args.file}: {exc}", file=sys.stderr)
             return 2
+        except TmdbError as exc:
+            print(f"cinemate {command}: error: {exc}", file=sys.stderr)
+            return 1
+    print(
+        f"matched by TMDB pair: {stats.matched_by_tmdb}, by IMDb: {stats.matched_by_imdb}, "
+        f"by Kinopoisk: {stats.matched_by_kinopoisk}, by search: {stats.matched_by_search}, "
+        f"unresolved: {stats.unresolved}, conflicts: {stats.conflicts}"
+    )
     print(
         f"movies merged: {stats.movies_merged}, movies added: {stats.movies_added}, "
         f"movies ambiguous: {stats.movies_ambiguous}, "
