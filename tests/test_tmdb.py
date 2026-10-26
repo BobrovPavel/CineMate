@@ -266,3 +266,21 @@ def test_requests_are_limited_to_20_per_second():
     for _ in range(21):
         client.search("matrix", "en-US")
     assert now[0] == pytest.approx(1.0)
+
+
+def test_find_by_imdb_prefers_movie_then_tv():
+    client, calls = _client(
+        payload={
+            "movie_results": [],
+            "tv_results": [{"id": 1399, "name": "GoT", "first_air_date": "2011-04-17"}],
+        }
+    )
+    item = client.find_by_imdb("tt0944947")
+    assert (item.tmdb_type, item.tmdb_id, item.year) == ("tv", 1399, 2011)
+    assert "/find/tt0944947" in calls[0]
+    assert "external_source=imdb_id" in calls[0]
+
+
+def test_find_by_imdb_none_when_empty():
+    client, _ = _client(payload={"movie_results": [], "tv_results": []})
+    assert client.find_by_imdb("tt1") is None

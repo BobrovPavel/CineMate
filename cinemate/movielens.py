@@ -33,7 +33,7 @@ class Movie:
 @dataclass(frozen=True)
 class Rating:
     user_id: int
-    movie_id: int
+    movie_id: int | str
     score: float
 
 
