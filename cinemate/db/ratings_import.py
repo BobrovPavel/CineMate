@@ -271,10 +271,7 @@ def _match(
         pair = (row.tmdb_type, row.tmdb_id)
         movie = find_movie(session, tmdb=pair)
         if movie is None and client is not None:
-            try:
-                movie = import_from_tmdb(session, client, *pair)
-            except LookupError:
-                movie = None
+            movie = _import(session, client, pair)
         if movie is not None:
             return movie, "tmdb"
     if row.imdb_id is not None:
@@ -282,7 +279,7 @@ def _match(
         if movie is None and lookup.enabled:
             found = lookup.find(row.imdb_id)
             if found is not None:
-                movie = import_from_tmdb(session, client, *found)
+                movie = _import(session, client, found)
         if movie is not None:
             return movie, "imdb"
     if row.kp_id is not None:
@@ -293,9 +290,18 @@ def _match(
             return movie, "kinopoisk"
     if lookup.enabled:
         found = lookup.search(row)
-        if found is not None:
-            return import_from_tmdb(session, client, *found), "search"
+        movie = _import(session, client, found) if found is not None else None
+        if movie is not None:
+            return movie, "search"
     return None, None
+
+
+def _import(session: Session, client: TmdbClient, pair: tuple[str, int]) -> Movie | None:
+    """``import_from_tmdb``, ``None`` if TMDB has no details for the pair (stale answer)."""
+    try:
+        return import_from_tmdb(session, client, *pair)
+    except LookupError:
+        return None
 
 
 def _attach_pair(
@@ -315,7 +321,9 @@ def _attach_pair(
         if owner.id != movie.id:
             counts["conflicts"] += 1  # the pair belongs to another movie: no re-linking
         return
-    fresh = import_from_tmdb(session, client, *found)
+    fresh = _import(session, client, found)
+    if fresh is None:
+        return
     merge_movies(session, keep_id=movie.id, drop_id=fresh.id)
     session.refresh(movie)
 

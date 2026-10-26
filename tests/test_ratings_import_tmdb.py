@@ -292,3 +292,16 @@ def test_cli_accepts_no_tmdb_flag(tmp_path, monkeypatch, flag):
     db = f"sqlite:///{tmp_path / 'db.sqlite'}"
     assert main(["migrate", "--database-url", db]) == 0
     assert main(["import-ratings-csv", "--file", str(path), "--database-url", db, *flag]) == 0
+
+
+def test_stale_tmdb_answer_falls_through(tmp_path):
+    session = _session()
+    # /find and search return ids whose details are unknown to TMDB
+    client = FakeTmdb(
+        found={"tt1": _item("movie", 1, "A", 2000)}, results={"A": [_item("movie", 2, "A", 2000)]}
+    )
+    body = _row(kp="1", imdb="tt1", title="А", orig="A") + _filler()
+    stats = _run(session, _write(tmp_path, body), client)
+    movie = find_movie(session, ids={"kinopoisk": "1"})
+    assert movie is not None and movie.tmdb_id is None
+    assert stats.unresolved >= 1
