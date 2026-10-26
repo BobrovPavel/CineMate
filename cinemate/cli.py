@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import urllib.error
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +14,13 @@ from sqlalchemy.orm import Session
 from cinemate import __version__
 from cinemate.binarize import Binarizer, MovieLensBinarizer, RelativeMeanBinarizer
 from cinemate.config import RecommenderSettings
-from cinemate.datasets import DATASET_DIR, DATASETS, DEFAULT_DATA_DIR, ensure_movielens
+from cinemate.datasets import (
+    DATASET_DIR,
+    DATASETS,
+    DEFAULT_DATA_DIR,
+    ChecksumError,
+    ensure_movielens,
+)
 from cinemate.db.enrich import enrich_movies
 from cinemate.db.importer import import_movielens
 from cinemate.db.migrations import (
@@ -566,8 +573,19 @@ def _print_progress(read: int) -> None:
     print(f"ratings read: {read}", flush=True)
 
 
+def _download_dataset(args: argparse.Namespace, command: str) -> Path | None:
+    """The dataset directory; prints an error and returns ``None`` if the download fails."""
+    try:
+        return ensure_movielens(args.data_dir, args.dataset)
+    except (ChecksumError, urllib.error.URLError) as exc:
+        print(f"cinemate {command}: error: cannot get {args.dataset}: {exc}", file=sys.stderr)
+        return None
+
+
 def _run_import(args: argparse.Namespace) -> int:
-    dataset = ensure_movielens(args.data_dir, args.dataset)
+    dataset = _download_dataset(args, "import-movielens")
+    if dataset is None:
+        return 2
     engine = _open_engine(args)
     if engine is None:
         return 2
@@ -685,7 +703,9 @@ def _load_source(args: argparse.Namespace, command: str) -> tuple[list[Rating], 
             if value is not None:
                 print(f"cinemate {command}: error: {flag} requires --source csv", file=sys.stderr)
                 return None
-        dataset = ensure_movielens(args.data_dir, args.dataset)
+        dataset = _download_dataset(args, command)
+        if dataset is None:
+            return None
         path = dataset / "ratings.csv"
         if args.min_user_ratings <= 0 and args.max_users is None:
             return list(parse_ratings(path)), MovieLensBinarizer()
@@ -696,6 +716,14 @@ def _load_source(args: argparse.Namespace, command: str) -> tuple[list[Rating], 
             seed=args.seed,
         )
         return list(selected), MovieLensBinarizer()
+    for flag, used in (
+        ("--dataset", args.dataset != DATASET_DIR),
+        ("--min-user-ratings", args.min_user_ratings > 0),
+        ("--max-users", args.max_users is not None),
+    ):
+        if used:
+            print(f"cinemate {command}: error: {flag} requires --source movielens", file=sys.stderr)
+            return None
     if args.ratings_csv is None:
         print(f"cinemate {command}: error: --source csv requires --ratings-csv", file=sys.stderr)
         return None

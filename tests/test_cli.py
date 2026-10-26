@@ -487,3 +487,22 @@ def test_evaluate_ml_32m_with_user_selection(monkeypatch, tmp_path, capsys):
 def test_dataset_choice_is_validated():
     with pytest.raises(SystemExit):
         main(["evaluate", "--dataset", "ml-1b"])
+
+
+def test_checksum_error_is_reported(monkeypatch, tmp_path, capsys):
+    import cinemate.cli as cli
+    from cinemate.datasets import ChecksumError
+
+    def broken(dest, name="ml-latest-small"):
+        raise ChecksumError("bad md5")
+
+    monkeypatch.setattr(cli, "ensure_movielens", broken)
+    url = f"sqlite:///{tmp_path / 'db.sqlite'}"
+    assert main(["import-movielens", "--database-url", url, "--dataset", "ml-32m"]) == 2
+    assert "bad md5" in capsys.readouterr().err
+    assert main(["evaluate", "--dataset", "ml-32m"]) == 2
+
+
+def test_dataset_flags_rejected_for_csv_source(capsys):
+    assert main(["evaluate", "--source", "csv", "--ratings-csv", "x.csv", "--max-users", "5"]) == 2
+    assert "--max-users requires --source movielens" in capsys.readouterr().err

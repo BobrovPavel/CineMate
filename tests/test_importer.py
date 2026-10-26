@@ -416,3 +416,16 @@ def test_cli_import_ml_32m_selection(tmp_path, monkeypatch, capsys):
     assert "users added: 3" in capsys.readouterr().out
     assert main(args) == 0
     assert "users added: 0" in capsys.readouterr().out
+
+
+def test_interleaved_and_duplicate_rows_are_written_once(tmp_path):
+    data = _write_dataset(tmp_path)
+    (data / "ratings.csv").write_text(
+        "userId,movieId,rating,timestamp\n"
+        "10,1,5.0,1\n10,1,5.0,2\n11,2,5.0,3\n10,2,5.0,4\n11,2,5.0,5\n",
+        encoding="utf-8",
+    )
+    with _session() as session:
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert (stats.users_added, stats.ratings_added) == (2, 3)
+        assert session.scalar(select(func.count()).select_from(Rating)) == 3
