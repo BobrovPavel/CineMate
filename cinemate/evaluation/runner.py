@@ -357,7 +357,9 @@ def evaluate(
 
     test_likes: dict[int, set[int]] = defaultdict(set)
     for r in test:
-        if binarizer.binarize(r.score) == 1 and (new_users is None or r.user_id in new_users):
+        if binarizer.binarize(r.score, r.user_id) == 1 and (
+            new_users is None or r.user_id in new_users
+        ):
             test_likes[r.user_id].add(r.movie_id)
 
     n_movies = len(built.movie_ids)
@@ -523,7 +525,9 @@ def _truncate_new_users(
         by_user[r.user_id].append(r)
 
     def usable_indices(items: list[Rating]) -> list[int]:
-        usable = [i for i, r in enumerate(items) if binarizer.binarize(r.score) is not None]
+        usable = [
+            i for i, r in enumerate(items) if binarizer.binarize(r.score, r.user_id) is not None
+        ]
         if card_rank is None:
             return usable
         usable = [i for i in usable if items[i].movie_id in card_rank]

@@ -59,7 +59,7 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
 
     users_added = ratings_added = ratings_skipped = 0
     for rating in parse_ratings(data_dir / "ratings.csv"):
-        value = binarizer.binarize(rating.score)
+        value = binarizer.binarize(rating.score, rating.user_id)
         if value is None:
             ratings_skipped += 1
             continue
