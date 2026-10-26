@@ -10,14 +10,40 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.models import Movie, Rating, SeenMark, User
+from cinemate.db.models import DEFAULT_POOL, Movie, Rating, SeenMark, User
 
 SEEN_MARK_TYPES = ("not_seen", "watched", "not_interested")
 
 
-def create_session_user(session: Session) -> User:
-    """Create an anonymous user with a unique random ``session_token``."""
-    user = User(session_token=secrets.token_urlsafe(32), is_synthetic=False)
+def pool_from_accept_language(header: str | None) -> str:
+    """``'ru'`` if the most preferred language of an ``Accept-Language`` header is Russian.
+
+    Ties on quality go to the language listed first; ``q=0`` entries and malformed
+    qualities are ignored. Anything else, including a missing header, gives ``'world'``.
+    """
+    best_lang, best_q = None, 0.0
+    for part in (header or "").split(","):
+        lang, *params = (p.strip() for p in part.split(";"))
+        if not lang:
+            continue
+        q = 1.0
+        for param in params:
+            key, _, value = param.partition("=")
+            if key.strip().lower() == "q":
+                try:
+                    q = float(value)
+                except ValueError:
+                    q = 0.0
+        if q > best_q:
+            best_lang, best_q = lang.lower(), q
+    if best_lang == "ru" or (best_lang or "").startswith("ru-"):
+        return "ru"
+    return DEFAULT_POOL
+
+
+def create_session_user(session: Session, pool: str = DEFAULT_POOL) -> User:
+    """Create an anonymous user in ``pool`` with a unique random ``session_token``."""
+    user = User(session_token=secrets.token_urlsafe(32), is_synthetic=False, pool=pool)
     session.add(user)
     session.flush()
     return user
@@ -43,7 +69,7 @@ def set_rating(
     """Create or update the user's rating (``+1`` or ``-1``) for a movie.
 
     Raises ``ValueError`` for any other value and ``LookupError`` for an unknown movie.
-    Only flushes; the caller commits. If ``store`` is given its cache is invalidated.
+    Only flushes; the caller commits. If ``store`` is given, the user's pool cache is dropped.
     """
     if isinstance(value, bool) or value not in (1, -1):
         raise ValueError(f"rating value must be +1 or -1, got {value!r}")
@@ -58,7 +84,7 @@ def set_rating(
         rating.value = value
     session.flush()
     if store is not None:
-        store.invalidate()
+        store.invalidate(user.pool)
     return rating
 
 

@@ -70,7 +70,7 @@ def onboarding_for_user(
     session: Session, store: MatrixStore, user: User, n: int = 20
 ) -> list[Movie]:
     """Pick onboarding movies for ``user``, skipping movies they already rated or marked."""
-    ratings = store.get()
+    ratings = store.get(user.pool)
     done = set(session.scalars(select(Rating.movie_id).where(Rating.user_id == user.id)))
     done |= set(session.scalars(select(SeenMark.movie_id).where(SeenMark.user_id == user.id)))
 

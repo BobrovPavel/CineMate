@@ -34,6 +34,7 @@ from cinemate.services.users import (
     create_session_user,
     get_ratings,
     get_user_by_token,
+    pool_from_accept_language,
     set_rating,
     set_seen_mark,
 )
@@ -53,7 +54,9 @@ def open_session(
     token = session_token(request)
     user = get_user_by_token(session, token) if token else None
     if user is None:
-        user = create_session_user(session)
+        user = create_session_user(
+            session, pool_from_accept_language(request.headers.get("accept-language"))
+        )
         response.set_cookie(
             SESSION_COOKIE,
             user.session_token or "",
@@ -62,7 +65,7 @@ def open_session(
             samesite="lax",
             secure=request.app.state.cookie_secure,
         )
-    return SessionOut(user_id=user.id)
+    return SessionOut(user_id=user.id, pool=user.pool)
 
 
 @router.get("/profile", response_model=list[ProfileItem])

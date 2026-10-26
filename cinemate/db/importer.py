@@ -94,7 +94,7 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
             continue
         user = users.get(rating.user_id)
         if user is None:
-            user = User(external_movielens_id=rating.user_id, is_synthetic=True)
+            user = User(external_movielens_id=rating.user_id, is_synthetic=True, pool="world")
             session.add(user)
             session.flush()
             users[rating.user_id] = user

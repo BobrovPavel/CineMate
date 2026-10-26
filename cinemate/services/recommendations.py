@@ -61,7 +61,7 @@ def get_recommendations(
     if limit <= 0:
         return RecommendationsResult(strategy="fallback", items=[])
 
-    data = store.get()
+    data = store.get(user.pool)
     matrix: csr_matrix = data.matrix
     if user.id in data.user_ids:
         user_index = data.user_ids.index(user.id)

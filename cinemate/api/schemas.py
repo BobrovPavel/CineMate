@@ -7,6 +7,7 @@ from pydantic import BaseModel, StrictInt, field_validator
 
 class SessionOut(BaseModel):
     user_id: int
+    pool: str
 
 
 class ProfileItem(BaseModel):
