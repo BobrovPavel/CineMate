@@ -2,15 +2,19 @@ name: Wake up agent
 on:
   issues:
     types: [labeled]
+concurrency:
+  group: wake-agent-${{ github.event.issue.number }}
+  cancel-in-progress: true
 jobs:
   fire:
     if: github.event.label.name == 'agent-ready'
     runs-on: ubuntu-latest
     steps:
+      - run: sleep 30
       - run: |
           curl -fsS -X POST "${{ secrets.ROUTINE_URL }}" \
             -H "Authorization: Bearer ${{ secrets.ROUTINE_TOKEN }}" \
             -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
-            -d '{}'
+            -d '{"text": "issue #${{ github.event.issue.number }}"}'
