@@ -68,6 +68,7 @@ def test_users_are_synthetic(tmp_path):
         users = session.scalars(select(User)).all()
         assert sorted(u.external_movielens_id for u in users) == [10, 11]
         assert all(u.is_synthetic for u in users)
+        assert {u.pool for u in users} == {"world"}
 
 
 def test_second_import_is_idempotent(tmp_path):

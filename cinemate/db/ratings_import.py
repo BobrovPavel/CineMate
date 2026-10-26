@@ -131,7 +131,7 @@ def import_ratings_csv(
             continue
         user = users.get(ext_user)
         if user is None:
-            user = User(external_ratings_id=ext_user, is_synthetic=True)
+            user = User(external_ratings_id=ext_user, is_synthetic=True, pool="ru")
             session.add(user)
             session.flush()
             users[ext_user] = user

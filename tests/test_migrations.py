@@ -125,14 +125,14 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
-    (scripts / "versions" / "0005_add_note.py").write_text(
+    (scripts / "versions" / "0006_add_note.py").write_text(
         textwrap.dedent(
             """
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "0005"
-            down_revision = "0004"
+            revision = "0006"
+            down_revision = "0005"
             branch_labels = None
             depends_on = None
 
@@ -151,7 +151,7 @@ def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     upgrade_head(engine, scripts)
-    assert current_revision(engine) == head_revision(scripts) == "0005"
+    assert current_revision(engine) == head_revision(scripts) == "0006"
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, note FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]
@@ -245,7 +245,7 @@ def test_migration_0003_adds_title_ru_to_existing_database(db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0004"
+    assert current_revision(engine) == head_revision() == "0005"
     assert "title_ru" in {c["name"] for c in inspect(engine).get_columns("movies")}
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, title_ru FROM movies")).all()
@@ -359,3 +359,20 @@ def test_migration_0004_moves_ids_and_merges_tmdb_duplicates(db_url):
     )
     _run(engine, "INSERT INTO movies (title, genres) VALUES ('y', '[]')")
     _run(engine, "INSERT INTO movies (title, genres) VALUES ('z', '[]')")
+
+
+def test_migration_0005_fills_user_pool(db_url):
+    engine = make_engine(db_url)
+    command.upgrade(alembic_config(engine), "0004")
+    insert = (
+        "INSERT INTO users (id, created_at, is_synthetic, {col})"
+        " VALUES ({id}, '2026-01-01', 0, {val})"
+    )
+    _run(engine, insert.format(col="external_ratings_id", id=1, val=7))
+    _run(engine, insert.format(col="external_movielens_id", id=2, val=3))
+    _run(engine, insert.format(col="email", id=3, val="NULL"))
+    upgrade_head(engine)
+    rows = _run(engine, "SELECT id, pool FROM users ORDER BY id").all()
+    assert [tuple(r) for r in rows] == [(1, "ru"), (2, "world"), (3, "world")]
+    with pytest.raises(IntegrityError):
+        _run(engine, insert.format(col="pool", id=4, val="'xx'"))

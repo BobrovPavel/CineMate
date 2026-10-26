@@ -92,7 +92,8 @@ def test_session_creates_user_and_cookie(app):
         response = client.post("/api/session")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"user_id"}
+    assert set(body) == {"user_id", "pool"}
+    assert body["pool"] == "world"
     cookie = response.headers["set-cookie"]
     assert cookie.startswith("cinemate_session=")
     token = cookie.split(";")[0].split("=", 1)[1]

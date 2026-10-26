@@ -16,6 +16,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+POOLS = ("ru", "world")
+DEFAULT_POOL = "world"
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -64,7 +67,10 @@ class MovieExternalId(Base):
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("external_ratings_id", name="uq_users_external_ratings_id"),)
+    __table_args__ = (
+        UniqueConstraint("external_ratings_id", name="uq_users_external_ratings_id"),
+        CheckConstraint("pool IN ('ru', 'world')", name="ck_users_pool"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_token: Mapped[str | None] = mapped_column(String(128), unique=True)
@@ -73,6 +79,7 @@ class User(Base):
     is_synthetic: Mapped[bool] = mapped_column(default=False)
     external_movielens_id: Mapped[int | None] = mapped_column(Integer, unique=True)
     external_ratings_id: Mapped[int | None] = mapped_column(Integer)
+    pool: Mapped[str] = mapped_column(String(8), default=DEFAULT_POOL, server_default=DEFAULT_POOL)
 
 
 class Rating(Base):
