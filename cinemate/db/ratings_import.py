@@ -10,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.catalog import find_movie, link
+from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.popularity import update_popularity
 from cinemate.ratings_csv import CsvRow, read_rows
 
@@ -42,7 +43,7 @@ def import_ratings_csv(
 ) -> RatingsImportStats:
     """Import movies, users and ``+1``/``-1`` ratings from the ratings CSV at ``path``.
 
-    A movie is matched by ``Movie.external_ratings_id``; otherwise it is merged into the single
+    A movie is matched by its ``ratings_csv`` external id; otherwise it is merged into the single
     existing movie with the same normalised title and year (``title_original`` against ``title``
     or ``original_title``), else created. Ambiguous matches create a separate movie. Users are
     created (``is_synthetic``, no names) when they get at least one rating. Ratings the binarizer
@@ -59,10 +60,17 @@ def import_ratings_csv(
         movie_rows[row.movie_id] = row if first is None else _fill_gaps(first, row)
         scores[(row.user_id, row.movie_id)] = row.user_rating
 
-    movies = {
-        m.external_ratings_id: m
-        for m in session.scalars(select(Movie).where(Movie.external_ratings_id.is_not(None)))
-    }
+    movies: dict[int, Movie] = {}
+    csv_linked: set[int] = set()
+    for source_id, movie_id in session.execute(
+        select(MovieExternalId.external_id, MovieExternalId.movie_id).where(
+            MovieExternalId.source == "ratings_csv"
+        )
+    ):
+        csv_linked.add(movie_id)
+        found_movie = session.get(Movie, movie_id)
+        if found_movie is not None:
+            movies[int(source_id)] = found_movie
     index: dict[tuple[str, int], set[int]] = defaultdict(set)
     by_id: dict[int, Movie] = {}
     for m in session.scalars(select(Movie).where(Movie.year.is_not(None))):
@@ -73,15 +81,18 @@ def import_ratings_csv(
 
     merged = added = ambiguous = no_title = 0
     for ext_id, row in movie_rows.items():
-        movie = movies.get(ext_id)
+        movie = movies.get(ext_id) or find_movie(session, ids={"ratings_csv": str(ext_id)})
         if movie is not None:
+            movies[ext_id] = movie
             _fill_empty(movie, row)
             continue
         candidates = _candidates(index, row)
         if len(candidates) == 1:
             found = by_id[next(iter(candidates))]
-            if found.external_ratings_id is None:
+            if found.id not in csv_linked:
                 found.external_ratings_id = ext_id
+                link(session, found, "ratings_csv", ext_id)
+                csv_linked.add(found.id)
                 movies[ext_id] = found
                 merged += 1
                 continue
@@ -99,6 +110,8 @@ def import_ratings_csv(
             genres=list(row.genres),
         )
         session.add(movie)
+        link(session, movie, "ratings_csv", ext_id)
+        csv_linked.add(movie.id)
         movies[ext_id] = movie
         added += 1
 

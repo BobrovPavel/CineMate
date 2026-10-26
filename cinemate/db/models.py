@@ -29,9 +29,12 @@ class Movie(Base):
     __tablename__ = "movies"
     __table_args__ = (
         UniqueConstraint("external_ratings_id", name="uq_movies_external_ratings_id"),
+        UniqueConstraint("tmdb_type", "tmdb_id", name="uq_movies_tmdb"),
+        CheckConstraint("tmdb_type IN ('movie', 'tv')", name="ck_movies_tmdb_type"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tmdb_type: Mapped[str | None] = mapped_column(String(8))
     tmdb_id: Mapped[int | None] = mapped_column(Integer)
     imdb_id: Mapped[str | None] = mapped_column(String(16))
     external_movielens_id: Mapped[int | None] = mapped_column(Integer, unique=True)
@@ -46,6 +49,17 @@ class Movie(Base):
     genres: Mapped[list[str]] = mapped_column(JSON, default=list)
     runtime: Mapped[int | None] = mapped_column(Integer)
     popularity_score: Mapped[float | None] = mapped_column(Float)
+
+
+class MovieExternalId(Base):
+    """Id of a movie in an external source; one movie may have several ids per source."""
+
+    __tablename__ = "movie_external_ids"
+    __table_args__ = (Index("ix_movie_external_ids_movie_id", "movie_id"),)
+
+    source: Mapped[str] = mapped_column(String(16), primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"))
 
 
 class User(Base):

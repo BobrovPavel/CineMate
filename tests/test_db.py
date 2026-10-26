@@ -29,6 +29,7 @@ def test_create_all_makes_tables():
     create_all(engine)
     assert set(inspect(engine).get_table_names()) == {
         "movies",
+        "movie_external_ids",
         "users",
         "ratings",
         "seen_marks",
