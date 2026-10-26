@@ -118,3 +118,9 @@ def test_merge_movie_into_itself_is_a_noop(session):
     movie = _movie(session)
     merge_movies(session, movie.id, movie.id)
     assert session.get(Movie, movie.id) is not None
+
+
+def test_merge_keeps_tmdb_pair_of_dropped_movie_when_keep_has_none(session):
+    keep, drop = _movie(session, "Keep"), _movie(session, "Drop", tmdb_type="tv", tmdb_id=5)
+    merge_movies(session, keep.id, drop.id)
+    assert find_movie(session, tmdb=("tv", 5)).id == keep.id

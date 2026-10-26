@@ -73,7 +73,9 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
                 with suppress(CatalogConflict):
                     link(session, movie, "imdb", link_row.imdb_id)
             if tmdb is not None and movie.tmdb_id is None:
-                movie.tmdb_type, movie.tmdb_id = tmdb
+                owner = find_movie(session, tmdb=tmdb)
+                if owner is None:  # the pair may belong to another movie: leave it there
+                    movie.tmdb_type, movie.tmdb_id = tmdb
 
     users = {
         u.external_movielens_id: u

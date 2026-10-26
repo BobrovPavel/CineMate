@@ -102,5 +102,13 @@ def merge_movies(session: Session, keep_id: int, drop_id: int) -> None:
     session.execute(
         update(MovieExternalId).where(MovieExternalId.movie_id == drop_id).values(movie_id=keep_id)
     )
+    dropped = session.get(Movie, drop_id)
+    kept_movie = session.get(Movie, keep_id)
+    if dropped is not None and kept_movie is not None and kept_movie.tmdb_id is None:
+        pair = (dropped.tmdb_type, dropped.tmdb_id)
+        dropped.tmdb_type = dropped.tmdb_id = None
+        session.flush()
+        kept_movie.tmdb_type, kept_movie.tmdb_id = pair
+        session.flush()
     session.execute(delete(Movie).where(Movie.id == drop_id))
     session.expire_all()
