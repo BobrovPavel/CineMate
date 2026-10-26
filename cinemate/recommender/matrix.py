@@ -32,7 +32,7 @@ def build_matrix(ratings: Iterable[Rating], binarizer: Binarizer) -> RatingsMatr
     """
     values: dict[tuple[int, int], int] = {}
     for rating in ratings:
-        value = binarizer.binarize(rating.score)
+        value = binarizer.binarize(rating.score, rating.user_id)
         if value is not None:
             values[(rating.user_id, rating.movie_id)] = value
 
