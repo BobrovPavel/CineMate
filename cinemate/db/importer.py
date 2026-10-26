@@ -3,11 +3,12 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
 from cinemate.db.models import Movie, Rating, User
+from cinemate.db.popularity import update_popularity
 from cinemate.movielens import parse_links, parse_movies, parse_ratings
 
 
@@ -82,26 +83,8 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
         ratings_added += 1
 
     session.flush()
-    popularity_updated = _update_popularity(session)
+    popularity_updated = update_popularity(session)
     session.commit()
     return ImportStats(
         movies_added, users_added, ratings_added, ratings_skipped, popularity_updated
     )
-
-
-def _update_popularity(session: Session, batch_size: int = 1000) -> int:
-    """Set ``Movie.popularity_score`` to the like count; return how many values changed."""
-    likes = dict(
-        session.execute(
-            select(Rating.movie_id, func.count()).where(Rating.value == 1).group_by(Rating.movie_id)
-        ).all()
-    )
-    current = session.execute(select(Movie.id, Movie.popularity_score)).all()
-    changes = [
-        {"id": movie_id, "popularity_score": float(likes.get(movie_id, 0))}
-        for movie_id, score in current
-        if score != likes.get(movie_id, 0)
-    ]
-    for start in range(0, len(changes), batch_size):
-        session.execute(update(Movie), changes[start : start + batch_size])
-    return len(changes)
