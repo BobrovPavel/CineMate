@@ -80,6 +80,7 @@ def profile(
             ProfileItem(
                 movie_id=movie.id,
                 title=movie.title,
+                title_ru=movie.title_ru,
                 year=movie.year,
                 poster_path=movie.poster_path,
                 value=rating.value,
@@ -100,6 +101,7 @@ def onboarding(
         OnboardingCard(
             movie_id=movie.id,
             title=movie.title,
+            title_ru=movie.title_ru,
             year=movie.year,
             poster_path=movie.poster_path,
             genres=list(movie.genres or []),
@@ -147,6 +149,7 @@ def _card(movie: Movie) -> MovieCard:
     return MovieCard(
         id=movie.id,
         title=movie.title,
+        title_ru=movie.title_ru,
         original_title=movie.original_title,
         year=movie.year,
         overview=movie.overview,
@@ -178,7 +181,10 @@ def recommendations(
                 movie=_card(item.movie),
                 score=item.score,
                 liked_by=item.liked_by,
-                because_of=[BecauseOf(movie_id=m.id, title=m.title) for m in item.because_of],
+                because_of=[
+                    BecauseOf(movie_id=m.id, title=m.title, title_ru=m.title_ru)
+                    for m in item.because_of
+                ],
             )
             for item in result.items
         ],

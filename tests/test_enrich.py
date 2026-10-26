@@ -37,8 +37,8 @@ def _session():
 
 
 KNOWN = {
-    1: TmdbMovie("О A", "/a.jpg", 90, "A orig"),
-    4: TmdbMovie("О D", None, 100, None),
+    1: TmdbMovie("О A", "/a.jpg", 90, "A orig", "Фильм А"),
+    4: TmdbMovie("О D", None, 100, None, "D"),
 }
 
 
@@ -108,7 +108,7 @@ def test_cli_limit_must_be_positive(monkeypatch):
 def test_cli_tmdb_error_exit_code(monkeypatch, capsys):
     from cinemate.tmdb import TmdbError
 
-    def fail(session, client, limit=None):
+    def fail(session, client, limit=None, refresh_titles=False):
         raise TmdbError("TMDB returned HTTP 500")
 
     monkeypatch.setenv("TMDB_API_KEY", "topsecret")
@@ -117,3 +117,92 @@ def test_cli_tmdb_error_exit_code(monkeypatch, capsys):
     out = capsys.readouterr()
     assert "HTTP 500" in out.err
     assert "topsecret" not in out.out + out.err
+
+
+def _movie(session, title):
+    return session.scalar(select(Movie).where(Movie.title == title))
+
+
+def test_enrich_saves_title_ru_only_if_cyrillic():
+    session = _session()
+    enrich_movies(session, FakeClient(KNOWN))
+    assert _movie(session, "A").title_ru == "Фильм А"
+    assert _movie(session, "D").title_ru is None
+
+
+def test_enrich_keeps_poster_without_overview():
+    session = _session()
+    known = {1: TmdbMovie(None, "/p.jpg", 90, "Orig", "Home Alone")}
+    assert enrich_movies(session, FakeClient(known)) == EnrichStats(enriched=1, not_found=2)
+    movie = _movie(session, "A")
+    assert (movie.overview, movie.poster_path, movie.runtime) == (None, "/p.jpg", 90)
+    assert movie.original_title == "Orig"
+    assert movie.title_ru is None
+
+
+def test_enrich_title_only_counts_as_enriched():
+    session = _session()
+    known = {1: TmdbMovie(None, None, None, None, "Один дома")}
+    assert enrich_movies(session, FakeClient(known)) == EnrichStats(enriched=1, not_found=2)
+    assert _movie(session, "A").title_ru == "Один дома"
+
+
+def test_enrich_nothing_useful_is_not_found():
+    session = _session()
+    known = {1: TmdbMovie(None, None, 90, "Orig", "A")}
+    assert enrich_movies(session, FakeClient(known)) == EnrichStats(enriched=0, not_found=3)
+
+
+def test_enrich_skips_movie_with_poster_only():
+    session = _session()
+    movie = _movie(session, "A")
+    movie.poster_path = "/x.jpg"
+    session.commit()
+    client = FakeClient(KNOWN)
+    enrich_movies(session, client)
+    assert 1 not in client.requested
+
+
+def test_refresh_titles_fills_only_title_ru():
+    session = _session()
+    movie = _movie(session, "B")
+    movie.title_ru = "Уже есть"
+    _movie(session, "A").overview = "старое"
+    session.commit()
+    known = {
+        1: TmdbMovie("новое", "/a.jpg", 90, "A orig", "Фильм А"),
+        2: TmdbMovie("x", None, None, None, "Другое"),
+    }
+    client = FakeClient(known)
+    assert enrich_movies(session, client, refresh_titles=True) == EnrichStats(
+        enriched=1, not_found=2
+    )
+    assert client.requested == [1, 4, 5]
+    a = _movie(session, "A")
+    assert (a.title_ru, a.overview, a.poster_path, a.original_title) == (
+        "Фильм А",
+        "старое",
+        None,
+        None,
+    )
+    assert _movie(session, "B").title_ru == "Уже есть"
+
+
+def test_refresh_titles_limit():
+    session = _session()
+    client = FakeClient(KNOWN)
+    enrich_movies(session, client, limit=1, refresh_titles=True)
+    assert client.requested == [1]
+
+
+def test_cli_refresh_titles_flag(monkeypatch):
+    seen = {}
+
+    def fake(session, client, limit=None, refresh_titles=False):
+        seen["refresh"] = refresh_titles
+        return EnrichStats(0, 0)
+
+    monkeypatch.setenv("TMDB_API_KEY", "k")
+    monkeypatch.setattr("cinemate.cli.enrich_movies", fake)
+    assert main(["enrich-movies", "--refresh-titles", "--database-url", "sqlite:///:memory:"]) == 0
+    assert seen["refresh"] is True

@@ -12,7 +12,14 @@ def app():
     with app.state.session_factory() as session:
         session.add_all(
             [
-                Movie(id=1, title="A", year=1999, poster_path="/a.jpg", genres=["Drama"]),
+                Movie(
+                    id=1,
+                    title="A",
+                    title_ru="Эй",
+                    year=1999,
+                    poster_path="/a.jpg",
+                    genres=["Drama"],
+                ),
                 Movie(id=2, title="B", genres=["Comedy"]),
                 Movie(id=3, title="C"),
             ]
@@ -61,10 +68,12 @@ def test_onboarding_cards_and_exclusions(client):
     assert first == {
         "movie_id": 1,
         "title": "A",
+        "title_ru": "Эй",
         "year": 1999,
         "poster_path": "/a.jpg",
         "genres": ["Drama"],
     }
+    assert next(c for c in cards if c["movie_id"] == 2)["title_ru"] is None
     client.post("/api/ratings", json={"movie_id": 1, "value": 1})
     client.post("/api/seen", json={"movie_id": 2, "type": "not_interested"})
     assert [c["movie_id"] for c in client.get("/api/onboarding").json()] == [3]

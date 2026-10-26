@@ -39,6 +39,7 @@ class Movie(Base):
     external_ratings_id: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(512))
     original_title: Mapped[str | None] = mapped_column(String(512))
+    title_ru: Mapped[str | None] = mapped_column(String(512))
     year: Mapped[int | None] = mapped_column(Integer)
     overview: Mapped[str | None] = mapped_column(Text)
     poster_path: Mapped[str | None] = mapped_column(String(512))

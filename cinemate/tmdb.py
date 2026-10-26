@@ -22,6 +22,7 @@ class TmdbMovie:
     poster_path: str | None
     runtime: int | None
     original_title: str | None
+    title: str | None
 
 
 def urllib_get(url: str) -> tuple[int, bytes]:
@@ -70,4 +71,5 @@ class TmdbClient:
             poster_path=data.get("poster_path") or None,
             runtime=data.get("runtime") or None,
             original_title=data.get("original_title") or None,
+            title=data.get("title") or None,
         )

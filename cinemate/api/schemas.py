@@ -12,6 +12,7 @@ class SessionOut(BaseModel):
 class ProfileItem(BaseModel):
     movie_id: int
     title: str
+    title_ru: str | None
     year: int | None
     poster_path: str | None
     value: int
@@ -20,6 +21,7 @@ class ProfileItem(BaseModel):
 class OnboardingCard(BaseModel):
     movie_id: int
     title: str
+    title_ru: str | None
     year: int | None
     poster_path: str | None
     genres: list[str]
@@ -28,6 +30,7 @@ class OnboardingCard(BaseModel):
 class MovieCard(BaseModel):
     id: int
     title: str
+    title_ru: str | None
     original_title: str | None
     year: int | None
     overview: str | None
@@ -39,6 +42,7 @@ class MovieCard(BaseModel):
 class BecauseOf(BaseModel):
     movie_id: int
     title: str
+    title_ru: str | None
 
 
 class RecommendationItem(BaseModel):
