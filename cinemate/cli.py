@@ -533,7 +533,8 @@ def _run_import(args: argparse.Namespace) -> int:
     with Session(engine) as session:
         stats = import_movielens(session, dataset, MovieLensBinarizer())
     print(
-        f"movies added: {stats.movies_added}, users added: {stats.users_added}, "
+        f"movies added: {stats.movies_added}, movies merged: {stats.movies_merged}, "
+        f"users added: {stats.users_added}, "
         f"ratings added: {stats.ratings_added}, ratings skipped: {stats.ratings_skipped}, "
         f"popularity updated: {stats.popularity_updated}"
     )

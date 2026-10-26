@@ -139,3 +139,21 @@ def test_merge_movies_validates(session):
         merge_movies(session, a.id, a.id)
     with pytest.raises(ValueError):
         merge_movies(session, a.id, 999)
+
+
+def test_merge_moves_tmdb_pair_from_drop_to_keep(session):
+    keep = _movie(session, "keep")
+    drop = _movie(session, "drop", tmdb_type="movie", tmdb_id=862)
+    keep_id, drop_id = keep.id, drop.id
+    merge_movies(session, keep_id, drop_id)
+    assert find_movie(session, tmdb=("movie", 862)).id == keep_id
+    assert session.get(Movie, drop_id) is None
+
+
+def test_merge_keeps_tmdb_pair_of_keep_when_both_have_one(session):
+    keep = _movie(session, "keep", tmdb_type="movie", tmdb_id=1)
+    drop = _movie(session, "drop", tmdb_type="movie", tmdb_id=2)
+    keep_id = keep.id
+    merge_movies(session, keep_id, drop.id)
+    assert find_movie(session, tmdb=("movie", 1)).id == keep_id
+    assert find_movie(session, tmdb=("movie", 2)) is None
