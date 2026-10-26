@@ -109,3 +109,15 @@ def test_external_ratings_id_unique_for_movies_and_users(session):
     session.add(User(external_ratings_id=1))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_movie_title_ru_roundtrip():
+    engine = make_engine("sqlite:///:memory:")
+    create_all(engine)
+    with Session(engine) as session:
+        session.add_all([Movie(title="Home Alone", title_ru="Один дома"), Movie(title="X")])
+        session.commit()
+        assert session.scalars(select(Movie.title_ru).order_by(Movie.id)).all() == [
+            "Один дома",
+            None,
+        ]

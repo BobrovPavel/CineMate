@@ -26,9 +26,12 @@ def test_fetch_movie_success():
             "poster_path": "/p.jpg",
             "runtime": 81,
             "original_title": "Toy Story",
+            "title": "История игрушек",
         }
     )
-    assert client.fetch_movie(862) == TmdbMovie("Описание", "/p.jpg", 81, "Toy Story")
+    assert client.fetch_movie(862) == TmdbMovie(
+        "Описание", "/p.jpg", 81, "Toy Story", "История игрушек"
+    )
     assert "/movie/862" in calls[0]
     assert "language=ru-RU" in calls[0]
 
@@ -66,3 +69,8 @@ def test_repr_hides_key():
 def test_empty_key_rejected():
     with pytest.raises(ValueError):
         TmdbClient("")
+
+
+def test_fetch_movie_empty_title_is_none():
+    client, _ = _client(payload={"title": ""})
+    assert client.fetch_movie(1).title is None

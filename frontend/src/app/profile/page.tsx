@@ -11,11 +11,14 @@ import {
   TMDB_IMAGE_BASE,
   type ProfileItem,
 } from "@/lib/api";
+import { displayTitle } from "@/lib/titles";
+import { useLocale } from "@/lib/useLocale";
 
 type Status = "loading" | "ready" | "error";
 
 export default function ProfilePage() {
   const router = useRouter();
+  const locale = useLocale();
   const [status, setStatus] = useState<Status>("loading");
   const [items, setItems] = useState<ProfileItem[]>([]);
   const [pending, setPending] = useState<Set<number>>(new Set());
@@ -123,6 +126,7 @@ export default function ProfilePage() {
         <ul className="flex flex-col gap-3">
           {items.map((item) => {
             const liked = item.value === 1;
+            const { primary, secondary } = displayTitle(item, locale);
             const meta = item.year ? String(item.year) : "";
             return (
               <li key={item.movie_id} className="flex min-w-0 items-center gap-3">
@@ -131,7 +135,7 @@ export default function ProfilePage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`${TMDB_IMAGE_BASE}${item.poster_path}`}
-                      alt={`Постер фильма «${item.title}»`}
+                      alt={`Постер фильма «${primary}»`}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -146,7 +150,10 @@ export default function ProfilePage() {
                   )}
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <h2 className="font-semibold break-words">{item.title}</h2>
+                  <h2 className="font-semibold break-words">{primary}</h2>
+                  {secondary && (
+                    <p className="text-sm break-words text-gray-600">({secondary})</p>
+                  )}
                   {meta && <p className="text-sm text-gray-600">{meta}</p>}
                   <p
                     className={`text-sm font-medium ${liked ? "text-green-800" : "text-red-800"}`}
@@ -160,8 +167,8 @@ export default function ProfilePage() {
                   onClick={() => void toggle(item)}
                   aria-label={
                     liked
-                      ? `Изменить оценку фильма «${item.title}» на «Не нравится»`
-                      : `Изменить оценку фильма «${item.title}» на «Нравится»`
+                      ? `Изменить оценку фильма «${primary}» на «Не нравится»`
+                      : `Изменить оценку фильма «${primary}» на «Нравится»`
                   }
                   className="min-h-11 shrink-0 rounded-xl bg-gray-200 px-3 text-sm text-gray-900 disabled:opacity-50"
                 >

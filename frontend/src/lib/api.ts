@@ -31,6 +31,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 export type OnboardingCard = {
   movie_id: number;
   title: string;
+  title_ru: string | null;
   year: number | null;
   poster_path: string | null;
   genres: string[];
@@ -66,13 +67,14 @@ export type RecommendationItem = {
   movie: {
     id: number;
     title: string;
+    title_ru: string | null;
     year: number | null;
     poster_path: string | null;
     genres: string[];
   };
   score: number;
   liked_by: number;
-  because_of: { movie_id: number; title: string }[];
+  because_of: { movie_id: number; title: string; title_ru: string | null }[];
 };
 
 export type RecommendationsResponse = {
@@ -112,6 +114,7 @@ export function postReactionSeen(
 export type ProfileItem = {
   movie_id: number;
   title: string;
+  title_ru: string | null;
   year: number | null;
   poster_path: string | null;
   value: 1 | -1;

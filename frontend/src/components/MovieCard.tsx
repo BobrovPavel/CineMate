@@ -1,6 +1,11 @@
+"use client";
+
 import { TMDB_IMAGE_BASE, type OnboardingCard } from "@/lib/api";
+import { displayTitle } from "@/lib/titles";
+import { useLocale } from "@/lib/useLocale";
 
 export function MovieCard({ card }: { card: OnboardingCard }) {
+  const { primary, secondary } = displayTitle(card, useLocale());
   const meta = [card.year, card.genres.join(", ")].filter(Boolean).join(" · ");
   return (
     <article className="flex flex-col items-center gap-3">
@@ -9,7 +14,7 @@ export function MovieCard({ card }: { card: OnboardingCard }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={`${TMDB_IMAGE_BASE}${card.poster_path}`}
-            alt={`Постер фильма «${card.title}»`}
+            alt={`Постер фильма «${primary}»`}
             className="h-full w-full object-cover"
             draggable={false}
           />
@@ -23,7 +28,8 @@ export function MovieCard({ card }: { card: OnboardingCard }) {
           </div>
         )}
       </div>
-      <h2 className="text-center text-xl font-semibold">{card.title}</h2>
+      <h2 className="text-center text-xl font-semibold">{primary}</h2>
+      {secondary && <p className="text-center text-sm text-gray-600">({secondary})</p>}
       {meta && <p className="text-center text-sm text-gray-600">{meta}</p>}
     </article>
   );

@@ -147,7 +147,7 @@ def test_profile_empty_then_with_ratings_newest_first(app):
         with app.state.session_factory() as session:
             session.add_all(
                 [
-                    Movie(id=1, title="A", year=1999, poster_path="/a.jpg"),
+                    Movie(id=1, title="A", title_ru="Эй", year=1999, poster_path="/a.jpg"),
                     Movie(id=2, title="B"),
                 ]
             )
@@ -159,8 +159,22 @@ def test_profile_empty_then_with_ratings_newest_first(app):
         response = client.get("/api/profile")
     assert response.status_code == 200
     assert response.json() == [
-        {"movie_id": 2, "title": "B", "year": None, "poster_path": None, "value": -1},
-        {"movie_id": 1, "title": "A", "year": 1999, "poster_path": "/a.jpg", "value": 1},
+        {
+            "movie_id": 2,
+            "title": "B",
+            "title_ru": None,
+            "year": None,
+            "poster_path": None,
+            "value": -1,
+        },
+        {
+            "movie_id": 1,
+            "title": "A",
+            "title_ru": "Эй",
+            "year": 1999,
+            "poster_path": "/a.jpg",
+            "value": 1,
+        },
     ]
 
 

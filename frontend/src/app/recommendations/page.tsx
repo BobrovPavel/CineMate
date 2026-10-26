@@ -15,6 +15,8 @@ import {
   type SeenType,
 } from "@/lib/api";
 import { explainCollaborative } from "@/lib/explain";
+import { displayTitle } from "@/lib/titles";
+import { useLocale } from "@/lib/useLocale";
 
 const LIMIT = 20;
 const LEAVE_MS = 250;
@@ -32,6 +34,7 @@ const BUTTONS: { reaction: Reaction; label: string; style: string }[] = [
 
 export default function RecommendationsPage() {
   const router = useRouter();
+  const locale = useLocale();
   const [status, setStatus] = useState<Status>("loading");
   const [strategy, setStrategy] = useState<"collaborative" | "fallback">("collaborative");
   const [items, setItems] = useState<Shown[]>([]);
@@ -163,6 +166,7 @@ export default function RecommendationsPage() {
         <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {items.map((item) => {
             const gone = leaving.has(item.movie.id);
+            const { primary, secondary } = displayTitle(item.movie, locale);
             const meta = [item.movie.year, item.movie.genres.join(", ")]
               .filter(Boolean)
               .join(" · ");
@@ -178,7 +182,7 @@ export default function RecommendationsPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`${TMDB_IMAGE_BASE}${item.movie.poster_path}`}
-                      alt={`Постер фильма «${item.movie.title}»`}
+                      alt={`Постер фильма «${primary}»`}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -192,13 +196,14 @@ export default function RecommendationsPage() {
                     </div>
                   )}
                 </div>
-                <h2 className="text-lg font-semibold break-words">{item.movie.title}</h2>
+                <h2 className="text-lg font-semibold break-words">{primary}</h2>
+                {secondary && <p className="text-sm break-words text-gray-600">({secondary})</p>}
                 {meta && <p className="text-sm text-gray-600">{meta}</p>}
                 {strategy === "collaborative" && (
                   <p className="text-sm">
                     {explainCollaborative(
                       item.liked_by,
-                      item.because_of.map((b) => b.title),
+                      item.because_of.map((b) => displayTitle(b, locale).primary),
                     )}
                   </p>
                 )}
@@ -207,7 +212,7 @@ export default function RecommendationsPage() {
                     <button
                       key={b.reaction}
                       type="button"
-                      aria-label={`${b.label}: ${item.movie.title}`}
+                      aria-label={`${b.label}: ${primary}`}
                       disabled={gone}
                       onClick={() => void react(item, b.reaction)}
                       className={`min-h-11 min-w-11 rounded-xl px-2 text-sm font-semibold disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 ${b.style}`}

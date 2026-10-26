@@ -14,7 +14,16 @@ def app():
     )
     with app.state.session_factory() as session:
         session.add_all(
-            [Movie(id=i, title=f"M{i}", original_title=f"O{i}", year=2000 + i) for i in range(1, 9)]
+            [
+                Movie(
+                    id=i,
+                    title=f"M{i}",
+                    original_title=f"O{i}",
+                    title_ru="Ру7" if i == 7 else None,
+                    year=2000 + i,
+                )
+                for i in range(1, 9)
+            ]
         )
         for _ in range(6):
             user = User(is_synthetic=True)
@@ -68,6 +77,8 @@ def test_collaborative_with_neighbors(app, client):
     assert item["liked_by"] > 0
     assert item["because_of"]
     assert item["movie"]["original_title"] == "O7"
+    assert item["movie"]["title_ru"] == "Ру7"
+    assert all(b["title_ru"] is None for b in item["because_of"])
     assert {e.strategy for e in _events(app)} == {"collaborative"}
 
 
@@ -85,10 +96,12 @@ def test_limit_out_of_range(client, limit):
 def test_movie_detail(client):
     body = client.get("/api/movies/3").json()
     assert body["title"] == "M3"
+    assert body["title_ru"] is None
     assert body["year"] == 2003
     assert set(body) == {
         "id",
         "title",
+        "title_ru",
         "original_title",
         "year",
         "overview",

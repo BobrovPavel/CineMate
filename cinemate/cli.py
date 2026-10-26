@@ -382,6 +382,11 @@ def build_parser() -> argparse.ArgumentParser:
     en.add_argument(
         "--limit", type=_positive_int, default=None, help="maximum number of movies to enrich"
     )
+    en.add_argument(
+        "--refresh-titles",
+        action="store_true",
+        help="only fill the Russian title for movies that lack it (for already enriched movies)",
+    )
     me = sub.add_parser("metrics", help="print product metrics from the event log")
     me.add_argument(
         "--database-url",
@@ -507,7 +512,12 @@ def _run_enrich(args: argparse.Namespace) -> int:
         return 2
     with Session(engine) as session:
         try:
-            stats = enrich_movies(session, TmdbClient(api_key), limit=args.limit)
+            stats = enrich_movies(
+                session,
+                TmdbClient(api_key),
+                limit=args.limit,
+                refresh_titles=args.refresh_titles,
+            )
         except TmdbError as exc:
             print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)
             return 1
