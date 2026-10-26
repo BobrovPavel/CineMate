@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import User
 from cinemate.services.users import get_user_by_token
+from cinemate.tmdb import TmdbClient
 
 SESSION_COOKIE = "cinemate_session"
 
@@ -43,3 +44,11 @@ def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="no valid session")
     return user
+
+
+def get_tmdb_client(request: Request) -> TmdbClient:
+    """Return the TMDB client; ``503`` when ``TMDB_API_KEY`` is not configured."""
+    client = request.app.state.tmdb_client
+    if client is None:
+        raise HTTPException(status_code=503, detail="поиск недоступен: не задан TMDB_API_KEY")
+    return client

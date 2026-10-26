@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, StrictInt, field_validator
+from pydantic import BaseModel, PositiveInt, StrictInt, field_validator
 
 
 class SessionOut(BaseModel):
@@ -81,3 +81,19 @@ class SeenIn(BaseModel):
 class WriteOut(BaseModel):
     ok: bool
     rated_count: int
+
+
+class SearchResultOut(BaseModel):
+    tmdb_type: Literal["movie", "tv"]
+    tmdb_id: int
+    title: str
+    original_title: str | None
+    year: int | None
+    poster_path: str | None
+    movie_id: int | None
+    user_value: int | None
+
+
+class ResolveIn(BaseModel):
+    tmdb_type: Literal["movie", "tv"]
+    tmdb_id: PositiveInt

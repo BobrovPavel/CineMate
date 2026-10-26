@@ -13,6 +13,8 @@ from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.migrations import ensure_schema
 from cinemate.db.session import make_engine
+from cinemate.services.search import SearchCache
+from cinemate.tmdb import TmdbClient
 
 DEFAULT_CORS_ORIGINS = ["http://localhost:3000"]
 
@@ -59,11 +61,13 @@ def create_app(
     cookie_secure: bool = False,
     cors_origins: list[str] | None = None,
     recommender_settings: RecommenderSettings | None = None,
+    tmdb_client: TmdbClient | None = None,
 ) -> FastAPI:
     """Build the app; ``database_url`` follows the same resolution rule as the CLI commands.
 
     ``cookie_secure`` sets the ``Secure`` flag of the session cookie (off for local development).
     ``cors_origins`` overrides the ``CORS_ORIGINS`` environment variable.
+    ``tmdb_client`` overrides the client built from env ``TMDB_API_KEY`` (tests pass a fake).
     ``recommender_settings`` overrides the ``REC_*`` environment variables; invalid ones raise
     ``ValueError`` at startup. A database that is not on the latest migration revision raises
     ``SchemaNotMigratedError`` (in-memory SQLite and empty SQLite files are set up automatically).
@@ -87,6 +91,10 @@ def create_app(
     app.state.matrix_store = MatrixStore(session_factory)
     app.state.recommender_settings = settings
     app.state.cookie_secure = cookie_secure
+    api_key = os.environ.get("TMDB_API_KEY", "").strip()
+    # without a key the search endpoints answer 503
+    app.state.tmdb_client = tmdb_client or (TmdbClient(api_key) if api_key else None)
+    app.state.search_cache = SearchCache()
     app.include_router(router)
 
     @app.get("/api/health")

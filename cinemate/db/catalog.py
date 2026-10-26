@@ -7,9 +7,11 @@
 from collections.abc import Mapping
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cinemate.db.models import Event, Movie, MovieExternalId, Rating, SeenMark
+from cinemate.tmdb import TmdbClient
 
 SOURCE_ORDER = ("imdb", "movielens", "kinopoisk", "ratings_csv")
 
@@ -155,3 +157,48 @@ def merge_movies(session: Session, keep_id: int, drop_id: int) -> None:
     session.execute(update(Movie).where(Movie.id == keep_id).values(popularity_score=float(likes)))
     session.flush()
     session.expire_all()
+
+
+def import_from_tmdb(session: Session, client: TmdbClient, tmdb_type: str, tmdb_id: int) -> Movie:
+    """Return the movie with the TMDB pair, creating it from TMDB details if it is not there yet.
+
+    ``title`` is the English title, ``overview`` the Russian one when TMDB has it. If a parallel
+    request creates the same pair first (unique ``uq_movies_tmdb``), that movie is returned.
+    Raises ``LookupError`` if TMDB does not know the pair and ``TmdbError`` if TMDB fails.
+    """
+    pair = (tmdb_type, tmdb_id)
+    existing = find_movie(session, tmdb=pair)
+    if existing is not None:
+        return existing
+    details = client.fetch_details(tmdb_type, tmdb_id)
+    if details is None:
+        raise LookupError(f"TMDB has no {tmdb_type} {tmdb_id}")
+    movie = Movie(
+        tmdb_type=tmdb_type,
+        tmdb_id=tmdb_id,
+        title=details.title,
+        original_title=details.original_title,
+        title_ru=details.title_ru,
+        year=details.year,
+        overview=details.overview_ru or details.overview,
+        poster_path=details.poster_path,
+        runtime=details.runtime,
+        genres=list(details.genres),
+        popularity_score=0.0,
+    )
+    try:
+        with session.begin_nested():
+            session.add(movie)
+            session.flush()
+    except IntegrityError:
+        winner = find_movie(session, tmdb=pair)
+        if winner is None:
+            raise
+        return winner
+    if details.imdb_id:
+        try:
+            with session.begin_nested():
+                link(session, movie, "imdb", details.imdb_id)
+        except CatalogConflict:
+            pass  # the imdb id already belongs to another movie; keep the pair as the key
+    return movie
