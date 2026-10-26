@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
-from cinemate.db.catalog import CatalogConflict, find_movie, link
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.catalog import CatalogConflict, find_movie, link, merge_movies
+from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.popularity import update_popularity
 from cinemate.movielens import parse_links, parse_movies, parse_ratings
 
@@ -21,6 +21,7 @@ class ImportStats:
     ratings_added: int
     ratings_skipped: int
     popularity_updated: int
+    movies_merged: int = 0
 
 
 def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> ImportStats:
@@ -35,15 +36,26 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
     data_dir = Path(data_dir)
     links = {link_.movielens_id: link_ for link_ in parse_links(data_dir / "links.csv")}
     movies: dict[int, Movie] = {}
-    movies_added = 0
+    movies_added = movies_merged = 0
     for parsed in parse_movies(data_dir / "movies.csv"):
         parsed_link = links.get(parsed.movielens_id)
         tmdb = ("movie", parsed_link.tmdb_id) if parsed_link and parsed_link.tmdb_id else None
         movie = find_movie(session, tmdb=tmdb, ids={"movielens": str(parsed.movielens_id)})
         if movie is None:
-            movie = Movie(external_movielens_id=parsed.movielens_id)
+            movie = Movie(external_movielens_id=parsed.movielens_id, title=parsed.title)
             session.add(movie)
             movies_added += 1
+        existing_link = session.get(MovieExternalId, ("movielens", str(parsed.movielens_id)))
+        if existing_link is not None and existing_link.movie_id != movie.id:
+            # the TMDB pair and the MovieLens id belong to different movies: the pair owner stays
+            dropped = session.get(Movie, existing_link.movie_id)
+            keep_id, drop_id = movie.id, existing_link.movie_id
+            merge_movies(session, keep_id, drop_id)
+            movies_merged += 1
+            movie = session.get(Movie, keep_id)
+            for key, value in movies.items():
+                if value is dropped:
+                    movies[key] = movie
         movies[parsed.movielens_id] = movie
         # a movie matched through another source (or another MovieLens duplicate) only gets
         # linked: its own data stays as it is
@@ -98,5 +110,10 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
     popularity_updated = update_popularity(session)
     session.commit()
     return ImportStats(
-        movies_added, users_added, ratings_added, ratings_skipped, popularity_updated
+        movies_added,
+        users_added,
+        ratings_added,
+        ratings_skipped,
+        popularity_updated,
+        movies_merged,
     )

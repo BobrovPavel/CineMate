@@ -279,3 +279,31 @@ def test_import_after_merge_does_not_recreate_dropped_duplicate(tmp_path):
         stats = import_movielens(session, tmp_path, MovieLensBinarizer())
         assert stats.movies_added == 0
         assert session.scalar(select(func.count()).select_from(Movie)) == 1
+
+
+def test_import_merges_movie_when_tmdb_pair_owner_differs(tmp_path):
+    (tmp_path / "movies.csv").write_text(
+        "movieId,title,genres\n5,Heat (1995),Crime\n", encoding="utf-8"
+    )
+    (tmp_path / "ratings.csv").write_text(
+        "userId,movieId,rating,timestamp\n10,5,5.0,1\n", encoding="utf-8"
+    )
+    (tmp_path / "links.csv").write_text("movieId,imdbId,tmdbId\n5,,\n", encoding="utf-8")
+    with _session() as session:
+        import_movielens(session, tmp_path, MovieLensBinarizer())
+        tmdb_movie = Movie(title="Heat", tmdb_type="movie", tmdb_id=862)
+        session.add(tmdb_movie)
+        session.commit()
+        keep_id = tmdb_movie.id
+        (tmp_path / "links.csv").write_text("movieId,imdbId,tmdbId\n5,,862\n", encoding="utf-8")
+        stats = import_movielens(session, tmp_path, MovieLensBinarizer())
+        assert stats.movies_merged == 1
+        assert stats.movies_added == 0
+        assert session.scalar(select(func.count()).select_from(Movie)) == 1
+        assert find_movie(session, ids={"movielens": "5"}).id == keep_id
+        assert find_movie(session, tmdb=("movie", 862)).id == keep_id
+        assert session.scalar(select(Rating.movie_id)) == keep_id
+        snapshot = _snapshot(session)
+        again = import_movielens(session, tmp_path, MovieLensBinarizer())
+        assert (again.movies_merged, again.movies_added, again.ratings_added) == (0, 0, 0)
+        assert _snapshot(session) == snapshot

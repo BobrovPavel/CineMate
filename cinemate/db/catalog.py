@@ -137,6 +137,12 @@ def merge_movies(session: Session, keep_id: int, drop_id: int) -> None:
             setattr(keep, field, getattr(drop, field))
     if not keep.genres and drop.genres:
         keep.genres = list(drop.genres)
+    if keep.tmdb_id is None and drop.tmdb_id is not None:
+        pair = (drop.tmdb_type, drop.tmdb_id)
+        # free the pair first: it is unique (uq_movies_tmdb)
+        drop.tmdb_type = drop.tmdb_id = None
+        session.flush()
+        keep.tmdb_type, keep.tmdb_id = pair
     session.flush()
     session.expire_all()
 
