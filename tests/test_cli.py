@@ -378,3 +378,82 @@ def test_evaluate_command_prints_item_based_row(monkeypatch, tmp_path, capsys):
     assert "item_based" in capsys.readouterr().out
     assert main([*argv, "--item-min-overlap", "0"]) == 2
     assert main([*argv, "--item-lambda", "-1"]) == 2
+
+
+def _write_csv_dataset(tmp_path):
+    """Two groups of users with opposite tastes, 24 ratings each."""
+    lines = ["user_id,movie_id,type,user_rating"]
+    for u in range(1, 21):
+        for m in range(24):
+            liked = (m < 12) == (u % 2 == 0)
+            lines.append(f"{u},{m},Film,{9 if liked else 2}")
+    path = tmp_path / "ratings.csv"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _forbid_movielens(monkeypatch):
+    import cinemate.cli as cli
+
+    def boom(dest):
+        raise AssertionError("ensure_movielens must not be called")
+
+    monkeypatch.setattr(cli, "ensure_movielens", boom)
+
+
+def test_evaluate_source_csv(monkeypatch, tmp_path, capsys):
+    _forbid_movielens(monkeypatch)
+    path = _write_csv_dataset(tmp_path)
+    code = main(
+        ["evaluate", "--source", "csv", "--ratings-csv", str(path), "--k", "5", "--top-n", "3"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "collaborative" in out
+    assert "users evaluated:" in out
+    assert out.index("dataset:") < out.index("collaborative")
+
+
+def test_tune_source_csv(monkeypatch, tmp_path, capsys):
+    _forbid_movielens(monkeypatch)
+    path = _write_csv_dataset(tmp_path)
+    code = main(
+        [
+            "tune",
+            "--source",
+            "csv",
+            "--ratings-csv",
+            str(path),
+            "--types",
+            "film",
+            "--k",
+            "5",
+            "--lambda",
+            "1",
+            "--min-overlap",
+            "1",
+            "--top-n",
+            "3",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert out.startswith("dataset:")
+
+
+@pytest.mark.parametrize("command", ["evaluate", "tune"])
+def test_source_csv_argument_errors(monkeypatch, tmp_path, capsys, command):
+    _forbid_movielens(monkeypatch)
+    path = _write_csv_dataset(tmp_path)
+    for argv in (
+        ["--source", "csv"],
+        ["--source", "csv", "--ratings-csv", str(tmp_path / "missing.csv")],
+        ["--source", "csv", "--ratings-csv", str(path), "--rel-threshold", "0"],
+        ["--ratings-csv", str(path)],
+        ["--rel-threshold", "0.5"],
+        ["--types", "Film"],
+    ):
+        assert main([command, *argv]) == 2
+        err = capsys.readouterr().err
+        assert err.startswith(f"cinemate {command}: error:")
+        assert "Traceback" not in err

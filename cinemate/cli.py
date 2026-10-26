@@ -11,7 +11,7 @@ from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session
 
 from cinemate import __version__
-from cinemate.binarize import MovieLensBinarizer
+from cinemate.binarize import Binarizer, MovieLensBinarizer, RelativeMeanBinarizer
 from cinemate.config import RecommenderSettings
 from cinemate.datasets import DEFAULT_DATA_DIR, ensure_movielens
 from cinemate.db.enrich import enrich_movies
@@ -35,8 +35,10 @@ from cinemate.evaluation.runner import (
     new_users_line,
     parse_seeds,
 )
+from cinemate.evaluation.summary import describe_ratings, format_summary
 from cinemate.evaluation.tune import format_tune_table, tune
-from cinemate.movielens import parse_ratings
+from cinemate.movielens import Rating, parse_ratings
+from cinemate.ratings_csv import CSV_MIN_RATINGS, load_ratings
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
 from cinemate.tmdb import TmdbClient, TmdbError
 
@@ -118,6 +120,36 @@ def _positive_int(text: str) -> int:
     if value < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
     return value
+
+
+def _add_source_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--source",
+        choices=["movielens", "csv"],
+        default="movielens",
+        help="ratings source: MovieLens (downloaded) or an external ratings CSV "
+        "(default: %(default)s)",
+    )
+    p.add_argument(
+        "--ratings-csv",
+        type=Path,
+        default=None,
+        help="with --source csv: path to ratings.csv (columns user_id, movie_id, user_rating 1-10)",
+    )
+    p.add_argument(
+        "--types",
+        default=None,
+        help="with --source csv: comma-separated movie types to keep, e.g. Film,TvSeries "
+        "(default: all)",
+    )
+    p.add_argument(
+        "--rel-threshold",
+        type=float,
+        default=None,
+        help="with --source csv: a rating at least this far above (below) the user's mean "
+        "score is a like (dislike), 0.5 if unset. The mean is computed once per user over "
+        "all ratings, test ones included, which biases the result slightly",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -225,6 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=5.0,
         help="item_based row: shrinkage lambda (default: %(default)s)",
     )
+    _add_source_args(ev)
     tu = sub.add_parser("tune", help="grid search over K, LAMBDA, MIN_OVERLAP and POP_PENALTY")
     tu.add_argument(
         "--data-dir",
@@ -307,6 +340,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="comma-separated hybrid thresholds T (ratings at which the hybrid is fully CF); "
         "each adds a hybrid(T=...) row (default: %(default)s)",
     )
+    _add_source_args(tu)
     imp = sub.add_parser("import-movielens", help="import MovieLens into the database")
     imp.add_argument(
         "--database-url",
@@ -521,6 +555,42 @@ def _check_seeds(args: argparse.Namespace, command: str) -> bool:
     return True
 
 
+def _load_source(args: argparse.Namespace, command: str) -> tuple[list[Rating], Binarizer] | None:
+    """Ratings and binarizer for ``--source``; prints an error and returns ``None`` if invalid."""
+    if args.source == "movielens":
+        for flag, value in (
+            ("--ratings-csv", args.ratings_csv),
+            ("--types", args.types),
+            ("--rel-threshold", args.rel_threshold),
+        ):
+            if value is not None:
+                print(f"cinemate {command}: error: {flag} requires --source csv", file=sys.stderr)
+                return None
+        dataset = ensure_movielens(args.data_dir)
+        return list(parse_ratings(dataset / "ratings.csv")), MovieLensBinarizer()
+    if args.ratings_csv is None:
+        print(f"cinemate {command}: error: --source csv requires --ratings-csv", file=sys.stderr)
+        return None
+    threshold = 0.5 if args.rel_threshold is None else args.rel_threshold
+    if not threshold > 0:
+        print(f"cinemate {command}: error: --rel-threshold must be > 0", file=sys.stderr)
+        return None
+    types = [t for t in args.types.split(",") if t.strip()] if args.types is not None else None
+    try:
+        ratings = load_ratings(args.ratings_csv, types)
+    except OSError as exc:
+        print(
+            f"cinemate {command}: error: cannot read {args.ratings_csv}: {exc.strerror}",
+            file=sys.stderr,
+        )
+        return None
+    except ValueError as exc:
+        print(f"cinemate {command}: error: {args.ratings_csv}: {exc}", file=sys.stderr)
+        return None
+    binarizer = RelativeMeanBinarizer.fit(ratings, min_ratings=CSV_MIN_RATINGS, threshold=threshold)
+    return ratings, binarizer
+
+
 def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.pop_penalty >= 0:
         print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
@@ -564,13 +634,15 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     settings = _settings_from_env("evaluate")
     if settings is None:
         return 2
-    dataset = ensure_movielens(args.data_dir)
-    ratings = list(parse_ratings(dataset / "ratings.csv"))
+    source = _load_source(args, "evaluate")
+    if source is None:
+        return 2
+    ratings, binarizer = source
     splits = _make_splits(args, "evaluate", ratings)
     assert splits is not None
     result = evaluate_seeds(
         splits,
-        MovieLensBinarizer(),
+        binarizer,
         k=args.k,
         lam=args.lam,
         min_overlap=args.min_overlap,
@@ -586,6 +658,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         item_lam=args.item_lambda,
         user_fraction=args.user_fraction,
     )
+    print(format_summary(describe_ratings(ratings, binarizer)))
     print(format_table(result, args.top_n))
     return 0
 
@@ -629,15 +702,17 @@ def _run_tune(args: argparse.Namespace) -> int:
     settings = _settings_from_env("tune")
     if settings is None:
         return 2
-    dataset = ensure_movielens(args.data_dir)
-    ratings = list(parse_ratings(dataset / "ratings.csv"))
+    source = _load_source(args, "tune")
+    if source is None:
+        return 2
+    ratings, binarizer = source
     splits = _make_splits(args, "tune", ratings)
     assert splits is not None
     first, *rest = splits
     result = tune(
         first.train,
         first.test,
-        MovieLensBinarizer(),
+        binarizer,
         grid,
         top_n=args.top_n,
         new_user_ratings=args.new_user_ratings,
@@ -649,6 +724,7 @@ def _run_tune(args: argparse.Namespace) -> int:
         blend_full_at=blend,
         user_fraction=args.user_fraction,
     )
+    print(format_summary(describe_ratings(ratings, binarizer)))
     print(format_tune_table(result, args.top_n))
     return 0
 
