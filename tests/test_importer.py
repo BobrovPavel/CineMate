@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import MovieLensBinarizer
 from cinemate.cli import main
+from cinemate.db.catalog import find_movie, merge_movies
 from cinemate.db.importer import ImportStats, import_movielens
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.session import create_all, make_engine
 
 
@@ -33,9 +34,26 @@ def _session():
     return Session(engine)
 
 
+def _ml(session, movielens_id):
+    return find_movie(session, ids={"movielens": str(movielens_id)})
+
+
+def _scores(session):
+    return {
+        int(ext): score
+        for ext, score in session.execute(
+            select(MovieExternalId.external_id, Movie.popularity_score)
+            .join(Movie, Movie.id == MovieExternalId.movie_id)
+            .where(MovieExternalId.source == "movielens")
+        )
+    }
+
+
 def _snapshot(session):
     movies = session.execute(
-        select(Movie.external_movielens_id, Movie.title, Movie.imdb_id, Movie.tmdb_id)
+        select(
+            MovieExternalId.source, MovieExternalId.external_id, Movie.title, Movie.tmdb_id
+        ).join(Movie, Movie.id == MovieExternalId.movie_id)
     ).all()
     ratings = session.execute(select(Rating.user_id, Rating.movie_id, Rating.value)).all()
     users = session.execute(select(User.external_movielens_id, User.is_synthetic)).all()
@@ -53,11 +71,12 @@ def test_first_import(tmp_path):
             ratings_skipped=1,
             popularity_updated=2,
         )
-        toy = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
+        toy = _ml(session, 1)
         assert (toy.title, toy.year, toy.genres) == ("Toy Story", 1995, ["Adventure", "Animation"])
-        assert (toy.imdb_id, toy.tmdb_id) == ("tt0114709", 862)
-        jumanji = session.scalar(select(Movie).where(Movie.external_movielens_id == 2))
-        assert jumanji.genres == [] and jumanji.tmdb_id is None
+        assert (toy.tmdb_type, toy.tmdb_id) == ("movie", 862)
+        assert find_movie(session, ids={"imdb": "tt0114709"}) is toy
+        jumanji = _ml(session, 2)
+        assert jumanji.genres == [] and jumanji.tmdb_id is None and jumanji.tmdb_type is None
         assert sorted(session.scalars(select(Rating.value))) == [-1, 1, 1]
 
 
@@ -89,7 +108,7 @@ def test_reimport_updates_existing_movie(tmp_path):
         )
         import_movielens(session, data, MovieLensBinarizer())
         assert session.scalar(select(func.count()).select_from(Movie)) == 2
-        toy = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
+        toy = _ml(session, 1)
         assert (toy.title, toy.year, toy.genres) == ("Toy Story 2", 1999, ["Animation"])
 
 
@@ -137,9 +156,7 @@ def test_popularity_score_counts_likes(tmp_path):
     data = _write_dataset(tmp_path)
     with _session() as session:
         import_movielens(session, data, MovieLensBinarizer())
-        scores = dict(
-            session.execute(select(Movie.external_movielens_id, Movie.popularity_score)).all()
-        )
+        scores = _scores(session)
         # movie 1: likes from users 10 (5.0); user 11's 3.0 is discarded. movie 2: 1.0 dislike,
         # 4.0 like.
         assert scores == {1: 1.0, 2: 1.0}
@@ -152,9 +169,7 @@ def test_popularity_score_zero_for_movies_without_likes(tmp_path):
     )
     with _session() as session:
         stats = import_movielens(session, data, MovieLensBinarizer())
-        scores = dict(
-            session.execute(select(Movie.external_movielens_id, Movie.popularity_score)).all()
-        )
+        scores = _scores(session)
         assert scores == {1: 1.0, 2: 0.0}
         assert stats.popularity_updated == 2
 
@@ -180,9 +195,7 @@ def test_popularity_score_recomputed_when_ratings_change(tmp_path):
             encoding="utf-8",
         )
         stats = import_movielens(session, data, MovieLensBinarizer())
-        scores = dict(
-            session.execute(select(Movie.external_movielens_id, Movie.popularity_score)).all()
-        )
+        scores = _scores(session)
         assert scores == {1: 2.0, 2: 1.0}
         assert stats.popularity_updated == 1
 
@@ -203,8 +216,8 @@ def test_import_normalizes_titles_and_keeps_tmdb_original_title(tmp_path):
     )
     with _session() as session:
         import_movielens(session, data, MovieLensBinarizer())
-        first = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
-        second = session.scalar(select(Movie).where(Movie.external_movielens_id == 2))
+        first = _ml(session, 1)
+        second = _ml(session, 2)
         assert (first.title, first.original_title) == (
             "The City of Lost Children",
             "La Cité des enfants perdus",
@@ -220,9 +233,68 @@ def test_reimport_fixes_old_titles(tmp_path):
     data = _write_dataset(tmp_path)
     with _session() as session:
         import_movielens(session, data, MovieLensBinarizer())
-        toy = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
+        toy = _ml(session, 1)
         toy.title = "Toy Story, The"
         session.commit()
         _write_titles(data, ["Blair Witch Project, The (1999)", "Jumanji (1995)"])
         import_movielens(session, data, MovieLensBinarizer())
         assert toy.title == "The Blair Witch Project"
+
+
+def test_import_links_movielens_duplicate_to_movie_with_same_tmdb_pair(tmp_path):
+    data = _write_dataset(tmp_path)
+    (data / "movies.csv").write_text(
+        "movieId,title,genres\n1,Toy Story (1995),Animation\n3,Toy Story (1995),Animation\n",
+        encoding="utf-8",
+    )
+    (data / "links.csv").write_text(
+        "movieId,imdbId,tmdbId\n1,0114709,862\n3,0114709,862\n", encoding="utf-8"
+    )
+    with _session() as session:
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert stats.movies_added == 1
+        assert session.scalar(select(func.count()).select_from(Movie)) == 1
+        assert _ml(session, 1) is _ml(session, 3)
+        before = _snapshot(session)
+        assert import_movielens(session, data, MovieLensBinarizer()).movies_added == 0
+        assert _snapshot(session) == before
+
+
+def test_import_finds_existing_movie_by_tmdb_pair(tmp_path):
+    data = _write_dataset(tmp_path)
+    with _session() as session:
+        existing = Movie(title="Токи Стори", tmdb_type="movie", tmdb_id=862)
+        session.add(existing)
+        session.commit()
+        stats = import_movielens(session, data, MovieLensBinarizer())
+        assert stats.movies_added == 1
+        assert _ml(session, 1) is existing
+        assert existing.title == "Токи Стори"
+
+
+def test_reimport_on_merged_duplicates_creates_nothing(tmp_path):
+    data = _write_dataset(tmp_path)
+    (data / "movies.csv").write_text(
+        "movieId,title,genres\n1,Toy Story (1995),Animation\n3,Toy Story (1995),Animation\n",
+        encoding="utf-8",
+    )
+    (data / "links.csv").write_text(
+        "movieId,imdbId,tmdbId\n1,0114709,862\n3,0114709,862\n", encoding="utf-8"
+    )
+    with _session() as session:
+        # A database from before this change: two rows for one TMDB film, merged afterwards.
+        a = Movie(title="Toy Story")
+        b = Movie(title="Toy Story")
+        session.add_all([a, b])
+        session.flush()
+        session.add_all(
+            [
+                MovieExternalId(source="movielens", external_id="1", movie_id=a.id),
+                MovieExternalId(source="movielens", external_id="3", movie_id=b.id),
+            ]
+        )
+        session.commit()
+        merge_movies(session, a.id, b.id)
+        session.commit()
+        import_movielens(session, data, MovieLensBinarizer())
+        assert session.scalar(select(func.count()).select_from(Movie)) == 1

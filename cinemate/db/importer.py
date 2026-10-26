@@ -1,5 +1,6 @@
 """Idempotent import of MovieLens into the database."""
 
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.catalog import CatalogConflict, find_movie, link
+from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.popularity import update_popularity
 from cinemate.movielens import parse_links, parse_movies, parse_ratings
 
@@ -24,25 +26,41 @@ class ImportStats:
 def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> ImportStats:
     """Import ``movies.csv``, ``links.csv`` and ``ratings.csv`` from ``data_dir``.
 
-    Movies and users are matched by their MovieLens id, so a repeated import updates movies
-    in place and adds nothing new. Ratings the binarizer discards are counted as skipped;
-    the alternative title fills ``original_title`` only while it is empty, so a TMDB value is
-    kept; a (user, movie) pair that already exists is left untouched and not counted at all.
+    Movies are matched by their MovieLens id (``movie_external_ids``), then by the TMDB pair
+    from ``links.csv`` (such a movie only gets the MovieLens id linked); users by their id. A
+    repeated import updates movies in place and adds nothing new. Ratings the binarizer
+    discards are counted as skipped; the alternative title fills ``original_title`` only while
+    it is empty, so a TMDB value is kept; a (user, movie) pair that already exists is left
+    untouched and not counted at all.
     Finally ``Movie.popularity_score`` is recomputed as the number of ``+1`` ratings.
     """
     data_dir = Path(data_dir)
     links = {link.movielens_id: link for link in parse_links(data_dir / "links.csv")}
     movies = {
-        m.external_movielens_id: m
-        for m in session.scalars(select(Movie).where(Movie.external_movielens_id.is_not(None)))
+        int(source_id): m
+        for source_id, m in session.execute(
+            select(MovieExternalId.external_id, Movie)
+            .join(Movie, Movie.id == MovieExternalId.movie_id)
+            .where(MovieExternalId.source == "movielens")
+        )
     }
     movies_added = 0
     for parsed in parse_movies(data_dir / "movies.csv"):
-        link = links.get(parsed.movielens_id)
+        link_row = links.get(parsed.movielens_id)
+        tmdb = ("movie", link_row.tmdb_id) if link_row and link_row.tmdb_id is not None else None
         movie = movies.get(parsed.movielens_id)
+        if movie is None and tmdb is not None:
+            # Same film already in the catalog (e.g. another MovieLens id): just link to it.
+            movie = find_movie(session, tmdb=tmdb)
+            if movie is not None:
+                link(session, movie, "movielens", parsed.movielens_id)
+                movies[parsed.movielens_id] = movie
+                continue
         if movie is None:
-            movie = Movie(external_movielens_id=parsed.movielens_id)
+            movie = Movie(title=parsed.title)
             session.add(movie)
+            session.flush()
+            link(session, movie, "movielens", parsed.movielens_id)
             movies[parsed.movielens_id] = movie
             movies_added += 1
         movie.title = parsed.title
@@ -50,9 +68,12 @@ def import_movielens(session: Session, data_dir: Path, binarizer: Binarizer) -> 
             movie.original_title = parsed.alt_title
         movie.year = parsed.year
         movie.genres = list(parsed.genres)
-        if link is not None:
-            movie.imdb_id = link.imdb_id
-            movie.tmdb_id = link.tmdb_id
+        if link_row is not None:
+            if link_row.imdb_id:
+                with suppress(CatalogConflict):
+                    link(session, movie, "imdb", link_row.imdb_id)
+            if tmdb is not None and movie.tmdb_id is None:
+                movie.tmdb_type, movie.tmdb_id = tmdb
 
     users = {
         u.external_movielens_id: u

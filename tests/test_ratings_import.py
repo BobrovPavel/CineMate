@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import RelativeMeanBinarizer
 from cinemate.cli import main
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.ratings_import import import_ratings_csv, normalize_title
 from cinemate.db.session import create_all, make_engine
 from cinemate.ratings_csv import load_ratings
@@ -40,6 +40,14 @@ def _run(session, path, types=None, threshold=0.5):
     return import_ratings_csv(session, path, _binarizer(path, types, threshold), types)
 
 
+def _csv_ids(session, movie=None):
+    """``ratings_csv`` ids linked to ``movie`` (all movies if ``None``), sorted."""
+    query = select(MovieExternalId.external_id).where(MovieExternalId.source == "ratings_csv")
+    if movie is not None:
+        query = query.where(MovieExternalId.movie_id == movie.id)
+    return sorted(int(x) for x in session.scalars(query))
+
+
 def _movielens_movie(session, title="Heat", year=1995, **kw):
     movie = Movie(title=title, year=year, genres=["Crime"], external_movielens_id=6, **kw)
     session.add(movie)
@@ -66,7 +74,7 @@ def test_merge_with_movielens_by_title_and_year(tmp_path):
     assert stats.movies_added == 20
     session.refresh(movie)
     assert movie.title == "The Heat"
-    assert movie.external_ratings_id == 77
+    assert _csv_ids(session, movie) == [77]
     assert session.scalar(select(Rating.value).where(Rating.movie_id == movie.id)) is not None
 
 
@@ -76,7 +84,7 @@ def test_merge_with_original_title_of_existing_movie(tmp_path):
     stats = _run(session, _write(tmp_path, "1,77,,Heat,Film,1995,,,10\n"))
     assert stats.movies_merged == 1
     session.refresh(movie)
-    assert movie.external_ratings_id == 77
+    assert _csv_ids(session, movie) == [77]
 
 
 def test_different_year_is_not_merged(tmp_path):
@@ -85,7 +93,7 @@ def test_different_year_is_not_merged(tmp_path):
     stats = _run(session, _write(tmp_path, "1,77,,Heat,Film,1996,,,10\n"))
     assert (stats.movies_merged, stats.movies_added, stats.movies_ambiguous) == (0, 1, 0)
     session.refresh(movie)
-    assert movie.external_ratings_id is None
+    assert _csv_ids(session, movie) == []
 
 
 def test_no_original_title_or_year_creates_new_movie(tmp_path):
@@ -107,7 +115,7 @@ def test_two_candidates_are_ambiguous(tmp_path):
     session.commit()
     stats = _run(session, _write(tmp_path, "1,77,Жара,Heat,Film,1995,,,10\n"))
     assert (stats.movies_merged, stats.movies_added, stats.movies_ambiguous) == (0, 1, 1)
-    assert session.scalars(select(Movie.external_ratings_id)).all().count(77) == 1
+    assert _csv_ids(session) == [77]
 
 
 def test_second_csv_movie_for_same_candidate_is_ambiguous(tmp_path):
@@ -124,7 +132,7 @@ def test_new_movie_fields(tmp_path):
     movie = session.scalars(select(Movie)).one()
     assert (movie.title, movie.original_title, movie.year) == ("Жара", "Heat", 1995)
     assert movie.genres == ["драма", "криминал"]
-    assert movie.external_ratings_id == 5
+    assert _csv_ids(session, movie) == [5]
     assert movie.tmdb_id is None
 
 
@@ -138,7 +146,10 @@ def test_title_falls_back_to_original_and_skips_without_any(tmp_path):
 
 def test_existing_external_movie_only_fills_empty_fields(tmp_path):
     session = _session()
-    session.add(Movie(title="Keep", external_ratings_id=5, year=2000, genres=[]))
+    movie = Movie(title="Keep", year=2000, genres=[])
+    session.add(movie)
+    session.flush()
+    session.add(MovieExternalId(source="ratings_csv", external_id="5", movie_id=movie.id))
     session.commit()
     _run(session, _write(tmp_path, '1,5,Other,Heat,Film,1995,"драма",,10\n'))
     movie = session.scalars(select(Movie)).one()
@@ -192,7 +203,8 @@ def test_second_import_changes_nothing(tmp_path):
 
     def snapshot():
         return (
-            session.execute(select(Movie.id, Movie.title, Movie.external_ratings_id)).all(),
+            session.execute(select(Movie.id, Movie.title)).all(),
+            _csv_ids(session),
             session.execute(select(User.id, User.external_ratings_id)).all(),
             session.execute(select(Rating.user_id, Rating.movie_id, Rating.value)).all(),
         )
@@ -229,7 +241,14 @@ def test_popularity_is_recomputed(tmp_path):
     body = _enough(1) + _enough(2) + _enough(3)
     stats = _run(session, _write(tmp_path, body))
     assert stats.popularity_updated == 20
-    scores = dict(session.execute(select(Movie.external_ratings_id, Movie.popularity_score)).all())
+    scores = {
+        int(ext): score
+        for ext, score in session.execute(
+            select(MovieExternalId.external_id, Movie.popularity_score)
+            .join(Movie, Movie.id == MovieExternalId.movie_id)
+            .where(MovieExternalId.source == "ratings_csv")
+        )
+    }
     assert scores[1000] == 3.0  # liked by all three
     assert scores[1019] == 0.0  # disliked by all three
 

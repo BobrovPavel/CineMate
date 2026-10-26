@@ -33,6 +33,7 @@ def test_create_all_makes_tables():
         "ratings",
         "seen_marks",
         "events",
+        "movie_external_ids",
     }
 
 
