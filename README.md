@@ -49,6 +49,9 @@ cinemate tune --k 20,40,80 --lambda 2,5,10 --min-overlap 1,2,3
 
 Идемпотентно импортирует фильмы, пользователей и оценки MovieLens в базу данных. Поле
 `Movie.popularity_score` пересчитывается как число лайков (`+1`) фильма; без лайков — `0.0`.
+Названия приводятся к читаемому виду («Blair Witch Project, The» → «The Blair Witch Project»,
+альтернативное название из скобок уходит в пустое `original_title`); повторный запуск
+обновляет названия уже импортированных фильмов.
 
 ```
 cinemate import-movielens --database-url sqlite:///cinemate.db --data-dir data

@@ -185,3 +185,44 @@ def test_popularity_score_recomputed_when_ratings_change(tmp_path):
         )
         assert scores == {1: 2.0, 2: 1.0}
         assert stats.popularity_updated == 1
+
+
+def _write_titles(data, titles):
+    rows = "".join(f'{i},"{t}",Drama\n' for i, t in enumerate(titles, start=1))
+    (data / "movies.csv").write_text("movieId,title,genres\n" + rows, encoding="utf-8")
+
+
+def test_import_normalizes_titles_and_keeps_tmdb_original_title(tmp_path):
+    data = _write_dataset(tmp_path)
+    _write_titles(
+        data,
+        [
+            "City of Lost Children, The (Cité des enfants perdus, La) (1995)",
+            "Blair Witch Project, The (1999)",
+        ],
+    )
+    with _session() as session:
+        import_movielens(session, data, MovieLensBinarizer())
+        first = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
+        second = session.scalar(select(Movie).where(Movie.external_movielens_id == 2))
+        assert (first.title, first.original_title) == (
+            "The City of Lost Children",
+            "La Cité des enfants perdus",
+        )
+        assert (second.title, second.original_title) == ("The Blair Witch Project", None)
+        first.original_title = "La Cité des enfants perdus (TMDB)"
+        session.commit()
+        import_movielens(session, data, MovieLensBinarizer())
+        assert first.original_title == "La Cité des enfants perdus (TMDB)"
+
+
+def test_reimport_fixes_old_titles(tmp_path):
+    data = _write_dataset(tmp_path)
+    with _session() as session:
+        import_movielens(session, data, MovieLensBinarizer())
+        toy = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
+        toy.title = "Toy Story, The"
+        session.commit()
+        _write_titles(data, ["Blair Witch Project, The (1999)", "Jumanji (1995)"])
+        import_movielens(session, data, MovieLensBinarizer())
+        assert toy.title == "The Blair Witch Project"
