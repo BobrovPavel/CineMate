@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 import sys
 import urllib.error
@@ -49,6 +50,8 @@ from cinemate.movielens import Rating, iter_ratings, parse_ratings
 from cinemate.ratings_csv import CSV_MIN_RATINGS, load_ratings
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
 from cinemate.tmdb import TmdbClient, TmdbError
+from cinemate.wikidata import DEFAULT_PATH as WIKIDATA_PATH
+from cinemate.wikidata import WikidataError, fetch_mapping, load_mapping, save_mapping
 
 DEFAULT_DATABASE_URL = "sqlite:///cinemate.db"
 _DATABASE_URL_HELP = (
@@ -433,6 +436,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the TMDB /find and title search steps (TMDB_API_KEY is still used for "
         "rows with tmdb_id)",
     )
+    ir.add_argument(
+        "--wikidata",
+        type=Path,
+        default=None,
+        help=f"Kinopoisk -> TMDB/IMDb mapping from fetch-wikidata-kinopoisk "
+        f"(default: {WIKIDATA_PATH} if it exists)",
+    )
+    fw = sub.add_parser(
+        "fetch-wikidata-kinopoisk",
+        help="download the Kinopoisk -> TMDB/IMDb mapping from Wikidata into a CSV",
+    )
+    fw.add_argument(
+        "--out", type=Path, default=WIKIDATA_PATH, help="output CSV (default: %(default)s)"
+    )
     en = sub.add_parser("enrich-movies", help="fetch movie metadata from TMDB into the database")
     en.add_argument(
         "--database-url",
@@ -672,6 +689,23 @@ def _run_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_fetch_wikidata(args: argparse.Namespace) -> int:
+    command = args.command
+    try:
+        result = fetch_mapping(progress=lambda n: print(f"rows read: {n}", flush=True))
+        save_mapping(args.out, result.entries)
+    except WikidataError as exc:
+        print(f"cinemate {command}: error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(
+            f"cinemate {command}: error: cannot write {args.out}: {exc.strerror}", file=sys.stderr
+        )
+        return 2
+    print(f"mapping rows written: {len(result.entries)}, ambiguous dropped: {result.dropped}")
+    return 0
+
+
 def _run_import_ratings_csv(args: argparse.Namespace) -> int:
     command = args.command
     if not args.rel_threshold > 0:
@@ -698,6 +732,18 @@ def _run_import_ratings_csv(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     client = TmdbClient(api_key) if api_key else None
+    wikidata_path = args.wikidata if args.wikidata is not None else WIKIDATA_PATH
+    wikidata = None
+    if args.wikidata is not None or wikidata_path.exists():
+        try:
+            wikidata = load_mapping(wikidata_path)
+        except (OSError, ValueError, csv.Error) as exc:
+            reason = exc.strerror if isinstance(exc, OSError) else exc
+            print(
+                f"cinemate {command}: error: cannot read {wikidata_path}: {reason}",
+                file=sys.stderr,
+            )
+            return 2
     engine = _open_engine(args)
     if engine is None:
         return 2
@@ -710,6 +756,7 @@ def _run_import_ratings_csv(args: argparse.Namespace) -> int:
                 types,
                 client=client,
                 use_tmdb=client is not None and not args.no_tmdb,
+                wikidata=wikidata,
             )
         except ValueError as exc:
             print(f"cinemate {command}: error: {args.file}: {exc}", file=sys.stderr)
@@ -719,7 +766,8 @@ def _run_import_ratings_csv(args: argparse.Namespace) -> int:
             return 1
     print(
         f"matched by TMDB pair: {stats.matched_by_tmdb}, by IMDb: {stats.matched_by_imdb}, "
-        f"by Kinopoisk: {stats.matched_by_kinopoisk}, by search: {stats.matched_by_search}, "
+        f"by Kinopoisk: {stats.matched_by_kinopoisk}, by Wikidata: {stats.matched_by_wikidata}, "
+        f"merged by Wikidata: {stats.merged_by_wikidata}, by search: {stats.matched_by_search}, "
         f"unresolved: {stats.unresolved}, conflicts: {stats.conflicts}"
     )
     print(
@@ -981,6 +1029,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_import(args)
     if args.command == "import-ratings-csv":
         return _run_import_ratings_csv(args)
+    if args.command == "fetch-wikidata-kinopoisk":
+        return _run_fetch_wikidata(args)
     if args.command == "metrics":
         return _run_metrics(args)
     if args.command == "bench-recommendations":
