@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 import sys
 import urllib.error
@@ -736,9 +737,10 @@ def _run_import_ratings_csv(args: argparse.Namespace) -> int:
     if args.wikidata is not None or wikidata_path.exists():
         try:
             wikidata = load_mapping(wikidata_path)
-        except OSError as exc:
+        except (OSError, ValueError, csv.Error) as exc:
+            reason = exc.strerror if isinstance(exc, OSError) else exc
             print(
-                f"cinemate {command}: error: cannot read {wikidata_path}: {exc.strerror}",
+                f"cinemate {command}: error: cannot read {wikidata_path}: {reason}",
                 file=sys.stderr,
             )
             return 2

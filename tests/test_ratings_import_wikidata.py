@@ -132,3 +132,71 @@ def test_without_mapping_behaviour_unchanged(tmp_path):
     stats = _run(session, path, client, None)
     assert stats.matched_by_wikidata == 0 and stats.movies_added == 21
     assert find_movie(session, ids={"kinopoisk": "7"}).tmdb_id is None
+
+
+def test_merge_into_owner_works_with_no_tmdb(tmp_path):
+    session = _session()
+    path = _unresolved_setup(session, tmp_path, _row(kp="7", title="Схватка"))
+    owner = Movie(title="Heat", tmdb_type="movie", tmdb_id=5, genres=[])
+    session.add(owner)
+    session.commit()
+    owner_id = owner.id
+    stats = _run(session, path, FakeTmdb(), {7: WikidataEntry("movie", 5, None)}, use_tmdb=False)
+    assert stats.merged_by_wikidata == 1
+    assert find_movie(session, ids={"kinopoisk": "7"}).id == owner_id
+
+
+def test_free_pair_unknown_to_tmdb_stays_unresolved(tmp_path):
+    session = _session()
+    path = _unresolved_setup(session, tmp_path, _row(kp="7", title="Схватка"))
+    stats = _run(session, path, FakeTmdb(), {7: WikidataEntry("movie", 5, None)})
+    assert find_movie(session, ids={"kinopoisk": "7"}).tmdb_id is None
+    assert stats.matched_by_wikidata == 0
+
+
+def _cli_args(tmp_path):
+    from cinemate.cli import main
+
+    path = _write(tmp_path, _row(kp="7", title="Схватка") + _filler())
+    db = f"sqlite:///{tmp_path / 'db.sqlite'}"
+    assert main(["migrate", "--database-url", db]) == 0
+    return main, ["import-ratings-csv", "--file", str(path), "--database-url", db]
+
+
+def test_cli_wikidata_option_and_counters(tmp_path, monkeypatch, capsys):
+    from cinemate.wikidata import save_mapping
+
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+    main, args = _cli_args(tmp_path)
+    mapping = tmp_path / "w.csv"
+    save_mapping(mapping, {7: WikidataEntry("movie", 5, None)})
+    assert main([*args, "--wikidata", str(mapping)]) == 0
+    assert "by Wikidata: 0, merged by Wikidata: 0" in capsys.readouterr().out
+
+
+def test_cli_uses_default_wikidata_file(tmp_path, monkeypatch, capsys):
+    from cinemate import cli
+    from cinemate.wikidata import save_mapping
+
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+    main, args = _cli_args(tmp_path)
+    default = tmp_path / "w.csv"
+    save_mapping(default, {})
+    monkeypatch.setattr(cli, "WIKIDATA_PATH", default)
+    seen = []
+    real = cli.load_mapping
+    monkeypatch.setattr(cli, "load_mapping", lambda p: seen.append(p) or real(p))
+    assert main(args) == 0
+    assert seen == [default]
+
+
+def test_cli_bad_wikidata_file_is_clean_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+    main, args = _cli_args(tmp_path)
+    capsys.readouterr()
+    bad = tmp_path / "bad.csv"
+    bad.write_bytes(b"\xff\xfe\x00bad")
+    assert main([*args, "--wikidata", str(bad)]) == 2
+    assert main([*args, "--wikidata", str(tmp_path / "missing.csv")]) == 2
+    err = capsys.readouterr().err
+    assert err.count("error: cannot read") == 2 and "Traceback" not in err

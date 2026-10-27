@@ -24,8 +24,11 @@ MAX_RETRY_AFTER = 60.0
 FIELDS = ("kp_id", "tmdb_type", "tmdb_id", "imdb_id")
 
 _QUERY = """\
-SELECT ?kp ?tmdbMovie ?tmdbTv ?imdb WHERE {{
-  {{ SELECT ?item ?kp WHERE {{ ?item wdt:P2603 ?kp }} ORDER BY ?kp LIMIT {limit} OFFSET {offset} }}
+SELECT ?item ?kp ?tmdbMovie ?tmdbTv ?imdb WHERE {{
+  {{
+    SELECT ?item ?kp WHERE {{ ?item wdt:P2603 ?kp }}
+    ORDER BY ?kp ?item LIMIT {limit} OFFSET {offset}
+  }}
   OPTIONAL {{ ?item wdt:P4947 ?tmdbMovie }}
   OPTIONAL {{ ?item wdt:P4983 ?tmdbTv }}
   OPTIONAL {{ ?item wdt:P345 ?imdb }}
@@ -82,8 +85,8 @@ def parse_bindings(
         kp = _digits(b, "kp")
         if kp is None:
             continue
-        pairs[kp]  # noqa: B018 - register the kp id even without a pair
-        imdbs[kp]  # noqa: B018
+        pairs.setdefault(kp, set())  # register the kp id even without a pair
+        imdbs.setdefault(kp, set())
         for name, kind in (("tmdbMovie", "movie"), ("tmdbTv", "tv")):
             tmdb_id = _digits(b, name)
             if tmdb_id is not None:
@@ -137,11 +140,13 @@ def fetch_mapping(
         url = f"{SPARQL_URL}?{urllib.parse.urlencode({'query': query, 'format': 'json'})}"
         bindings = _request(url, headers, http_get, sleep)
         all_bindings.extend(bindings)
-        kp_count = len({b.get("kp", {}).get("value") for b in bindings})
+        rows = len(
+            {(b.get("item", {}).get("value"), b.get("kp", {}).get("value")) for b in bindings}
+        )
         offset += page_size
         if progress is not None:
             progress(len(all_bindings))
-        if kp_count < page_size:
+        if rows < page_size:
             break
         sleep(pause)
     return build_entries(*parse_bindings(all_bindings))

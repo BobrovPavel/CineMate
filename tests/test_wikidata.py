@@ -15,7 +15,7 @@ from cinemate.wikidata import (
 
 
 def _b(kp, movie=None, tv=None, imdb=None):
-    out = {"kp": {"value": str(kp)}}
+    out = {"item": {"value": f"Q{kp}"}, "kp": {"value": str(kp)}}
     if movie:
         out["tmdbMovie"] = {"value": str(movie)}
     if tv:
@@ -103,3 +103,31 @@ def test_cli_fetch_writes_file(tmp_path, monkeypatch, capsys):
     assert main(["fetch-wikidata-kinopoisk", "--out", str(out)]) == 0
     assert load_mapping(out) == {5: WikidataEntry("tv", 9, None)}
     assert "written: 1, ambiguous dropped: 2" in capsys.readouterr().out
+
+
+def test_fetch_continues_when_items_share_a_kp_id():
+    # a full page of two items with the same kp id must not end the paging
+    pages = [
+        [
+            {**_b(1, movie=10), "item": {"value": "Q1"}},
+            {**_b(1, movie=11), "item": {"value": "Q2"}},
+        ],
+        [_b(3, movie=30)],
+    ]
+    calls = []
+
+    def http_get(url, headers):
+        calls.append(url)
+        return 200, _body(pages[len(calls) - 1]), None
+
+    result = fetch_mapping(http_get, lambda s: None, page_size=2)
+    assert len(calls) == 2
+    assert list(result.entries) == [3]  # kp 1 is ambiguous
+
+
+def test_load_mapping_skips_bad_rows(tmp_path):
+    path = tmp_path / "w.csv"
+    path.write_text(
+        "kp_id,tmdb_type,tmdb_id,imdb_id\nx,movie,1,\n2,bogus,5,\n3,tv,7,tt3\n", encoding="utf-8"
+    )
+    assert load_mapping(path) == {3: WikidataEntry("tv", 7, "tt3")}

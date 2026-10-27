@@ -358,6 +358,8 @@ def _attach_wikidata(
     """Give a movie without a TMDB pair the Wikidata pair; merge into the pair's owner if any.
 
     Returns the movie that stays (the owner after a merge). Matching by id, so merging is safe.
+    An entry with only an IMDb id does nothing here (the pair search of ``_attach_pair`` follows).
+    Without a TMDB client a free pair is not fetched, but a merge into an existing owner works.
     """
     if entry.tmdb_id is None:
         return movie
