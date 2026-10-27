@@ -125,14 +125,14 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
-    (scripts / "versions" / "0007_add_note.py").write_text(
+    (scripts / "versions" / "0008_add_note.py").write_text(
         textwrap.dedent(
             """
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "0007"
-            down_revision = "0006"
+            revision = "0008"
+            down_revision = "0007"
             branch_labels = None
             depends_on = None
 
@@ -151,7 +151,7 @@ def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     upgrade_head(engine, scripts)
-    assert current_revision(engine) == head_revision(scripts) == "0007"
+    assert current_revision(engine) == head_revision(scripts) == "0008"
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, note FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]
@@ -245,7 +245,7 @@ def test_migration_0003_adds_title_ru_to_existing_database(db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0006"
+    assert current_revision(engine) == head_revision() == "0007"
     assert "title_ru" in {c["name"] for c in inspect(engine).get_columns("movies")}
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, title_ru FROM movies")).all()
@@ -376,3 +376,17 @@ def test_migration_0005_fills_user_pool(db_url):
     assert [tuple(r) for r in rows] == [(1, "ru"), (2, "world"), (3, "world")]
     with pytest.raises(IntegrityError):
         _run(engine, insert.format(col="pool", id=4, val="'xx'"))
+
+
+def test_migration_0007_adds_tmdb_fetched_at_to_0006_database(db_url):
+    engine = make_engine(db_url)
+    command.upgrade(alembic_config(engine), "0006")
+    assert "tmdb_fetched_at" not in {c["name"] for c in inspect(engine).get_columns("movies")}
+    _run(
+        engine, "INSERT INTO movies (title, genres, tmdb_type, tmdb_id) VALUES ('A', '[]', 'tv', 1)"
+    )
+    assert main(["migrate", "--database-url", db_url]) == 0
+    assert current_revision(engine) == head_revision() == "0007"
+    assert "tmdb_fetched_at" in {c["name"] for c in inspect(engine).get_columns("movies")}
+    rows = _run(engine, "SELECT title, tmdb_fetched_at FROM movies").all()
+    assert [tuple(r) for r in rows] == [("A", None)]

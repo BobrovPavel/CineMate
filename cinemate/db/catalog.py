@@ -5,6 +5,7 @@
 """
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -185,6 +186,7 @@ def import_from_tmdb(session: Session, client: TmdbClient, tmdb_type: str, tmdb_
         runtime=details.runtime,
         genres=list(details.genres),
         popularity_score=0.0,
+        tmdb_fetched_at=datetime.now(UTC),
     )
     try:
         with session.begin_nested():
