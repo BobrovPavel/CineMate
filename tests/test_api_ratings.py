@@ -86,7 +86,10 @@ def test_rating_updates_count_and_invalidates_cache(app, client):
     before = store.get()
     response = client.post("/api/ratings", json={"movie_id": 1, "value": 1})
     assert response.json() == {"ok": True, "rated_count": 1}
+    assert store.get() is before  # no rebuild in the request thread
+    store.rebuild_now()
     assert store.get() is not before
+    assert 1 in store.get().movie_ids
     response = client.post("/api/ratings", json={"movie_id": 1, "value": -1})
     assert response.json() == {"ok": True, "rated_count": 1}
     response = client.post("/api/ratings", json={"movie_id": 2, "value": 1})

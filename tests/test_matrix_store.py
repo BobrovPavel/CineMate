@@ -70,6 +70,8 @@ def test_invalidate_reveals_new_ratings(factory):
     assert store.get().matrix.shape == (1, 1)  # still cached
 
     store.invalidate()
+    assert store.get().matrix.shape == (1, 1)  # stale matrix is served until a rebuild
+    store.rebuild_now()
     result = store.get()
     assert result.user_ids == [1, 2]
     assert result.movie_ids == [10, 20]

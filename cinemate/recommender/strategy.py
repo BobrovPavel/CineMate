@@ -34,6 +34,7 @@ def recommend_with_strategy(
     fallback_pool_factor: int = DEFAULT_POOL_FACTOR,
     rng: random.Random | None = None,
     blend_full_at: float = 0.0,
+    neighbors: list[tuple[int, float]] | None = None,
 ) -> Recommendation:
     """Recommend collaboratively, falling back to popular movies when data is too thin.
 
@@ -43,6 +44,7 @@ def recommend_with_strategy(
     With ``blend_full_at > 0`` the hybrid (``recommend_hybrid``) is used instead and the
     threshold logic is skipped; the strategy is ``collaborative`` if its CF weight is at least
     0.5 and the user has neighbours, otherwise ``fallback``. ``0`` keeps the threshold logic.
+    Precomputed ``neighbors`` are used by the threshold logic only, to save a second search.
     """
     if blend_full_at > 0:
         hybrid = recommend_hybrid_detailed(
@@ -71,6 +73,7 @@ def recommend_with_strategy(
             lam=lam,
             pop_penalty=pop_penalty,
             significance=significance,
+            neighbors=neighbors,
         )
         if items:
             return Recommendation(items=items, strategy="collaborative")
