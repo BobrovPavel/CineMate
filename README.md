@@ -6,6 +6,114 @@ user-based коллаборативная фильтрация подбирае�
 алгоритм на MovieLens (метрики precision/recall), потом строится сайт. Подробнее — в
 [docs/VISION.md](docs/VISION.md).
 
+## Как запустить
+
+Два способа: всё в Docker (база PostgreSQL, ничего, кроме Docker, ставить не нужно) или в
+консоли (Python и Node.js на своей машине, база по умолчанию — файл SQLite `cinemate.db`).
+Команды даны для Windows PowerShell; отличия для Linux/macOS — в комментариях.
+
+### В Docker
+
+Первый запуск (`.env`, миграции, импорт данных) описан в разделе [Docker](#docker).
+
+**Повторный запуск, например после перезагрузки компьютера.** Контейнеры сами не стартуют:
+
+1. Запустите Docker Desktop и дождитесь, пока он загрузится.
+2. Из папки проекта:
+
+   ```
+   docker compose up -d
+   ```
+
+3. Откройте <http://localhost:3000>. Состояние сервисов — `docker compose ps` (у `db` и `api`
+   должно быть `healthy`), логи API — `docker compose logs -f api`.
+
+**После обновления кода** (`git pull`):
+
+```
+docker compose build
+docker compose --profile tools build app
+docker compose run --rm app migrate
+docker compose up -d
+```
+
+`docker compose build` не собирает сервис `app` (профиль `tools`), поэтому нужна вторая команда:
+без неё разовые команды `docker compose run --rm app ...` работают на старом коде (например,
+`migrate` не знает новых ревизий).
+
+**После импорта данных** (`import-movielens`, `import-ratings-csv`) перезапустите API — он
+держит матрицу оценок в памяти: `docker compose restart api`.
+
+**Прерванный импорт** (перезагрузка, Ctrl+C) — запустите ту же команду ещё раз, повторный запуск
+ничего не дублирует. `import-ratings-csv` сохраняет сопоставленные фильмы и ответы TMDB по ходу
+работы и продолжает с места остановки; пользователи и оценки записываются в самом конце.
+
+**Остановка:** `docker compose down` (данные базы остаются в томе `pgdata`).
+
+### В консоли
+
+Нужны Python 3.12+ и Node.js. API и фронтенд работают в двух разных терминалах. Если сервисы
+запущены в Docker, сначала остановите их (`docker compose stop frontend api`): фронтенд из Docker
+занимает порт 3000.
+
+**Один раз — установка и данные:**
+
+```
+python -m venv .venv
+.venv\Scripts\activate                      # Linux/macOS: source .venv/bin/activate
+pip install -e ".[dev,postgres]"            # extra postgres нужен только для PostgreSQL
+cd frontend
+npm install
+copy .env.example .env.local                # Linux/macOS: cp .env.example .env.local
+cd ..
+$env:TMDB_API_KEY = "ваш ключ"              # Linux/macOS: export TMDB_API_KEY=...
+cinemate migrate
+cinemate import-movielens --data-dir data
+cinemate import-ratings-csv --file data/ratings.csv   # свой набор оценок (пул ru), если есть
+cinemate enrich-movies                      # постеры и описания из TMDB
+```
+
+CLI не читает `.env`: переменные окружения (`TMDB_API_KEY`, `DATABASE_URL` и другие из
+раздела [Переменные окружения](#переменные-окружения)) задавайте в терминале — в каждом новом
+окне заново.
+
+**Каждый запуск.** Терминал 1 — API:
+
+```
+.venv\Scripts\activate                      # Linux/macOS: source .venv/bin/activate
+$env:TMDB_API_KEY = "ваш ключ"              # Linux/macOS: export TMDB_API_KEY=...
+cinemate serve --host 127.0.0.1 --port 8000
+```
+
+Терминал 2 — фронтенд:
+
+```
+cd frontend
+npm run dev
+```
+
+Откройте <http://localhost:3000>. Остановка — Ctrl+C в обоих терминалах.
+
+**Консоль и база из Docker.** По умолчанию консольные команды работают с файлом `cinemate.db` —
+это отдельная база, данных из Docker в ней нет. Чтобы работать с базой PostgreSQL из Docker:
+
+1. Создайте рядом с `docker-compose.yml` файл `docker-compose.override.yml` (он в `.gitignore`,
+   `docker compose` подхватывает его сам):
+
+   ```yaml
+   services:
+     db:
+       ports:
+         - "127.0.0.1:5432:5432"
+   ```
+
+2. Запустите базу: `docker compose up -d db`.
+3. В терминале перед командами `cinemate` задайте URL (пароль — `POSTGRES_PASSWORD` из `.env`):
+
+   ```
+   $env:DATABASE_URL = "postgresql+psycopg://cinemate:ПАРОЛЬ@localhost:5432/cinemate"
+   ```
+
 ## Установка
 
 Нужен Python 3.12+.
