@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from cinemate.api.routes import router
 from cinemate.cli import resolve_database_url
 from cinemate.config import RecommenderSettings
-from cinemate.db.matrix_store import MatrixStore
+from cinemate.db.matrix_store import DEFAULT_REBUILD_SECONDS, MatrixStore
 from cinemate.db.migrations import ensure_schema
 from cinemate.db.session import make_engine
 from cinemate.services.search import SearchCache
@@ -56,18 +56,43 @@ def resolve_cookie_secure(flag: bool, environ: Mapping[str, str] | None = None) 
     raise ValueError(f"COOKIE_SECURE: invalid value {raw!r}; use 1/true/yes/on or 0/false/no/off")
 
 
+def resolve_matrix_rebuild_seconds(
+    value: float | None = None, environ: Mapping[str, str] | None = None
+) -> float:
+    """Minimum seconds between background matrix rebuilds: argument → ``MATRIX_REBUILD_SECONDS``.
+
+    Defaults to 300; ``0`` rebuilds as soon as a pool is stale. Raises ``ValueError`` naming the
+    variable for a value that is not a non-negative number.
+    """
+    if value is None:
+        env = os.environ if environ is None else environ
+        raw = env.get("MATRIX_REBUILD_SECONDS", "").strip()
+        if not raw:
+            return DEFAULT_REBUILD_SECONDS
+        try:
+            value = float(raw)
+        except ValueError:
+            raise ValueError(f"MATRIX_REBUILD_SECONDS: invalid value {raw!r}") from None
+    if not value >= 0 or value == float("inf"):
+        raise ValueError(f"MATRIX_REBUILD_SECONDS: must be a number >= 0, got {value!r}")
+    return value
+
+
 def create_app(
     database_url: str | None = None,
     cookie_secure: bool = False,
     cors_origins: list[str] | None = None,
     recommender_settings: RecommenderSettings | None = None,
     tmdb_client: TmdbClient | None = None,
+    matrix_rebuild_seconds: float | None = None,
 ) -> FastAPI:
     """Build the app; ``database_url`` follows the same resolution rule as the CLI commands.
 
     ``cookie_secure`` sets the ``Secure`` flag of the session cookie (off for local development).
     ``cors_origins`` overrides the ``CORS_ORIGINS`` environment variable.
     ``tmdb_client`` overrides the client built from env ``TMDB_API_KEY`` (tests pass a fake).
+    ``matrix_rebuild_seconds`` overrides env ``MATRIX_REBUILD_SECONDS`` (default 300): the
+    minimum interval between background rebuilds of a pool's ratings matrix.
     ``recommender_settings`` overrides the ``REC_*`` environment variables; invalid ones raise
     ``ValueError`` at startup. A database that is not on the latest migration revision raises
     ``SchemaNotMigratedError`` (in-memory SQLite and empty SQLite files are set up automatically).
@@ -88,7 +113,9 @@ def create_app(
     )
     app.state.engine = engine
     app.state.session_factory = session_factory
-    app.state.matrix_store = MatrixStore(session_factory)
+    app.state.matrix_store = MatrixStore(
+        session_factory, resolve_matrix_rebuild_seconds(matrix_rebuild_seconds)
+    )
     app.state.recommender_settings = settings
     app.state.cookie_secure = cookie_secure
     api_key = os.environ.get("TMDB_API_KEY", "").strip()

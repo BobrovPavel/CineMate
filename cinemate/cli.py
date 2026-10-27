@@ -437,6 +437,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="only fill the Russian title for movies that lack it (for already enriched movies)",
     )
+    be = sub.add_parser(
+        "bench-recommendations",
+        help="time the matrix load and get_recommendations on a database",
+    )
+    be.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    be.add_argument("--pool", choices=["ru", "world"], default="world", help="user pool")
+    be.add_argument(
+        "--requests", type=int, default=20, help="number of requests (default: %(default)s)"
+    )
+    be.add_argument("--seed", type=int, default=0, help="random seed (default: %(default)s)")
+    be.add_argument(
+        "--synthetic",
+        type=int,
+        default=None,
+        metavar="N",
+        help="first fill an EMPTY database with about N random ratings",
+    )
     me = sub.add_parser("metrics", help="print product metrics from the event log")
     me.add_argument(
         "--database-url",
@@ -549,6 +566,26 @@ def _run_metrics(args: argparse.Namespace) -> int:
     for strategy, rate in by_strategy.items():
         print(f"  {strategy}: {rate.rate:.4f} ({rate.good}/{rate.total})")
     print(f"7-day retention: {retention:.4f}")
+    return 0
+
+
+def _run_bench(args: argparse.Namespace) -> int:
+    from cinemate.bench import fill_synthetic, format_bench, run_bench
+
+    if args.requests < 1:
+        print("cinemate bench-recommendations: error: --requests must be >= 1", file=sys.stderr)
+        return 2
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
+    try:
+        if args.synthetic is not None:
+            count = fill_synthetic(engine, args.synthetic, args.pool, args.seed)
+            print(f"inserted {count} synthetic ratings")
+        print(format_bench(run_bench(engine, args.pool, args.requests, args.seed)))
+    except ValueError as exc:
+        print(f"cinemate bench-recommendations: error: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -925,6 +962,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_import_ratings_csv(args)
     if args.command == "metrics":
         return _run_metrics(args)
+    if args.command == "bench-recommendations":
+        return _run_bench(args)
     if args.command == "enrich-movies":
         return _run_enrich(args)
     if args.command == "migrate":

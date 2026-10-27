@@ -64,6 +64,8 @@ def test_rating_invalidates_store(session, factory):
     assert store.get().matrix.shape == (0, 0)
     set_rating(session, user, 1, 1, store=store)
     session.commit()
+    assert store.get().matrix.shape == (0, 0)
+    store.rebuild_now()
     assert store.get().matrix.shape == (1, 1)
 
 

@@ -22,6 +22,12 @@ class Explanation:
     because_of: list[int]
 
 
+def _liked_columns(matrix: csr_matrix, row: int) -> set[int]:
+    """Column indices with a ``+1`` entry in ``row``, read straight from the CSR arrays."""
+    start, end = matrix.indptr[row], matrix.indptr[row + 1]
+    return set(matrix.indices[start:end][matrix.data[start:end] > 0].tolist())
+
+
 def explain(
     matrix: csr_matrix,
     user_index: int,
@@ -34,15 +40,13 @@ def explain(
     Only ``+1`` entries count as likes; neighbours' dislikes are ignored. The recommended
     movie itself never appears in ``because_of``.
     """
-    user_row = matrix.getrow(user_index)
-    user_likes = {int(j) for j, v in zip(user_row.indices, user_row.data, strict=True) if v > 0}
+    user_likes = _liked_columns(matrix, user_index)
     user_likes.discard(movie_index)
 
     liked_by = 0
     counts: Counter[int] = Counter()
     for row_index, _ in neighbors:
-        row = matrix.getrow(row_index)
-        liked = {int(j) for j, v in zip(row.indices, row.data, strict=True) if v > 0}
+        liked = _liked_columns(matrix, row_index)
         if movie_index not in liked:
             continue
         liked_by += 1

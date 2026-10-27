@@ -73,10 +73,14 @@ def test_invalidate_touches_only_own_pool(factory):
     store = MatrixStore(factory)
     ru, world = store.get("ru"), store.get("world")
     store.invalidate("ru")
+    store.rebuild_now()  # rebuilds every cached pool, stale or not
+    assert store.get("world") is not world
+    assert store.get("ru") is not ru
+    ru, world = store.get("ru"), store.get("world")
+    store.invalidate("ru")
+    store.rebuild_now("ru")
     assert store.get("world") is world
     assert store.get("ru") is not ru
-    store.invalidate()
-    assert store.get("world") is not world
 
 
 def test_rating_invalidates_only_authors_pool(factory):
@@ -86,8 +90,9 @@ def test_rating_invalidates_only_authors_pool(factory):
     with factory() as s:
         set_rating(s, s.get(User, 1), 7, 1, store=store)
         s.commit()
+    assert store.get("ru") is ru  # not rebuilt by the request
+    store.rebuild_now("ru")
     assert store.get("world") is world
-    assert store.get("ru") is not ru
     assert 7 in store.get("ru").movie_ids
     assert 7 not in store.get("world").movie_ids
 
@@ -181,9 +186,9 @@ def test_api_rating_updates_only_own_pool(app):
     store = app.state.matrix_store
     with TestClient(app) as client:
         client.post("/api/session", headers={"Accept-Language": "ru"})
-        ru, world = store.get("ru"), store.get("world")
+        ru = store.get("ru")
         assert client.post("/api/ratings", json={"movie_id": 3, "value": 1}).status_code == 200
-        assert store.get("world") is world
+        assert store.get("ru") is ru
+        store.rebuild_now()
         assert 3 in store.get("ru").movie_ids
         assert 3 not in store.get("world").movie_ids
-        assert store.get("ru") is not ru
