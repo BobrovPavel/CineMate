@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from cinemate.tmdb import TmdbClient, TmdbError, TmdbMovie
+from cinemate.tmdb import TmdbClient, TmdbError
 
 KEY = "secret-key-123"
 
@@ -19,39 +19,22 @@ def _client(status=200, payload=None, raises=None):
     return TmdbClient(KEY, http_get=http_get), calls
 
 
-def test_fetch_movie_success():
-    client, calls = _client(
-        payload={
-            "overview": "Описание",
-            "poster_path": "/p.jpg",
-            "runtime": 81,
-            "original_title": "Toy Story",
-            "title": "История игрушек",
-        }
-    )
-    assert client.fetch_movie(862) == TmdbMovie(
-        "Описание", "/p.jpg", 81, "Toy Story", "История игрушек"
-    )
-    assert "/movie/862" in calls[0]
-    assert "language=ru-RU" in calls[0]
-
-
-def test_fetch_movie_404_returns_none():
+def test_fetch_details_404_returns_none():
     client, _ = _client(status=404)
-    assert client.fetch_movie(1) is None
+    assert client.fetch_details("movie", 1) is None
 
 
 def test_fetch_movie_http_error():
     client, _ = _client(status=500)
     with pytest.raises(TmdbError) as exc:
-        client.fetch_movie(1)
+        client.fetch_details("movie", 1)
     assert KEY not in str(exc.value)
 
 
 def test_transport_error_does_not_leak_key():
     client, _ = _client(raises=OSError(f"failed https://x/?api_key={KEY}"))
     with pytest.raises(TmdbError) as exc:
-        client.fetch_movie(1)
+        client.fetch_details("movie", 1)
     assert KEY not in str(exc.value)
     assert KEY not in repr(exc.value.__cause__)
 
@@ -59,7 +42,7 @@ def test_transport_error_does_not_leak_key():
 def test_invalid_json():
     client = TmdbClient(KEY, http_get=lambda url: (200, b"not json"))
     with pytest.raises(TmdbError):
-        client.fetch_movie(1)
+        client.fetch_details("movie", 1)
 
 
 def test_repr_hides_key():
@@ -69,11 +52,6 @@ def test_repr_hides_key():
 def test_empty_key_rejected():
     with pytest.raises(ValueError):
         TmdbClient("")
-
-
-def test_fetch_movie_empty_title_is_none():
-    client, _ = _client(payload={"title": ""})
-    assert client.fetch_movie(1).title is None
 
 
 # --- search / fetch_details / rate limiting ---

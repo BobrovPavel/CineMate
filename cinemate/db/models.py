@@ -52,6 +52,7 @@ class Movie(Base):
     genres: Mapped[list[str]] = mapped_column(JSON, default=list)
     runtime: Mapped[int | None] = mapped_column(Integer)
     popularity_score: Mapped[float | None] = mapped_column(Float)
+    tmdb_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MovieExternalId(Base):

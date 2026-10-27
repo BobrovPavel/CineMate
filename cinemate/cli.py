@@ -21,7 +21,7 @@ from cinemate.datasets import (
     ChecksumError,
     ensure_movielens,
 )
-from cinemate.db.enrich import enrich_movies
+from cinemate.db.enrich import DEFAULT_STALE_DAYS, MAX_STALE_DAYS, enrich_movies
 from cinemate.db.importer import import_movielens
 from cinemate.db.migrations import (
     SchemaNotMigratedError,
@@ -121,6 +121,16 @@ def parse_values(text: str, cast: Callable[[str], Any]) -> list[Any]:
     if not values:
         raise ValueError(f"invalid value list: {text!r}")
     return values
+
+
+def _stale_days(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid int value: {text!r}") from None
+    if not 1 <= value <= MAX_STALE_DAYS:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_STALE_DAYS}")
+    return value
 
 
 def _positive_int(text: str) -> int:
@@ -435,7 +445,14 @@ def build_parser() -> argparse.ArgumentParser:
     en.add_argument(
         "--refresh-titles",
         action="store_true",
-        help="only fill the Russian title for movies that lack it (for already enriched movies)",
+        help="only refresh movies that lack a Russian title, whatever their age",
+    )
+    en.add_argument(
+        "--stale-days",
+        type=_stale_days,
+        default=DEFAULT_STALE_DAYS,
+        help=f"refresh movies fetched from TMDB more than this many days ago (1..{MAX_STALE_DAYS},"
+        f" default {DEFAULT_STALE_DAYS})",
     )
     be = sub.add_parser(
         "bench-recommendations",
@@ -604,11 +621,15 @@ def _run_enrich(args: argparse.Namespace) -> int:
                 TmdbClient(api_key),
                 limit=args.limit,
                 refresh_titles=args.refresh_titles,
+                stale_days=args.stale_days,
             )
         except TmdbError as exc:
             print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)
             return 1
-    print(f"movies enriched: {stats.enriched}, not found: {stats.not_found}")
+    print(
+        f"movies enriched: {stats.enriched}, not found: {stats.not_found}, "
+        f"skipped (no TMDB pair): {stats.skipped}"
+    )
     return 0
 
 

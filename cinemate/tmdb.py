@@ -57,15 +57,6 @@ class TmdbDetails:
     overview: str | None = None
 
 
-@dataclass(frozen=True)
-class TmdbMovie:
-    overview: str | None
-    poster_path: str | None
-    runtime: int | None
-    original_title: str | None
-    title: str | None
-
-
 def _parse_retry_after(value: str | None) -> float:
     try:
         seconds = float(value) if value is not None else DEFAULT_RETRY_AFTER
@@ -167,19 +158,6 @@ class TmdbClient:
         if not isinstance(data, dict):
             raise TmdbError("TMDB returned an unexpected response")
         return data
-
-    def fetch_movie(self, tmdb_id: int) -> TmdbMovie | None:
-        """Return metadata for ``tmdb_id``, ``None`` if TMDB does not know it."""
-        data = self._get_json(f"/movie/{int(tmdb_id)}", language="ru-RU")
-        if data is None:
-            return None
-        return TmdbMovie(
-            overview=data.get("overview") or None,
-            poster_path=data.get("poster_path") or None,
-            runtime=data.get("runtime") or None,
-            original_title=data.get("original_title") or None,
-            title=data.get("title") or None,
-        )
 
     def search(self, query: str, language: str, page: int = 1) -> list[TmdbSearchItem]:
         """Search movies and TV shows (``/search/multi``); people and adult titles are dropped."""
