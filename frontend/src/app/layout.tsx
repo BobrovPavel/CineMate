@@ -39,6 +39,15 @@ export default function RootLayout({
             </a>{" "}
             API but is not endorsed or certified by TMDB.
           </p>
+          <a
+            className="mx-auto mt-3 block max-w-2xl"
+            href="https://www.themoviedb.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/tmdb-logo.svg" alt="TMDB" className="h-3.5 w-auto" />
+          </a>
         </footer>
       </body>
     </html>
