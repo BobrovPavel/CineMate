@@ -2,7 +2,7 @@
 
 import re
 from collections import defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from cinemate.db.models import Movie, MovieExternalId, Rating, TmdbLookup, User
 from cinemate.db.popularity import update_popularity
 from cinemate.ratings_csv import CsvRow, movie_key, read_rows
 from cinemate.tmdb import TmdbClient, TmdbSearchItem
+from cinemate.wikidata import WikidataEntry
 
 _NON_WORD = re.compile(r"[\W_]+")
 _SEARCH_TYPES = {
@@ -40,6 +41,8 @@ class RatingsImportStats:
     matched_by_imdb: int = 0
     matched_by_kinopoisk: int = 0
     matched_by_search: int = 0
+    matched_by_wikidata: int = 0
+    merged_by_wikidata: int = 0
     unresolved: int = 0
     conflicts: int = 0
 
@@ -56,13 +59,17 @@ def import_ratings_csv(
     types: Collection[str] | None = None,
     client: TmdbClient | None = None,
     use_tmdb: bool = True,
+    wikidata: Mapping[int, WikidataEntry] | None = None,
 ) -> RatingsImportStats:
     """Import movies, users and ``+1``/``-1`` ratings from the ratings CSV at ``path``.
 
     Each movie of the file is matched in this order: TMDB pair (``tmdb_type``/``tmdb_id``), IMDb
-    id (catalog, then TMDB ``/find``), Kinopoisk id (catalog, also ids of earlier imports), TMDB
-    search by title and year. Otherwise it is merged into the single catalog movie with the same
-    normalised title and year, else created without a TMDB pair (``unresolved``). Found movies
+    id (catalog, then TMDB ``/find``), Kinopoisk id (catalog, also ids of earlier imports),
+    the ``wikidata`` mapping by Kinopoisk id (its TMDB pair, else its IMDb id), TMDB search by
+    title and year. A catalog movie found without a TMDB pair gets the Wikidata pair too: if the
+    pair belongs to another movie the two are merged (the pair owner stays). Otherwise the movie
+    is merged into the single catalog movie with the same normalised title and year, else created
+    without a TMDB pair (``unresolved``). Found movies
     get ``kinopoisk`` and ``imdb`` links; a link owned by another movie counts as a conflict.
     ``client`` is used for the TMDB steps; with ``use_tmdb=False`` the ``/find`` and search steps
     are skipped. TMDB answers of those steps are cached in ``tmdb_lookups``.
@@ -97,18 +104,31 @@ def import_ratings_csv(
                 index[(normalize_title(name), m.year)].add(m.id)
 
     lookup = _Lookup(session, client if use_tmdb else None)
-    counts = {"tmdb": 0, "imdb": 0, "kinopoisk": 0, "search": 0, "conflicts": 0}
-    movies: dict[str, Movie] = {}
+    counts = {
+        "tmdb": 0,
+        "imdb": 0,
+        "kinopoisk": 0,
+        "search": 0,
+        "wikidata": 0,
+        "wikidata_merged": 0,
+        "conflicts": 0,
+    }
+    wikidata = wikidata or {}
+    movies: dict[str, int] = {}
+    redirect: dict[int, int] = {}  # dropped movie id -> id of the movie it was merged into
     merged = added = ambiguous = no_title = unresolved = 0
     for key, row in movie_rows.items():
-        movie, method = _match(session, client, lookup, row)
+        entry = wikidata.get(row.kp_id) if row.kp_id is not None else None
+        movie, method = _match(session, client, lookup, row, entry)
         if movie is not None:
+            if movie.tmdb_id is None and entry is not None and method != "wikidata":
+                movie = _attach_wikidata(session, lookup, movie, entry, counts, redirect, by_id)
             _fill_empty(movie, row)
             if movie.tmdb_id is None and lookup.enabled:
                 _attach_pair(session, client, lookup, movie, row, counts)
         else:
             method = None
-            candidates = _candidates(index, row)
+            candidates = {i for i in _candidates(index, row) if i in by_id}
             if len(candidates) == 1:
                 found = by_id[next(iter(candidates))]
                 if found.id not in csv_linked:
@@ -151,7 +171,7 @@ def import_ratings_csv(
                 movie.external_ratings_id = row.kp_id
         if movie.tmdb_id is None:
             unresolved += 1
-        movies[key] = movie
+        movies[key] = movie.id
         if lookup.dirty:
             session.commit()  # keep cached TMDB answers if the run is interrupted
             lookup.dirty = False
@@ -165,9 +185,11 @@ def import_ratings_csv(
 
     users_added = ratings_added = ratings_skipped = 0
     for (ext_user, ext_movie), score in scores.items():
-        movie = movies.get(ext_movie)
+        movie_id = movies.get(ext_movie)
+        while movie_id in redirect:
+            movie_id = redirect[movie_id]
         value = binarizer.binarize(float(score), ext_user)
-        if movie is None or value is None:
+        if movie_id is None or value is None:
             ratings_skipped += 1
             continue
         user = users.get(ext_user)
@@ -177,10 +199,10 @@ def import_ratings_csv(
             session.flush()
             users[ext_user] = user
             users_added += 1
-        if (user.id, movie.id) in existing:
+        if (user.id, movie_id) in existing:
             continue
-        existing.add((user.id, movie.id))
-        session.add(Rating(user_id=user.id, movie_id=movie.id, value=value))
+        existing.add((user.id, movie_id))
+        session.add(Rating(user_id=user.id, movie_id=movie_id, value=value))
         ratings_added += 1
 
     session.flush()
@@ -199,6 +221,8 @@ def import_ratings_csv(
         matched_by_imdb=counts["imdb"],
         matched_by_kinopoisk=counts["kinopoisk"],
         matched_by_search=counts["search"],
+        matched_by_wikidata=counts["wikidata"],
+        merged_by_wikidata=counts["wikidata_merged"],
         unresolved=unresolved,
         conflicts=counts["conflicts"],
     )
@@ -264,9 +288,13 @@ class _Lookup:
 
 
 def _match(
-    session: Session, client: TmdbClient | None, lookup: _Lookup, row: CsvRow
+    session: Session,
+    client: TmdbClient | None,
+    lookup: _Lookup,
+    row: CsvRow,
+    entry: WikidataEntry | None = None,
 ) -> tuple[Movie | None, str | None]:
-    """Steps 1-4 of the matching order; ``(movie, method)`` or ``(None, None)``."""
+    """Steps 1-5 of the matching order; ``(movie, method)`` or ``(None, None)``."""
     if row.tmdb_id is not None:
         pair = (row.tmdb_type, row.tmdb_id)
         movie = find_movie(session, tmdb=pair)
@@ -288,12 +316,70 @@ def _match(
         )
         if movie is not None:
             return movie, "kinopoisk"
+    if entry is not None:
+        movie = _wikidata_movie(session, lookup, entry)
+        if movie is not None:
+            return movie, "wikidata"
     if lookup.enabled:
         found = lookup.search(row)
         movie = _import(session, client, found) if found is not None else None
         if movie is not None:
             return movie, "search"
     return None, None
+
+
+def _wikidata_movie(session: Session, lookup: _Lookup, entry: WikidataEntry) -> Movie | None:
+    """The catalog movie for a Wikidata entry: by its TMDB pair, else by its IMDb id."""
+    if entry.tmdb_id is not None:
+        pair = (entry.tmdb_type, entry.tmdb_id)
+        movie = find_movie(session, tmdb=pair)
+        if movie is None and lookup.client is not None:
+            movie = _import(session, lookup.client, pair)
+        if movie is not None:
+            return movie
+    if entry.imdb_id is not None:
+        movie = find_movie(session, ids={"imdb": entry.imdb_id})
+        if movie is None and lookup.enabled:
+            found = lookup.find(entry.imdb_id)
+            movie = _import(session, lookup.client, found) if found is not None else None
+        return movie
+    return None
+
+
+def _attach_wikidata(
+    session: Session,
+    lookup: _Lookup,
+    movie: Movie,
+    entry: WikidataEntry,
+    counts: dict[str, int],
+    redirect: dict[int, int],
+    by_id: dict[int, Movie],
+) -> Movie:
+    """Give a movie without a TMDB pair the Wikidata pair; merge into the pair's owner if any.
+
+    Returns the movie that stays (the owner after a merge). Matching by id, so merging is safe.
+    """
+    if entry.tmdb_id is None:
+        return movie
+    pair = (entry.tmdb_type, entry.tmdb_id)
+    owner = find_movie(session, tmdb=pair)
+    if owner is not None:
+        drop_id = movie.id
+        merge_movies(session, keep_id=owner.id, drop_id=drop_id)
+        redirect[drop_id] = owner.id
+        by_id.pop(drop_id, None)
+        counts["wikidata_merged"] += 1
+        counts["wikidata"] += 1
+        return session.get(Movie, owner.id)
+    if lookup.client is None:
+        return movie
+    fresh = _import(session, lookup.client, pair)
+    if fresh is None:
+        return movie
+    merge_movies(session, keep_id=movie.id, drop_id=fresh.id)
+    session.refresh(movie)
+    counts["wikidata"] += 1
+    return movie
 
 
 def _import(session: Session, client: TmdbClient, pair: tuple[str, int]) -> Movie | None:
