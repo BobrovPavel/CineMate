@@ -73,8 +73,7 @@ def recommend(
     ``+1`` ratings of ``m`` among all users. ``pop_penalty`` is the exponent of the popularity
     penalty: ``1.0`` is the formula above, ``0.0`` disables it. ``significance`` is passed to
     ``find_neighbors``; precomputed ``neighbors`` (its output) skip that call. Dislikes of
-    neighbours lower
-    the score. Movies the user has already rated are excluded.
+    neighbours lower the score. Movies the user has already rated are excluded.
 
     Returns ``(movie_index, score)`` pairs sorted by score descending (ties by movie index
     ascending). Returns an empty list if there are no neighbours or ``n <= 0``. Raises

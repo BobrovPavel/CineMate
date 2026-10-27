@@ -50,3 +50,8 @@ def test_cli_bench(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "matrix load" in out and "p50" in out
     assert main(["bench-recommendations", "--database-url", url, "--requests", "0"]) == 2
+
+
+def test_cli_bench_rejects_bad_synthetic(tmp_path, capsys):
+    url = f"sqlite:///{tmp_path / 'c.db'}"
+    assert main(["bench-recommendations", "--database-url", url, "--synthetic", "0"]) == 2

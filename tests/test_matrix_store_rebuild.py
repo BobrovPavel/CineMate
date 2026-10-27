@@ -226,3 +226,82 @@ def test_resolve_matrix_rebuild_seconds():
 def test_create_app_passes_interval():
     app = create_app("sqlite:///:memory:", matrix_rebuild_seconds=7)
     assert app.state.matrix_store._rebuild_interval == 7
+
+
+def test_invalidate_during_first_build_is_kept(factory):
+    _seed(factory, [(1, 10, 1)])
+    store = MatrixStore(factory, rebuild_interval=3600)
+    real_load = store._load
+
+    def load_then_invalidate(pool):
+        result = real_load(pool)
+        store.invalidate()  # a rating lands after the snapshot, before the pool is cached
+        return result
+
+    store._load = load_then_invalidate
+    store.get()
+    assert "world" in store._stale
+
+
+def test_concurrent_first_get_loads_once(factory):
+    _seed(factory, [(1, 10, 1)])
+    store = MatrixStore(factory, rebuild_interval=3600)
+    calls = []
+    real_load = store._load
+
+    def counting_load(pool):
+        calls.append(pool)
+        time.sleep(0.1)
+        return real_load(pool)
+
+    store._load = counting_load
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(store.get())) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(calls) == 1
+    assert all(r is results[0] for r in results)
+
+
+def test_rebuild_now_builds_uncached_pool(factory):
+    _seed(factory, [(1, 10, 1)])
+    store = MatrixStore(factory)
+    store.rebuild_now("world")
+    assert store.get().user_ids == [1]
+    store.rebuild_now()  # nothing cached besides world: must not fail
+
+
+def test_matrix_from_arrays_matches_matrix_from_values():
+    import numpy as np
+
+    from cinemate.db.matrix_store import matrix_from_arrays
+    from cinemate.recommender.matrix import matrix_from_values
+
+    triples = [(5, 30, 1), (2, 10, -1), (5, 10, 1), (9, 20, 1), (2, 30, 1)]
+    cols = [np.array(c, dtype=np.int64) for c in zip(*triples, strict=True)]
+    half = 2
+    got = matrix_from_arrays(
+        [cols[0][:half], cols[0][half:]],
+        [cols[1][:half], cols[1][half:]],
+        [cols[2][:half].astype(np.int8), cols[2][half:].astype(np.int8)],
+    )
+    want = matrix_from_values(triples)
+    assert got.user_ids == want.user_ids == [2, 5, 9]
+    assert got.movie_ids == want.movie_ids == [10, 20, 30]
+    assert (got.matrix != want.matrix).nnz == 0
+    empty = matrix_from_arrays([], [], [])
+    assert empty.matrix.shape == (0, 0) and empty.user_ids == []
+
+
+def test_hybrid_setting_still_works(factory):
+    ratings = [(u, m, 1) for u in range(1, 5) for m in range(1, 6)]
+    ratings += [(u, 6, 1) for u in range(2, 5)]
+    _seed(factory, ratings)
+    store = MatrixStore(factory)
+    settings = RecommenderSettings(min_overlap=1, blend_full_at=5.0)
+    with factory() as s:
+        result = get_recommendations(s, store, s.get(User, 1), settings=settings)
+    assert result.strategy == "collaborative"
+    assert {i.movie.id for i in result.items} == {6}

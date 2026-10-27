@@ -49,7 +49,8 @@ def _with_fresh_row(session: Session, data: RatingsMatrix, user: User) -> tuple[
 
     The cached matrix may be older than the user's latest ratings. The row is replaced (or
     appended for a user absent from the matrix); ratings of movies that are not matrix columns
-    are ignored. The cached matrix itself is never modified.
+    are ignored. The cached matrix itself is never modified. When the row differs from the cache
+    (the user rated since the last rebuild, or is new) the matrix is copied, which is O(nnz).
     """
     matrix = data.matrix
     cols: list[int] = []

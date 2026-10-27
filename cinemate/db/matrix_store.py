@@ -1,5 +1,6 @@
 """In-memory cache of the ratings matrices (one per user pool) loaded from the database."""
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from cinemate.db.models import DEFAULT_POOL, Rating, User
 from cinemate.recommender.matrix import RatingsMatrix
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_REBUILD_SECONDS = 300.0
 _LOAD_CHUNK = 200_000
@@ -42,6 +45,7 @@ class MatrixStore:
         self._built_at: dict[str, float] = {}
         self._stale: set[str] = set()
         self._rebuilding: set[str] = set()
+        self._loading: set[str] = set()  # pools inside _build, cached or not yet
         self._first_build_locks: dict[str, threading.Lock] = {}
 
     def get(self, pool: str = DEFAULT_POOL) -> RatingsMatrix:
@@ -63,8 +67,8 @@ class MatrixStore:
         """Mark ``pool`` (all cached pools if ``None``) stale; no database access happens here."""
         with self._lock:
             if pool is None:
-                self._stale.update(self._cached)
-            elif pool in self._cached:
+                self._stale.update(self._cached, self._loading)
+            elif pool in self._cached or pool in self._loading:
                 self._stale.add(pool)
 
     def rebuild_now(self, pool: str | None = None) -> None:
@@ -87,6 +91,7 @@ class MatrixStore:
         try:
             self._build(pool)
         except Exception:
+            logger.exception("background rebuild of the %r ratings matrix failed", pool)
             # keep serving the old matrix; the pool stays stale and is retried after the interval
             with self._lock:
                 self._built_at[pool] = time.monotonic()
@@ -97,14 +102,17 @@ class MatrixStore:
     def _build(self, pool: str) -> RatingsMatrix:
         with self._lock:
             self._stale.discard(pool)  # invalidations that arrive during the load stay marked
+            self._loading.add(pool)
         try:
             matrix = self._load(pool)
         except Exception:
             with self._lock:
+                self._loading.discard(pool)
                 if pool in self._cached:
                     self._stale.add(pool)
             raise
         with self._lock:
+            self._loading.discard(pool)
             self._cached[pool] = matrix
             self._built_at[pool] = time.monotonic()
         return matrix
