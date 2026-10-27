@@ -514,5 +514,7 @@ pytest
   при использовании требуется атрибуция.
 - **TMDB** — данные и изображения предоставлены TMDB; требуется атрибуция и логотип.
   This product uses the TMDB API but is not endorsed or certified by TMDB.
+  Официальный логотип TMDB (короткий вариант, без изменений) лежит в `frontend/public/tmdb-logo.svg`,
+  скачан со страницы <https://www.themoviedb.org/about/logos-attribution> и показан в подвале сайта.
 
 Открытые вопросы про лицензии данных — в [docs/VISION.md](docs/VISION.md).
