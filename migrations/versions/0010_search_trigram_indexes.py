@@ -22,6 +22,19 @@ _INDEXES = {
 }
 
 
+# must equal cinemate.services.search._normalized_column
+_PUNCTUATION = "-:.·'’,!?\"()&/;"
+
+
+def _normalized(column: str) -> str:
+    expr = f"replace(lower({column}), 'ё', 'е')"
+    for char in _PUNCTUATION:
+        expr = f"replace({expr}, '{char.replace(chr(39), chr(39) * 2)}', ' ')"
+    for _ in range(2):
+        expr = f"replace({expr}, '  ', ' ')"
+    return f"trim({expr})"
+
+
 def upgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
@@ -29,7 +42,7 @@ def upgrade() -> None:
     for name, column in _INDEXES.items():
         op.execute(
             f"CREATE INDEX IF NOT EXISTS {name} ON movies "
-            f"USING gin (replace(lower({column}), 'ё', 'е') gin_trgm_ops)"
+            f"USING gin ({_normalized(column)} gin_trgm_ops)"
         )
 
 

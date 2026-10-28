@@ -133,6 +133,24 @@ def _like_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# Punctuation of titles turned into spaces in SQL, like ``normalize_query`` does for the query.
+# Migration 0010 builds its indexes on the same expression: change both together.
+_TITLE_PUNCTUATION = "-:.·'’,!?\"()&/;"
+
+
+def _sql_literal(text: str):
+    return literal_column("'" + text.replace("'", "''") + "'")
+
+
+def _normalized_column(col):
+    expr = func.replace(func.lower(col), _sql_literal("ё"), _sql_literal("е"))
+    for char in _TITLE_PUNCTUATION:
+        expr = func.replace(expr, _sql_literal(char), _sql_literal(" "))
+    for _ in range(2):
+        expr = func.replace(expr, _sql_literal("  "), _sql_literal(" "))
+    return func.trim(expr)
+
+
 def search_local(
     session: Session,
     query: str,
@@ -151,11 +169,7 @@ def search_local(
     q = normalize_query(query)
     if not q or page < 1 or page_size < 1:
         return []
-    # ё is folded in SQL too; the expressions match the trigram indexes of migration 0010
-    names = [
-        func.replace(func.lower(col), literal_column("'ё'"), literal_column("'е'"))
-        for col in (Movie.title, Movie.original_title, Movie.title_ru)
-    ]
+    names = [_normalized_column(col) for col in (Movie.title, Movie.original_title, Movie.title_ru)]
     esc = "\\"
     tokens = [f"%{_like_escape(t)}%" for t in q.split()]
     # substring / all words: served by the trigram indexes on PostgreSQL

@@ -67,6 +67,15 @@ def test_punctuation_in_title_matches_by_words(session):
     assert ids(search_local(session, "spider man")) == [1]
 
 
+def test_punctuated_titles_rank_as_exact_and_prefix(session):
+    add(session, 1, "Spider Man 2", pop=99)
+    add(session, 2, "Spider-Man", pop=1)
+    add(session, 3, "Mission: Impossible", pop=5)
+    add(session, 4, "Mission Impossible Fallout", pop=50)
+    assert ids(search_local(session, "spider-man")) == [2, 1]
+    assert ids(search_local(session, "mission impossible")) == [3, 4]
+
+
 def test_order_exact_prefix_rest_then_popularity(session):
     add(session, 1, "The Matrix Reloaded", pop=90)  # contains
     add(session, 2, "Matrix Revolutions", pop=10)  # prefix, low popularity
