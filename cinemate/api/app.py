@@ -13,7 +13,12 @@ from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import DEFAULT_REBUILD_SECONDS, MatrixStore
 from cinemate.db.migrations import ensure_schema
 from cinemate.db.session import make_engine
-from cinemate.services.search import SearchCache
+from cinemate.services.search import (
+    LOCAL_CATALOG_MIN_SIZE,
+    SearchCache,
+    SearchSelector,
+    resolve_search_source,
+)
 from cinemate.tmdb import TmdbClient
 
 DEFAULT_CORS_ORIGINS = ["http://localhost:3000"]
@@ -85,6 +90,8 @@ def create_app(
     recommender_settings: RecommenderSettings | None = None,
     tmdb_client: TmdbClient | None = None,
     matrix_rebuild_seconds: float | None = None,
+    search_source: str | None = None,
+    search_local_threshold: int = LOCAL_CATALOG_MIN_SIZE,
 ) -> FastAPI:
     """Build the app; ``database_url`` follows the same resolution rule as the CLI commands.
 
@@ -93,11 +100,14 @@ def create_app(
     ``tmdb_client`` overrides the client built from env ``TMDB_API_KEY`` (tests pass a fake).
     ``matrix_rebuild_seconds`` overrides env ``MATRIX_REBUILD_SECONDS`` (default 300): the
     minimum interval between background rebuilds of a pool's ratings matrix.
+    ``search_source`` (``auto``/``local``/``tmdb``) overrides env ``SEARCH_SOURCE``; in ``auto``
+    the own catalog is used once it holds ``search_local_threshold`` movies with a TMDB pair.
     ``recommender_settings`` overrides the ``REC_*`` environment variables; invalid ones raise
     ``ValueError`` at startup. A database that is not on the latest migration revision raises
     ``SchemaNotMigratedError`` (in-memory SQLite and empty SQLite files are set up automatically).
     """
     origins = resolve_cors_origins(cors_origins)
+    source = resolve_search_source(search_source)
     settings = recommender_settings or RecommenderSettings.from_env()
     engine = make_engine(resolve_database_url(database_url))
     ensure_schema(engine)
@@ -122,6 +132,11 @@ def create_app(
     # without a key the search endpoints answer 503
     app.state.tmdb_client = tmdb_client or (TmdbClient(api_key) if api_key else None)
     app.state.search_cache = SearchCache()
+    app.state.search_selector = SearchSelector(
+        source, session_factory, threshold=search_local_threshold
+    )
+    if source == "auto":
+        app.state.search_selector.refresh()
     app.include_router(router)
 
     @app.get("/api/health")

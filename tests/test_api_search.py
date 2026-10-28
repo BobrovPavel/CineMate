@@ -71,7 +71,7 @@ def test_search_validates_q(client, q):
 
 def test_search_without_key_is_503(monkeypatch):
     monkeypatch.delenv("TMDB_API_KEY", raising=False)
-    with TestClient(create_app("sqlite:///:memory:")) as c:
+    with TestClient(create_app("sqlite:///:memory:", search_source="tmdb")) as c:
         c.post("/api/session")
         response = c.get("/api/search", params={"q": "leviathan"})
         assert response.status_code == 503

@@ -34,7 +34,7 @@ from cinemate.db.models import Movie, User
 from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.recommendations import get_recommendations
-from cinemate.services.search import search_movies
+from cinemate.services.search import search_local, search_movies
 from cinemate.services.users import (
     create_session_user,
     get_ratings,
@@ -205,24 +205,40 @@ def search(
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db_session)],
-    client: Annotated[TmdbClient, Depends(get_tmdb_client)],
     q: Annotated[str, Query(min_length=2, max_length=100)],
     page: Annotated[int, Query(ge=1, le=100)] = 1,
 ) -> list[SearchResultOut]:
-    """Search movies and TV shows in TMDB; the language follows ``Accept-Language``."""
+    """Search movies and TV shows in our catalog or TMDB (``SEARCH_SOURCE``).
+
+    The language follows ``Accept-Language``.
+    """
     if len(q.strip()) < 2:
         raise HTTPException(status_code=422, detail="q must have at least 2 characters")
     pool = pool_from_accept_language(request.headers.get("accept-language"))
+    language = "ru-RU" if pool == "ru" else "en-US"
+    selector = request.app.state.search_selector
+    client: TmdbClient | None = request.app.state.tmdb_client
+    use_local = selector.mode == "local" or (selector.mode == "auto" and selector.catalog_ready())
+    if selector.mode == "auto" and client is None:
+        use_local = True  # no key: our own catalog is the only source
     try:
-        results = search_movies(
-            session,
-            client,
-            request.app.state.search_cache,
-            user,
-            q,
-            "ru-RU" if pool == "ru" else "en-US",
-            page,
-        )
+        if use_local:
+            results = search_local(session, q, page, language=language, user=user)
+            if not results and page == 1 and selector.mode == "auto" and client is not None:
+                try:
+                    results = search_movies(
+                        session, client, request.app.state.search_cache, user, q, language, page
+                    )
+                except TmdbError:
+                    results = []  # the fallback is best effort
+        else:
+            if client is None:
+                raise HTTPException(
+                    status_code=503, detail="поиск недоступен: не задан TMDB_API_KEY"
+                )
+            results = search_movies(
+                session, client, request.app.state.search_cache, user, q, language, page
+            )
     except TmdbError as exc:
         raise HTTPException(status_code=502, detail="ошибка TMDB") from exc
     return [
