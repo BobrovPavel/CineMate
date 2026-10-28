@@ -53,6 +53,8 @@ class Movie(Base):
     runtime: Mapped[int | None] = mapped_column(Integer)
     popularity_score: Mapped[float | None] = mapped_column(Float)
     tmdb_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # TMDB's own popularity (not the like count in ``popularity_score``); used to sort search
+    tmdb_popularity: Mapped[float | None] = mapped_column(Float)
 
 
 class MovieExternalId(Base):

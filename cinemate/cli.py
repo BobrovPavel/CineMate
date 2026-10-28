@@ -4,7 +4,7 @@ import os
 import sys
 import urllib.error
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ from cinemate.db.migrations import (
 )
 from cinemate.db.ratings_import import import_ratings_csv
 from cinemate.db.session import create_all, make_engine
+from cinemate.db.sync_catalog import DEFAULT_EXPORT_DIR, CatalogSyncError, sync_catalog
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import (
     EvaluationResult,
@@ -134,6 +135,23 @@ def _stale_days(text: str) -> int:
     if not 1 <= value <= MAX_STALE_DAYS:
         raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_STALE_DAYS}")
     return value
+
+
+def _non_negative_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: {text!r}") from None
+    if not value >= 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return value
+
+
+def _iso_date(text: str) -> date:
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD, got {text!r}") from None
 
 
 def _positive_int(text: str) -> int:
@@ -471,6 +489,35 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"refresh movies fetched from TMDB more than this many days ago (1..{MAX_STALE_DAYS},"
         f" default {DEFAULT_STALE_DAYS})",
     )
+    sc = sub.add_parser(
+        "sync-catalog", help="load the TMDB catalog into the database from the daily ID exports"
+    )
+    sc.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    sc.add_argument("--type", choices=("movie", "tv", "all"), default="all", dest="media_type")
+    sc.add_argument(
+        "--min-popularity",
+        type=_non_negative_float,
+        default=0.0,
+        help="skip records with TMDB popularity below this (default 0)",
+    )
+    sc.add_argument(
+        "--include-video", action="store_true", help="also load movies marked video: true"
+    )
+    sc.add_argument(
+        "--limit", type=_positive_int, default=None, help="maximum number of new records to load"
+    )
+    sc.add_argument(
+        "--date",
+        type=_iso_date,
+        default=None,
+        help="export date YYYY-MM-DD (default: today UTC; the day before if not published yet)",
+    )
+    sc.add_argument(
+        "--export-dir",
+        type=Path,
+        default=DEFAULT_EXPORT_DIR,
+        help="where exports are stored (default: %(default)s)",
+    )
     be = sub.add_parser(
         "bench-recommendations",
         help="time the matrix load and get_recommendations on a database",
@@ -620,6 +667,45 @@ def _run_bench(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"cinemate bench-recommendations: error: {exc}", file=sys.stderr)
         return 2
+    return 0
+
+
+def _run_sync_catalog(args: argparse.Namespace) -> int:
+    api_key = os.environ.get("TMDB_API_KEY")
+    if not api_key:
+        print("cinemate sync-catalog: error: TMDB_API_KEY is not set", file=sys.stderr)
+        return 2
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
+
+    def progress(done: int, total: int, rate: float, eta: float | None) -> None:
+        left = f", about {int(eta // 60)} min left" if eta is not None else ""
+        print(f"processed {done}/{total}, {rate:.1f}/s{left}", flush=True)
+
+    types = ("movie", "tv") if args.media_type == "all" else (args.media_type,)
+    with Session(engine) as session:
+        try:
+            stats = sync_catalog(
+                session,
+                TmdbClient(api_key),
+                types=types,
+                min_popularity=args.min_popularity,
+                include_video=args.include_video,
+                limit=args.limit,
+                day=args.date,
+                export_dir=args.export_dir,
+                progress=progress,
+            )
+        except (TmdbError, CatalogSyncError) as exc:
+            print(f"cinemate sync-catalog: error: {exc}", file=sys.stderr)
+            return 1
+    print(
+        f"records in export: {stats.in_export}, skipped: {stats.skipped_adult} adult, "
+        f"{stats.skipped_video} video, {stats.skipped_low_popularity} below min popularity; "
+        f"already in catalog: {stats.already_present}, added: {stats.added}, "
+        f"not found: {stats.not_found}, remaining: {stats.remaining}"
+    )
     return 0
 
 
@@ -1037,6 +1123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_bench(args)
     if args.command == "enrich-movies":
         return _run_enrich(args)
+    if args.command == "sync-catalog":
+        return _run_sync_catalog(args)
     if args.command == "migrate":
         return _run_migrate(args)
     if args.command == "serve":
