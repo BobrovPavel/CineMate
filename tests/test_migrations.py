@@ -125,14 +125,14 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
-    (scripts / "versions" / "0010_add_note.py").write_text(
+    (scripts / "versions" / "0011_add_note.py").write_text(
         textwrap.dedent(
             """
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "0010"
-            down_revision = "0009"
+            revision = "0011"
+            down_revision = "0010"
             branch_labels = None
             depends_on = None
 
@@ -151,7 +151,7 @@ def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     upgrade_head(engine, scripts)
-    assert current_revision(engine) == head_revision(scripts) == "0010"
+    assert current_revision(engine) == head_revision(scripts) == "0011"
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, note FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]
@@ -245,7 +245,7 @@ def test_migration_0003_adds_title_ru_to_existing_database(db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0009"
+    assert current_revision(engine) == head_revision() == "0010"
     assert "title_ru" in {c["name"] for c in inspect(engine).get_columns("movies")}
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, title_ru FROM movies")).all()
@@ -386,7 +386,7 @@ def test_migration_0007_adds_tmdb_fetched_at_to_0006_database(db_url):
         engine, "INSERT INTO movies (title, genres, tmdb_type, tmdb_id) VALUES ('A', '[]', 'tv', 1)"
     )
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0009"
+    assert current_revision(engine) == head_revision() == "0010"
     assert "tmdb_fetched_at" in {c["name"] for c in inspect(engine).get_columns("movies")}
     rows = _run(engine, "SELECT title, tmdb_fetched_at FROM movies").all()
     assert [tuple(r) for r in rows] == [("A", None)]
@@ -400,7 +400,7 @@ def test_migration_0008_adds_tmdb_popularity_to_0007_database(db_url):
         engine, "INSERT INTO movies (title, genres, tmdb_type, tmdb_id) VALUES ('A', '[]', 'tv', 1)"
     )
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0009"
+    assert current_revision(engine) == head_revision() == "0010"
     assert "tmdb_popularity" in {c["name"] for c in inspect(engine).get_columns("movies")}
     rows = _run(engine, "SELECT title, tmdb_popularity FROM movies").all()
     assert [tuple(r) for r in rows] == [("A", None)]
@@ -411,10 +411,22 @@ def test_migration_0009_creates_catalog_sync_in_0008_database(db_url):
     command.upgrade(alembic_config(engine), "0008")
     assert "catalog_sync" not in inspect(engine).get_table_names()
     assert main(["migrate", "--database-url", db_url]) == 0
-    assert current_revision(engine) == head_revision() == "0009"
+    assert current_revision(engine) == head_revision() == "0010"
     assert {c["name"] for c in inspect(engine).get_columns("catalog_sync")} == {
         "tmdb_type",
         "changes_synced_until",
     }
     _run(engine, "INSERT INTO catalog_sync VALUES ('movie', '2026-10-27 00:00:00')")
     assert _run(engine, "SELECT tmdb_type FROM catalog_sync").all()[0][0] == "movie"
+
+
+def test_migration_0010_is_a_noop_on_sqlite(db_url):
+    engine = make_engine(db_url)
+    command.upgrade(alembic_config(engine), "0009")
+    _run(engine, "INSERT INTO movies (title, genres) VALUES ('A', '[]')")
+    assert main(["migrate", "--database-url", db_url]) == 0
+    assert current_revision(engine) == head_revision() == "0010"
+    assert not [i for i in inspect(engine).get_indexes("movies") if "trgm" in i["name"]]
+    assert _run(engine, "SELECT title FROM movies").all()[0][0] == "A"
+    command.downgrade(alembic_config(engine), "0009")
+    assert current_revision(engine) == "0009"
