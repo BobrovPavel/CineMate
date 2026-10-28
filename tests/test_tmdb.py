@@ -262,3 +262,64 @@ def test_find_by_imdb_prefers_movie_then_tv():
 def test_find_by_imdb_none_when_empty():
     client, _ = _client(payload={"movie_results": [], "tv_results": []})
     assert client.find_by_imdb("tt1") is None
+
+
+def _changes_client(pages):
+    """Client whose /changes answers come from ``pages``: (start_date, page) -> payload."""
+    calls = []
+
+    def http_get(url):
+        query = dict(p.split("=") for p in url.split("?", 1)[1].split("&"))
+        calls.append((query["start_date"], query["end_date"], int(query["page"])))
+        payload = pages.get((query["start_date"], int(query["page"])))
+        return (200, json.dumps(payload).encode()) if payload else (404, b"")
+
+    return TmdbClient(KEY, http_get=http_get), calls
+
+
+def test_date_windows_split_into_14_day_parts():
+    from datetime import date
+
+    from cinemate.tmdb import date_windows
+
+    assert date_windows(date(2026, 10, 1), date(2026, 10, 14)) == [
+        (date(2026, 10, 1), date(2026, 10, 14))
+    ]
+    assert date_windows(date(2026, 10, 1), date(2026, 10, 30)) == [
+        (date(2026, 10, 1), date(2026, 10, 14)),
+        (date(2026, 10, 15), date(2026, 10, 28)),
+        (date(2026, 10, 29), date(2026, 10, 30)),
+    ]
+    assert date_windows(date(2026, 10, 2), date(2026, 10, 1)) == []
+
+
+def test_changes_paginates_skips_adult_and_dedupes():
+    from datetime import date
+
+    pages = {
+        ("2026-10-01", 1): {
+            "total_pages": 2,
+            "results": [{"id": 1, "adult": False}, {"id": 2, "adult": True}],
+        },
+        ("2026-10-01", 2): {"total_pages": 2, "results": [{"id": 3, "adult": None}, {"id": 1}]},
+        ("2026-10-15", 1): {"total_pages": 1, "results": [{"id": 3}, {"id": 4}]},
+    }
+    client, calls = _changes_client(pages)
+    ids = list(client.changes("movie", date(2026, 10, 1), date(2026, 10, 20)))
+    assert ids == [1, 3, 4]
+    assert calls == [
+        ("2026-10-01", "2026-10-14", 1),
+        ("2026-10-01", "2026-10-14", 2),
+        ("2026-10-15", "2026-10-20", 1),
+    ]
+
+
+def test_changes_errors_hide_key():
+    from datetime import date
+
+    client, _ = _changes_client({})
+    with pytest.raises(TmdbError) as exc:
+        list(client.changes("tv", date(2026, 10, 1), date(2026, 10, 2)))
+    assert KEY not in str(exc.value)
+    with pytest.raises(ValueError):
+        list(client.changes("person", date(2026, 10, 1), date(2026, 10, 2)))

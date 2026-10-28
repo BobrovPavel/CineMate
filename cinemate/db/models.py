@@ -151,3 +151,12 @@ class Event(Base):
     movie_id: Mapped[int | None] = mapped_column(ForeignKey("movies.id"))
     strategy: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CatalogSync(Base):
+    """Per TMDB type: the moment up to which ``/changes`` have been processed."""
+
+    __tablename__ = "catalog_sync"
+
+    tmdb_type: Mapped[str] = mapped_column(String(8), primary_key=True)
+    changes_synced_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))

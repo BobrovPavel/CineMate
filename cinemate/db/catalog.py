@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cinemate.db.models import Event, Movie, MovieExternalId, Rating, SeenMark
-from cinemate.tmdb import TmdbClient
+from cinemate.tmdb import TmdbClient, TmdbDetails
 
 SOURCE_ORDER = ("imdb", "movielens", "kinopoisk", "ratings_csv")
 
@@ -174,6 +174,13 @@ def import_from_tmdb(session: Session, client: TmdbClient, tmdb_type: str, tmdb_
     details = client.fetch_details(tmdb_type, tmdb_id)
     if details is None:
         raise LookupError(f"TMDB has no {tmdb_type} {tmdb_id}")
+    return movie_from_details(session, details)
+
+
+def movie_from_details(session: Session, details: TmdbDetails) -> Movie:
+    """Create the movie for fetched TMDB ``details`` (or return the one that won a race)."""
+    tmdb_type, tmdb_id = details.tmdb_type, details.tmdb_id
+    pair = (tmdb_type, tmdb_id)
     movie = Movie(
         tmdb_type=tmdb_type,
         tmdb_id=tmdb_id,
@@ -187,6 +194,7 @@ def import_from_tmdb(session: Session, client: TmdbClient, tmdb_type: str, tmdb_
         genres=list(details.genres),
         popularity_score=0.0,
         tmdb_fetched_at=datetime.now(UTC),
+        tmdb_popularity=details.popularity,
     )
     try:
         with session.begin_nested():
