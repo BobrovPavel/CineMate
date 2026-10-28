@@ -34,6 +34,7 @@ from cinemate.db.migrations import (
 from cinemate.db.ratings_import import import_ratings_csv
 from cinemate.db.session import create_all, make_engine
 from cinemate.db.sync_catalog import DEFAULT_EXPORT_DIR, CatalogSyncError, sync_catalog
+from cinemate.db.sync_changes import ChangesPeriodTooLong, sync_changes
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import (
     EvaluationResult,
@@ -513,6 +514,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="export date YYYY-MM-DD (default: today UTC; the day before if not published yet)",
     )
     sc.add_argument(
+        "--changes",
+        action="store_true",
+        help="instead of an export, apply the TMDB /changes since the last sync "
+        "(--type, --since, --limit, --min-popularity apply)",
+    )
+    sc.add_argument(
+        "--since",
+        type=_iso_date,
+        default=None,
+        help="with --changes: start of the period if nothing was synced yet (default: 1 day ago)",
+    )
+    sc.add_argument(
         "--export-dir",
         type=Path,
         default=DEFAULT_EXPORT_DIR,
@@ -684,6 +697,11 @@ def _run_sync_catalog(args: argparse.Namespace) -> int:
         print(f"processed {done}/{total}, {rate:.1f}/s{left}", flush=True)
 
     types = ("movie", "tv") if args.media_type == "all" else (args.media_type,)
+    if args.changes:
+        return _run_sync_changes(args, engine, api_key, types)
+    if args.since is not None:
+        print("cinemate sync-catalog: error: --since needs --changes", file=sys.stderr)
+        return 2
     with Session(engine) as session:
         try:
             stats = sync_catalog(
@@ -705,6 +723,41 @@ def _run_sync_catalog(args: argparse.Namespace) -> int:
         f"{stats.skipped_video} video, {stats.skipped_low_popularity} below min popularity; "
         f"already in catalog: {stats.already_present}, added: {stats.added}, "
         f"not found: {stats.not_found}, remaining: {stats.remaining}"
+    )
+    return 0
+
+
+def _run_sync_changes(args: argparse.Namespace, engine, api_key: str, types: tuple) -> int:
+    def progress(tmdb_type: str, done: int, total: int) -> None:
+        print(f"{tmdb_type}: processed {done}/{total}", flush=True)
+
+    since = datetime(args.since.year, args.since.month, args.since.day, tzinfo=UTC)
+    with Session(engine) as session:
+        try:
+            stats = sync_changes(
+                session,
+                TmdbClient(api_key),
+                types=types,
+                since=since if args.since else None,
+                min_popularity=args.min_popularity,
+                limit=args.limit,
+                progress=progress,
+            )
+        except ChangesPeriodTooLong as exc:
+            print(
+                f"cinemate sync-catalog: error: {exc}; run `cinemate sync-catalog` "
+                "(full load from the ID export) instead of --changes",
+                file=sys.stderr,
+            )
+            return 2
+        except TmdbError as exc:
+            print(f"cinemate sync-catalog: error: {exc}", file=sys.stderr)
+            return 1
+    print(
+        f"period: {stats.start:%Y-%m-%d %H:%M} .. {stats.end:%Y-%m-%d %H:%M} UTC, "
+        f"changed records: {stats.changed}, updated: {stats.updated}, added: {stats.added}, "
+        f"not found: {stats.not_found}, below min popularity: {stats.skipped_low_popularity}, "
+        f"already fresh: {stats.up_to_date}, remaining: {stats.remaining}"
     )
     return 0
 

@@ -6,8 +6,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 API_BASE = "https://api.themoviedb.org/3"
 TIMEOUT = 10.0
@@ -15,6 +16,7 @@ MAX_REQUESTS_PER_SECOND = 20
 DEFAULT_RETRY_AFTER = 1.0
 MAX_RETRY_AFTER = 10.0
 MEDIA_TYPES = ("movie", "tv")
+CHANGES_WINDOW_DAYS = 14  # TMDB rejects a /changes window longer than this
 
 HttpGet = Callable[[str], tuple[int, bytes]]
 
@@ -55,6 +57,7 @@ class TmdbDetails:
     title_ru: str | None = None
     overview_ru: str | None = None
     overview: str | None = None
+    popularity: float | None = None
 
 
 def _parse_retry_after(value: str | None) -> float:
@@ -74,6 +77,18 @@ def _year(date: object) -> int | None:
     if isinstance(date, str) and len(date) >= 4 and date[:4].isdigit():
         return int(date[:4])
     return None
+
+
+def date_windows(
+    start: date, end: date, days: int = CHANGES_WINDOW_DAYS
+) -> list[tuple[date, date]]:
+    """Split ``start..end`` (inclusive) into consecutive windows of at most ``days`` days."""
+    windows = []
+    while start <= end:
+        stop = min(start + timedelta(days=days - 1), end)
+        windows.append((start, stop))
+        start = stop + timedelta(days=1)
+    return windows
 
 
 def urllib_get(url: str) -> tuple[int, bytes]:
@@ -251,7 +266,42 @@ class TmdbClient:
             title_ru=title_ru,
             overview_ru=overview_ru,
             overview=data.get("overview") or None,
+            popularity=float(pop)
+            if isinstance(pop := data.get("popularity"), int | float)
+            else None,
         )
+
+    def changes(self, tmdb_type: str, start: date, end: date) -> Iterator[int]:
+        """Ids of records of ``tmdb_type`` created or changed in ``start..end`` (inclusive).
+
+        Walks every page of ``/{movie|tv}/changes``; windows over 14 days are split into parts.
+        ``adult`` records are skipped and an id seen twice (windows may overlap in time) is
+        yielded once.
+        """
+        if tmdb_type not in MEDIA_TYPES:
+            raise ValueError(f"unknown tmdb_type: {tmdb_type!r}")
+        seen: set[int] = set()
+        for window_start, window_end in date_windows(start, end):
+            page, total_pages = 1, 1
+            while page <= total_pages:
+                data = self._get_json(
+                    f"/{tmdb_type}/changes",
+                    start_date=window_start.isoformat(),
+                    end_date=window_end.isoformat(),
+                    page=page,
+                )
+                results = (data or {}).get("results")
+                if data is None or not isinstance(results, list):
+                    raise TmdbError("TMDB returned an unexpected response")
+                pages = _int_or_none(data.get("total_pages"))
+                total_pages = pages if pages is not None else page
+                page += 1
+                for raw in results:
+                    tmdb_id = _int_or_none(raw.get("id")) if isinstance(raw, dict) else None
+                    if tmdb_id is None or raw.get("adult") is True or tmdb_id in seen:
+                        continue
+                    seen.add(tmdb_id)
+                    yield tmdb_id
 
     @staticmethod
     def _russian(translations: object, tv: bool) -> tuple[str | None, str | None]:

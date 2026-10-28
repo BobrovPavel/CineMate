@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import CatalogConflict, link
 from cinemate.db.models import Movie
-from cinemate.tmdb import TmdbClient
+from cinemate.tmdb import TmdbClient, TmdbDetails
 
 DEFAULT_STALE_DAYS = 30
 MAX_STALE_DAYS = 180  # TMDB terms: stored data must not be kept longer than 6 months
@@ -20,6 +20,31 @@ class EnrichStats:
     enriched: int
     not_found: int
     skipped: int = 0
+
+
+def apply_details(session: Session, movie: Movie, details: TmdbDetails) -> None:
+    """Overwrite ``movie`` fields with TMDB values; an empty value never erases a stored one.
+
+    ``genres`` are left alone, ``tmdb_fetched_at`` is set and the IMDb id is linked.
+    """
+    for field, value in (
+        ("title", details.title),
+        ("original_title", details.original_title),
+        ("title_ru", details.title_ru),
+        ("year", details.year),
+        ("overview", details.overview_ru or details.overview),
+        ("poster_path", details.poster_path),
+        ("runtime", details.runtime),
+    ):
+        if value:
+            setattr(movie, field, value)
+    movie.tmdb_fetched_at = datetime.now(UTC)
+    if details.imdb_id:
+        try:
+            with session.begin_nested():
+                link(session, movie, "imdb", details.imdb_id)
+        except CatalogConflict:
+            pass  # the imdb id belongs to another movie; keep the pair as the key
 
 
 def enrich_movies(
@@ -64,24 +89,7 @@ def enrich_movies(
             if details is None:
                 not_found += 1
                 continue
-            for field, value in (
-                ("title", details.title),
-                ("original_title", details.original_title),
-                ("title_ru", details.title_ru),
-                ("year", details.year),
-                ("overview", details.overview_ru or details.overview),
-                ("poster_path", details.poster_path),
-                ("runtime", details.runtime),
-            ):
-                if value:
-                    setattr(movie, field, value)
-            movie.tmdb_fetched_at = datetime.now(UTC)
-            if details.imdb_id:
-                try:
-                    with session.begin_nested():
-                        link(session, movie, "imdb", details.imdb_id)
-                except CatalogConflict:
-                    pass  # the imdb id belongs to another movie; keep the pair as the key
+            apply_details(session, movie, details)
             enriched += 1
             if enriched % COMMIT_EVERY == 0:
                 session.commit()
