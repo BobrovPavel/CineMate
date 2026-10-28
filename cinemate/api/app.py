@@ -1,7 +1,9 @@
 """Application factory: engine, schema and :class:`MatrixStore` are created once at startup."""
 
 import os
-from collections.abc import Mapping
+import threading
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,7 @@ from cinemate.cli import resolve_database_url
 from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import DEFAULT_REBUILD_SECONDS, MatrixStore
 from cinemate.db.migrations import ensure_schema
+from cinemate.db.models import POOLS
 from cinemate.db.session import make_engine
 from cinemate.services.search import (
     LOCAL_CATALOG_MIN_SIZE,
@@ -92,6 +95,7 @@ def create_app(
     matrix_rebuild_seconds: float | None = None,
     search_source: str | None = None,
     search_local_threshold: int = LOCAL_CATALOG_MIN_SIZE,
+    warm_matrices: bool = True,
 ) -> FastAPI:
     """Build the app; ``database_url`` follows the same resolution rule as the CLI commands.
 
@@ -102,6 +106,8 @@ def create_app(
     minimum interval between background rebuilds of a pool's ratings matrix.
     ``search_source`` (``auto``/``local``/``tmdb``) overrides env ``SEARCH_SOURCE``; in ``auto``
     the own catalog is used once it holds ``search_local_threshold`` movies with a TMDB pair.
+    ``warm_matrices`` builds the matrices of all pools in a background thread at startup (in the
+    app lifespan); a request that arrives meanwhile waits for that build.
     ``recommender_settings`` overrides the ``REC_*`` environment variables; invalid ones raise
     ``ValueError`` at startup. A database that is not on the latest migration revision raises
     ``SchemaNotMigratedError`` (in-memory SQLite and empty SQLite files are set up automatically).
@@ -113,7 +119,15 @@ def create_app(
     ensure_schema(engine)
     session_factory = sessionmaker(engine, expire_on_commit=False, class_=Session)
 
-    app = FastAPI(title="CineMate")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if warm_matrices:
+            threading.Thread(
+                target=app.state.matrix_store.warm, args=(POOLS,), daemon=True, name="matrix-warm"
+            ).start()
+        yield
+
+    app = FastAPI(title="CineMate", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
