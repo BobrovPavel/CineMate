@@ -41,6 +41,19 @@ def pool_from_accept_language(header: str | None) -> str:
     return DEFAULT_POOL
 
 
+LANGUAGES = ("ru", "en")
+
+
+def language_from_headers(cookie_lang: str | None, accept_language: str | None) -> str:
+    """Interface language: a valid ``cinemate_lang`` cookie wins, else the browser language.
+
+    Returns ``'ru'`` or ``'en'``; the browser language follows the pool rule.
+    """
+    if cookie_lang in LANGUAGES:
+        return cookie_lang
+    return "ru" if pool_from_accept_language(accept_language) == "ru" else "en"
+
+
 def create_session_user(session: Session, pool: str = DEFAULT_POOL) -> User:
     """Create an anonymous user in ``pool`` with a unique random ``session_token``."""
     user = User(session_token=secrets.token_urlsafe(32), is_synthetic=False, pool=pool)

@@ -2,9 +2,10 @@
 
 import { TMDB_IMAGE_BASE, type OnboardingCard } from "@/lib/api";
 import { displayTitle } from "@/lib/titles";
-import { useLocale } from "@/lib/useLocale";
+import { useLocale, useT } from "@/lib/LocaleProvider";
 
 export function MovieCard({ card }: { card: OnboardingCard }) {
+  const t = useT();
   const { primary, secondary } = displayTitle(card, useLocale());
   const meta = [card.year, card.genres.join(", ")].filter(Boolean).join(" · ");
   return (
@@ -14,7 +15,7 @@ export function MovieCard({ card }: { card: OnboardingCard }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={`${TMDB_IMAGE_BASE}${card.poster_path}`}
-            alt={`Постер фильма «${primary}»`}
+            alt={t("poster.alt", { title: primary })}
             className="h-full w-full object-cover"
             draggable={false}
           />
@@ -22,26 +23,32 @@ export function MovieCard({ card }: { card: OnboardingCard }) {
           <div
             className="flex h-full w-full items-center justify-center p-4 text-center text-gray-500"
             role="img"
-            aria-label="Постер отсутствует"
+            aria-label={t("poster.missing")}
           >
-            Постер отсутствует
+            {t("poster.missing")}
           </div>
         )}
       </div>
       <h2 className="text-center text-xl font-semibold">{primary}</h2>
-      {secondary && <p className="text-center text-sm text-gray-600">({secondary})</p>}
+      {secondary && (
+        <p className="text-center text-sm text-gray-600">({secondary})</p>
+      )}
       {meta && <p className="text-center text-sm text-gray-600">{meta}</p>}
     </article>
   );
 }
 
 export function CardSkeleton() {
+  const t = useT();
   return (
-    <div className="flex animate-pulse flex-col items-center gap-3" aria-busy="true">
+    <div
+      className="flex animate-pulse flex-col items-center gap-3"
+      aria-busy="true"
+    >
       <div className="aspect-[2/3] w-full max-w-60 rounded-xl bg-gray-200" />
       <div className="h-6 w-48 rounded bg-gray-200" />
       <div className="h-4 w-32 rounded bg-gray-200" />
-      <span className="sr-only">Загрузка…</span>
+      <span className="sr-only">{t("common.loading")}</span>
     </div>
   );
 }

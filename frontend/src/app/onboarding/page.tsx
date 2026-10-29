@@ -12,6 +12,7 @@ import {
   postRating,
   type OnboardingCard,
 } from "@/lib/api";
+import { useT } from "@/lib/LocaleProvider";
 
 const MIN_RATED = 5;
 const CARDS_LIMIT = 20;
@@ -21,6 +22,7 @@ type Status = "loading" | "ready" | "error";
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const t = useT();
   const [status, setStatus] = useState<Status>("loading");
   const [cards, setCards] = useState<OnboardingCard[]>([]);
   const [index, setIndex] = useState(0);
@@ -91,7 +93,8 @@ export default function OnboardingPage() {
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
-    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5)
+      return;
     void answer(dx > 0 ? "like" : "dislike");
   }
 
@@ -102,79 +105,94 @@ export default function OnboardingPage() {
     <main className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 py-6">
       <header className="flex items-center justify-between text-sm text-gray-600">
         <span aria-live="polite">
-          {status === "ready" && !finished ? `${Math.min(index + 1, cards.length)} из ${cards.length}` : " "}
+          {status === "ready" && !finished
+            ? t("onboarding.progress", {
+                current: Math.min(index + 1, cards.length),
+                total: cards.length,
+              })
+            : " "}
         </span>
-        <Link href="/recommendations" className="min-h-11 content-center underline">
-          Пропустить
+        <Link
+          href="/recommendations"
+          className="min-h-11 content-center underline"
+        >
+          {t("onboarding.skip")}
         </Link>
       </header>
 
       {status === "loading" && <CardSkeleton />}
 
       {status === "error" && (
-        <div role="alert" className="flex flex-col items-center gap-4 py-10 text-center">
-          <p>Не удалось загрузить карточки. Проверьте соединение и попробуйте ещё раз.</p>
+        <div
+          role="alert"
+          className="flex flex-col items-center gap-4 py-10 text-center"
+        >
+          <p>{t("onboarding.loadError")}</p>
           <button
             type="button"
             onClick={() => void load()}
             className="min-h-12 rounded-xl bg-black px-6 text-white"
           >
-            Повторить
+            {t("common.retry")}
           </button>
         </div>
       )}
 
       {status === "ready" && cards.length === 0 && (
         <div className="flex flex-col items-center gap-4 py-10 text-center">
-          <p>Карточки закончились.</p>
+          <p>{t("onboarding.done")}</p>
           <Link
             href="/recommendations"
             className="inline-flex min-h-12 items-center rounded-xl bg-black px-6 text-white"
           >
-            Перейти к рекомендациям
+            {t("onboarding.toRecommendations")}
           </Link>
         </div>
       )}
 
       {current && (
         <>
-          <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} className="touch-pan-y">
+          <div
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+            className="touch-pan-y"
+          >
             <MovieCard card={current} />
           </div>
 
           {actionError && (
             <div role="alert" className="text-center text-sm text-red-700">
-              Не удалось сохранить ответ. Нажмите кнопку ещё раз.
+              {t("onboarding.saveError")}
             </div>
           )}
 
           <div className="flex gap-3">
             <button
               type="button"
-              aria-label="Не нравится"
+              aria-label={t("reaction.dislike")}
               disabled={busy}
               onClick={() => void answer("dislike")}
               className={`${buttonBase} bg-red-100 text-red-900`}
             >
-              Не нравится
+              {t("reaction.dislike")}
             </button>
             <button
               type="button"
-              aria-label="Не смотрел"
+              aria-label={t("reaction.notSeen")}
               disabled={busy}
               onClick={() => void answer("not_seen")}
               className={`${buttonBase} bg-gray-200 text-gray-900`}
             >
-              Не смотрел
+              {t("reaction.notSeen")}
             </button>
             <button
               type="button"
-              aria-label="Нравится"
+              aria-label={t("reaction.like")}
               disabled={busy}
               onClick={() => void answer("like")}
               className={`${buttonBase} bg-green-100 text-green-900`}
             >
-              Нравится
+              {t("reaction.like")}
             </button>
           </div>
 
@@ -183,7 +201,7 @@ export default function OnboardingPage() {
               href="/recommendations"
               className="inline-flex min-h-12 items-center justify-center rounded-xl bg-black px-6 text-white"
             >
-              Хватит, покажи рекомендации
+              {t("onboarding.enough")}
             </Link>
           )}
         </>
