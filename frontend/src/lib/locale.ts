@@ -60,8 +60,3 @@ export function setLanguage(lang: Lang): void {
 }
 
 export type Pool = "ru" | "world";
-
-/** True when the site language would put a new user in a different pool than the current one. */
-export function poolMismatchesLang(pool: string, lang: Lang): boolean {
-  return pool !== (lang === "ru" ? "ru" : "world");
-}
