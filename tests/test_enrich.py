@@ -157,7 +157,7 @@ def test_null_first_then_oldest():
         ]
     )
     client = FakeClient({})
-    enrich_movies(session, client)
+    enrich_movies(session, client, workers=1)
     assert client.requested == [("movie", 3), ("movie", 2), ("movie", 1)]
     client = FakeClient({})
     enrich_movies(session, client, limit=1)

@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import find_movie, movie_from_details
 from cinemate.db.enrich import apply_details
-from cinemate.db.models import CatalogSync
-from cinemate.tmdb import TmdbClient
+from cinemate.db.models import CatalogSync, Movie
+from cinemate.tmdb import DEFAULT_WORKERS, TmdbClient, fetch_many
 
 DEFAULT_LOOKBACK = timedelta(days=1)
 MAX_PERIOD = timedelta(days=90)
@@ -52,6 +52,7 @@ def sync_changes(
     since: datetime | None = None,
     min_popularity: float = 0.0,
     limit: int | None = None,
+    workers: int = DEFAULT_WORKERS,
     now: datetime | None = None,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> ChangesStats:
@@ -60,7 +61,8 @@ def sync_changes(
     Existing pairs are updated by the ``enrich-movies`` rules (``apply_details``) and get
     ``tmdb_popularity``; new pairs below ``min_popularity`` (from the details) are not created;
     404 counts as ``not_found``. ``limit`` caps the details requests of the whole run; when it
-    cuts a type short, that type's ``changes_synced_until`` stays put. Progress is committed
+    cuts a type short, that type's ``changes_synced_until`` stays put. Details are fetched by
+    ``workers`` threads, the database is written by the calling one. Progress is committed
     every ``COMMIT_EVERY`` records and when the run ends, also with ``TmdbError``.
     Raises ``ChangesPeriodTooLong`` before any request if a period exceeds 90 days.
     """
@@ -89,6 +91,7 @@ def sync_changes(
             ids = list(client.changes(tmdb_type, start.date(), end.date()))
             counts["changed"] += len(ids)
             complete = True
+            todo: dict[int, Movie | None] = {}
             for done, tmdb_id in enumerate(ids, start=1):
                 movie = find_movie(session, tmdb=(tmdb_type, tmdb_id))
                 if (
@@ -104,7 +107,12 @@ def sync_changes(
                     break
                 if budget is not None:
                     budget -= 1
-                details = client.fetch_details(tmdb_type, tmdb_id)
+                todo[tmdb_id] = movie
+            pairs = ((tmdb_type, tmdb_id) for tmdb_id in todo)
+            for done, ((_, tmdb_id), details) in enumerate(
+                fetch_many(client, pairs, workers), start=1
+            ):
+                movie = todo[tmdb_id]
                 if details is None:
                     counts["not_found"] += 1
                 elif movie is not None:
@@ -120,7 +128,7 @@ def sync_changes(
                 if done % COMMIT_EVERY == 0:
                     session.commit()
                     if progress is not None:
-                        progress(tmdb_type, done, len(ids))
+                        progress(tmdb_type, done, len(todo))
             if complete:
                 state = states[tmdb_type]
                 if state is None:
