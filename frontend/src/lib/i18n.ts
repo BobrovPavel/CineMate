@@ -49,6 +49,8 @@ const ru = {
     "Не удалось загрузить рекомендации. Проверьте соединение и попробуйте ещё раз.",
   "recommendations.empty": "Фильмы закончились — загляните позже.",
   "recommendations.buttonLabel": "{action}: {title}",
+  "recommendations.showMore": "Показать больше",
+  "recommendations.showLess": "Свернуть",
 
   "explain.liked": "Понравилось {n} {people} с похожим вкусом",
   "explain.also": "; они же высоко оценили {titles}",
@@ -130,6 +132,8 @@ const en: Record<MessageKey, string> = {
     "Could not load recommendations. Check your connection and try again.",
   "recommendations.empty": "No more movies — check back later.",
   "recommendations.buttonLabel": "{action}: {title}",
+  "recommendations.showMore": "Show more",
+  "recommendations.showLess": "Show less",
 
   "explain.liked": "Liked by {n} {people} with similar taste",
   "explain.also": "; they also rated {titles} highly",

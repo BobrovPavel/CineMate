@@ -1,14 +1,27 @@
-export type Lang = "ru" | "en";
+/** The one list of interface languages. To add one: an entry here and translations in i18n.ts. */
+export const LANGUAGES = [
+  { code: "ru", label: "RU", name: "Русский", flag: "🇷🇺" },
+  { code: "en", label: "EN", name: "English", flag: "🇬🇧" },
+] as const;
+
+export type Language = (typeof LANGUAGES)[number];
+export type Lang = Language["code"];
+
+export const FALLBACK_LANG: Lang = "en";
+
+export function languageByCode(code: Lang): Language {
+  return LANGUAGES.find((l) => l.code === code) ?? LANGUAGES[0];
+}
 
 export const LANG_COOKIE = "cinemate_lang";
 export const LANG_COOKIE_MAX_AGE = 365 * 24 * 3600;
 
 export function isLang(value: string | null | undefined): value is Lang {
-  return value === "ru" || value === "en";
+  return LANGUAGES.some((l) => l.code === value);
 }
 
-/** "ru" if the most preferred language of an Accept-Language header is Russian (as in the API). */
-function acceptsRussian(header: string | null | undefined): boolean {
+/** The most preferred tag of an Accept-Language header (lowercase), as in the API. */
+function preferredTag(header: string | null | undefined): string | null {
   let best: string | null = null;
   let bestQ = 0;
   for (const part of (header ?? "").split(",")) {
@@ -27,16 +40,17 @@ function acceptsRussian(header: string | null | undefined): boolean {
       bestQ = q;
     }
   }
-  return best === "ru" || (best?.startsWith("ru-") ?? false);
+  return best;
 }
 
-/** The one language rule: a valid cookie, else the browser language (ru), else en. */
+/** The one language rule: a valid cookie, else the browser's main language if listed, else en. */
 export function pickLanguage(
   cookieLang: string | null | undefined,
   acceptLanguage: string | null | undefined,
 ): Lang {
   if (isLang(cookieLang)) return cookieLang;
-  return acceptsRussian(acceptLanguage) ? "ru" : "en";
+  const primary = preferredTag(acceptLanguage)?.split("-")[0];
+  return isLang(primary) ? primary : FALLBACK_LANG;
 }
 
 /** Remember the choice for a year and reload so the server renders in the new language. */

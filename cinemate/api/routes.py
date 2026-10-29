@@ -41,8 +41,10 @@ from cinemate.services.users import (
     create_session_user,
     get_ratings,
     get_user_by_token,
+    pool_for_language,
     set_rating,
     set_seen_mark,
+    tmdb_language_for,
 )
 from cinemate.tmdb import TmdbClient, TmdbError
 
@@ -67,7 +69,7 @@ def open_session(
 
 def _new_session_user(request: Request, response: Response, session: Session) -> User:
     """Create an anonymous user in the pool of the request language and set its cookie."""
-    user = create_session_user(session, "ru" if language_from_request(request) == "ru" else "world")
+    user = create_session_user(session, pool_for_language(language_from_request(request)))
     response.set_cookie(
         SESSION_COOKIE,
         user.session_token or "",
@@ -239,7 +241,7 @@ def search(
     """
     if len(q.strip()) < 2:
         raise HTTPException(status_code=422, detail="q must have at least 2 characters")
-    language = "ru-RU" if language_from_request(request) == "ru" else "en-US"
+    language = tmdb_language_for(language_from_request(request))
     selector = request.app.state.search_selector
     client: TmdbClient | None = request.app.state.tmdb_client
     use_local = selector.mode == "local" or (selector.mode == "auto" and selector.catalog_ready())

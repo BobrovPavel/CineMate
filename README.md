@@ -431,6 +431,18 @@ cinemate bench-recommendations [--database-url URL] [--pool world] [--requests 2
   проверить оба пула, переключите язык RU/EN в навигации, нажмите в профиле «Начать заново» и
   снова откройте `/api/me`: новый профиль попадёт в пул `ru` (RU) или `world` (EN).
 
+## Как добавить язык
+
+1. Фронтенд: запись в `LANGUAGES` в `frontend/src/lib/locale.ts` (`code`, `label`, `name`,
+   `flag`). Тип `Lang` и выпадающий список в навигации берут значения оттуда.
+2. Переводы: словарь нового языка в `frontend/src/lib/i18n.ts` (и формы множественного числа
+   в `PLURALS`). Без них `npm run typecheck` падает.
+3. API: запись в `LANGUAGES` в `cinemate/services/users.py` с языком поиска TMDB
+   (`tmdb_language`, например `de-DE`) и пулом пользователей (`pool`: `ru` или `world`).
+
+Cookie `cinemate_lang` принимает любой код из списка. Без cookie берётся основной язык
+браузера, если он есть в списке, иначе `en` (на фронтенде и в API одинаково).
+
 ## Миграции базы
 
 Схема БД управляется Alembic (`alembic.ini`, каталог `migrations/`). URL базы берётся так же, как
