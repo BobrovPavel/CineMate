@@ -546,3 +546,53 @@ def test_cf_taste_moves_liked_genre_up():
     cf = evaluate(train, likes(1, 6), B, features=features, settings=settings, **kw)
     assert cf.cf.precision_at_k == 0.0  # plain CF puts the drama first
     assert cf.baselines["cf+taste"].precision_at_k == 1.0
+
+
+def test_cf_taste_rule_moves_a_disliked_genre_down():
+    train = (
+        likes(1, 1, 2, 3)
+        + [Rating(1, m, 1.0) for m in (4, 5, 6)]  # user 1 dislikes three dramas, likes no drama
+        + likes(2, 1, 2, 3, 7, 8)
+        + likes(3, 1, 2, 3, 7)  # drama 7 has one more fan than fantasy 8
+    )
+    features = {m: MovieFeatures(genres=(14,)) for m in (1, 2, 3, 8)}
+    features.update({m: MovieFeatures(genres=(18,)) for m in (4, 5, 6, 7)})
+    settings = RecommenderSettings(taste_weight=0, hide_dislikes_genre=3, dislike_item_weight=0)
+    kw = dict(k=5, lam=0.0, min_overlap=1, top_n=1, pop_penalty=0.0, settings=settings)
+    plain = evaluate(train, likes(1, 8), B, **kw)
+    assert "cf+taste+rule" not in plain.baselines
+    result = evaluate(train, likes(1, 8), B, features=features, **kw)
+    assert result.cf.precision_at_k == 0.0  # plain CF puts the drama first
+    assert result.baselines["cf+taste"].precision_at_k == 0.0
+    assert result.baselines["cf+taste+rule"].precision_at_k == 1.0
+
+
+def test_cf_taste_rule_penalty_applies_from_the_ratings_threshold():
+    # user 1 dislikes movie 4; movie 5 is liked together with 4 (users 6, 7), movie 6 is not
+    train = (
+        likes(1, 1, 2, 3)
+        + [Rating(1, 4, 1.0)]
+        + likes(2, 1, 2, 3, 5)
+        + likes(3, 1, 2, 3, 5)
+        + likes(4, 1, 2, 3, 6)
+        + likes(5, 1, 2, 3, 6)
+        + likes(6, 4, 5)
+        + likes(7, 4, 5)
+    )
+    features = {m: MovieFeatures(genres=(14,)) for m in range(1, 8)}
+
+    def top(settings, liked):
+        result = evaluate(
+            train, likes(1, liked), B, features=features, settings=settings, k=10, lam=0.0,
+            min_overlap=1, top_n=1, pop_penalty=0.0,
+        )  # fmt: skip
+        return result.cf.precision_at_k, result.baselines["cf+taste+rule"].precision_at_k
+
+    base = dict(taste_weight=0, dislike_item_min_ratings=4)
+    off = RecommenderSettings(dislike_item_weight=0, **base)
+    on = RecommenderSettings(dislike_item_weight=0.5, **base)
+    too_few_ratings = RecommenderSettings(dislike_item_weight=0.5, taste_weight=0)
+    assert top(off, 5) == (1.0, 1.0)  # plain CF and no penalty: movie 5 first
+    assert top(on, 5) == (1.0, 0.0)  # similar to the disliked movie: pushed below movie 6
+    assert top(on, 6) == (0.0, 1.0)
+    assert top(too_few_ratings, 5) == (1.0, 1.0)  # fewer than 50 ratings: no penalty

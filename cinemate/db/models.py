@@ -179,6 +179,26 @@ class SeenMark(Base):
     type: Mapped[str] = mapped_column(String(16))
 
 
+class UserCategoryPref(Base):
+    """A user's override of the automatic category rule: ``mode`` ``show`` keeps the category
+    in the feed despite the ratings. No row means the automatic rule decides."""
+
+    __tablename__ = "user_category_prefs"
+    __table_args__ = (
+        CheckConstraint("mode IN ('show')", name="ck_user_category_prefs_mode"),
+        CheckConstraint(
+            "kind IN ('collection', 'studio', 'genre', 'anime')",
+            name="ck_user_category_prefs_kind",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(8), default="show")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class Event(Base):
     """Product event log: impressions and reactions. Only ids, no personal data."""
 

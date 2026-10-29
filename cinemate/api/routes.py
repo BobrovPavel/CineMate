@@ -18,6 +18,8 @@ from cinemate.api.deps import (
 from cinemate.api.schemas import (
     BecauseOf,
     BecauseTaste,
+    CategoryPrefIn,
+    CategoryPrefOut,
     MeOut,
     MovieCard,
     OnboardingCard,
@@ -35,6 +37,7 @@ from cinemate.db.catalog import import_from_tmdb
 from cinemate.db.features import genre_names_by_movie
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, User
+from cinemate.services.categories import get_category_prefs, set_category_pref
 from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.recommendations import get_recommendations
@@ -250,6 +253,35 @@ def recommendations(
             for item in result.items
         ],
     )
+
+
+@router.get("/category-prefs", response_model=list[CategoryPrefOut])
+def category_prefs(
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    store: Annotated[MatrixStore, Depends(get_matrix_store)],
+) -> list[CategoryPrefOut]:
+    """Categories lowered in the feed by the rule and those the user chose to show."""
+    views = get_category_prefs(
+        session,
+        store,
+        user,
+        settings=request.app.state.recommender_settings,
+        language=language_from_request(request),
+    )
+    return [CategoryPrefOut(**vars(view)) for view in views]
+
+
+@router.post("/category-prefs", response_model=WriteOut)
+def set_category_pref_route(
+    body: CategoryPrefIn,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+) -> WriteOut:
+    """``show: true`` keeps the category in the feed, ``false`` restores the automatic rule."""
+    set_category_pref(session, user, body.kind, body.key, body.show)
+    return WriteOut(ok=True, rated_count=len(get_ratings(session, user)))
 
 
 @router.get("/search", response_model=list[SearchResultOut])

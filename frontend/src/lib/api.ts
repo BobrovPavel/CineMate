@@ -183,3 +183,30 @@ export function postWatched(movieId: number): Promise<WriteResult> {
     body: JSON.stringify({ movie_id: movieId, type: "watched" }),
   });
 }
+
+export type CategoryKind = "collection" | "studio" | "genre" | "anime";
+
+/** A category the rule moved down (`show` false) or the user chose to show. */
+export type CategoryPref = {
+  kind: CategoryKind;
+  key: string;
+  name: string;
+  disliked: number;
+  rated: number;
+  show: boolean;
+};
+
+export function fetchCategoryPrefs(): Promise<CategoryPref[]> {
+  return apiFetch("/api/category-prefs");
+}
+
+export function postCategoryPref(
+  kind: CategoryKind,
+  key: string,
+  show: boolean,
+): Promise<WriteResult> {
+  return apiFetch("/api/category-prefs", {
+    method: "POST",
+    body: JSON.stringify({ kind, key, show }),
+  });
+}

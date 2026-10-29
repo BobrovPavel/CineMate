@@ -12,7 +12,7 @@ from scipy.sparse import csr_matrix
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from cinemate.db.models import DEFAULT_POOL, Movie, MovieGenre, Rating, User
+from cinemate.db.models import DEFAULT_POOL, Movie, MovieCompany, MovieGenre, Rating, User
 from cinemate.recommender.matrix import RatingsMatrix
 from cinemate.recommender.taste import MovieFeatures, build_taste_data
 
@@ -150,7 +150,7 @@ class MatrixStore:
 def _with_taste(session: Session, pool: str, data: RatingsMatrix) -> RatingsMatrix:
     """``data`` with the content features of its columns and the pool's like shares.
 
-    Features come from two queries restricted to the pool's rated movies, without ORM objects.
+    Features come from three queries restricted to the pool's rated movies, without ORM objects.
     """
     if not data.movie_ids:
         return data
@@ -160,6 +160,13 @@ def _with_taste(session: Session, pool: str, data: RatingsMatrix) -> RatingsMatr
         select(MovieGenre.movie_id, MovieGenre.genre_id).where(MovieGenre.movie_id.in_(rated))
     ):
         genres.setdefault(movie_id, []).append(genre_id)
+    companies: dict[int, list[int]] = {}
+    for movie_id, company_id in session.connection().execute(
+        select(MovieCompany.movie_id, MovieCompany.company_id).where(
+            MovieCompany.movie_id.in_(rated)
+        )
+    ):
+        companies.setdefault(movie_id, []).append(company_id)
     columns: dict[int, MovieFeatures] = {}
     for row in session.connection().execute(
         select(
@@ -172,6 +179,7 @@ def _with_taste(session: Session, pool: str, data: RatingsMatrix) -> RatingsMatr
             language=row.original_language,
             year=row.year,
             collection_id=row.collection_id,
+            companies=tuple(sorted(companies.get(row.id, ()))),
         )
     features = [columns.get(movie_id, MovieFeatures()) for movie_id in data.movie_ids]
     likes = np.asarray((data.matrix > 0).sum(axis=0)).ravel()

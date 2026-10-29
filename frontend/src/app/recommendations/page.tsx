@@ -5,13 +5,17 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClampedText } from "@/components/ClampedText";
+import { HiddenCategoriesBanner } from "@/components/HiddenCategoriesBanner";
 import { CardSkeleton } from "@/components/MovieCard";
 import {
   ApiError,
+  fetchCategoryPrefs,
   fetchRecommendations,
+  postCategoryPref,
   postReactionRating,
   postReactionSeen,
   TMDB_IMAGE_BASE,
+  type CategoryPref,
   type RecommendationItem,
   type SeenType,
 } from "@/lib/api";
@@ -61,12 +65,23 @@ export default function RecommendationsPage() {
   const [items, setItems] = useState<Shown[]>([]);
   const [leaving, setLeaving] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
+  const [categories, setCategories] = useState<CategoryPref[]>([]);
+  const [categoryBusy, setCategoryBusy] = useState(false);
   const started = useRef(false);
   // Movies reacted to in this page lifetime; never re-added by a refetch.
   const reacted = useRef<Set<number>>(new Set());
 
+  const loadCategories = useCallback(async () => {
+    try {
+      setCategories(await fetchCategoryPrefs());
+    } catch {
+      // Silent: the notice is optional, the feed works without it.
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setStatus("loading");
+    void loadCategories();
     try {
       const data = await fetchRecommendations(LIMIT);
       setStrategy(data.strategy);
@@ -79,7 +94,7 @@ export default function RecommendationsPage() {
       }
       setStatus("error");
     }
-  }, [router]);
+  }, [router, loadCategories]);
 
   useEffect(() => {
     if (started.current) return;
@@ -105,6 +120,19 @@ export default function RecommendationsPage() {
       // Silent: the current grid stays usable.
     }
   }, []);
+
+  async function showCategory(category: CategoryPref) {
+    setCategoryBusy(true);
+    setMessage(null);
+    try {
+      await postCategoryPref(category.kind, category.key, true);
+      await load();
+    } catch {
+      setMessage(t("categories.saveError"));
+    } finally {
+      setCategoryBusy(false);
+    }
+  }
 
   async function react(item: Shown, reaction: Reaction) {
     const id = item.movie.id;
@@ -159,6 +187,14 @@ export default function RecommendationsPage() {
             {t("recommendations.rateMore")}
           </Link>
         </div>
+      )}
+
+      {status === "ready" && (
+        <HiddenCategoriesBanner
+          prefs={categories}
+          busy={categoryBusy}
+          onShow={(c) => void showCategory(c)}
+        />
       )}
 
       {message && (
