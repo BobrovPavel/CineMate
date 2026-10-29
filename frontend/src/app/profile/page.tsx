@@ -6,11 +6,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
+  fetchMe,
   fetchProfile,
   postRating,
+  resetSession,
   TMDB_IMAGE_BASE,
+  type Me,
   type ProfileItem,
 } from "@/lib/api";
+import { poolMismatchesLang } from "@/lib/locale";
 import { displayTitle } from "@/lib/titles";
 import { useLocale, useT } from "@/lib/LocaleProvider";
 
@@ -23,13 +27,18 @@ export default function ProfilePage() {
   const [status, setStatus] = useState<Status>("loading");
   const [items, setItems] = useState<ProfileItem[]>([]);
   const [pending, setPending] = useState<Set<number>>(new Set());
+  const [me, setMe] = useState<Me | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const started = useRef(false);
 
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      setItems(await fetchProfile());
+      const [profile, meInfo] = await Promise.all([fetchProfile(), fetchMe()]);
+      setItems(profile);
+      setMe(meInfo);
       setStatus("ready");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -78,9 +87,78 @@ export default function ProfilePage() {
     }
   }
 
+  async function restart() {
+    setRestarting(true);
+    setMessage(null);
+    try {
+      await resetSession();
+      router.push("/onboarding");
+    } catch {
+      setMessage(t("profile.restartError"));
+      setRestarting(false);
+      setConfirming(false);
+    }
+  }
+
+  const mismatch = me !== null && poolMismatchesLang(me.pool, locale);
+
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-6">
       <h1 className="mb-4 text-2xl font-semibold">{t("profile.title")}</h1>
+
+      {me && (
+        <section className="mb-4 flex flex-col gap-2 rounded-xl bg-gray-100 p-3 text-sm">
+          <p>
+            {t(me.pool === "ru" ? "profile.pool.ru" : "profile.pool.world")}
+          </p>
+          {confirming ? (
+            <div
+              role="alertdialog"
+              aria-label={t("profile.restart")}
+              className="flex flex-col gap-2"
+            >
+              <p>{t("profile.restartConfirm")}</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={restarting}
+                  onClick={() => void restart()}
+                  className="min-h-11 rounded-xl bg-black px-4 text-white disabled:opacity-50"
+                >
+                  {t("profile.restart")}
+                </button>
+                <button
+                  type="button"
+                  disabled={restarting}
+                  onClick={() => setConfirming(false)}
+                  className="min-h-11 rounded-xl bg-gray-200 px-4 text-gray-900 disabled:opacity-50"
+                >
+                  {t("profile.restartCancel")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirming(true)}
+                className="min-h-11 rounded-xl bg-gray-200 px-4 text-gray-900"
+              >
+                {t("profile.restart")}
+              </button>
+              {mismatch && (
+                <p className="text-gray-700">
+                  {t(
+                    locale === "ru"
+                      ? "profile.restartHint.ru"
+                      : "profile.restartHint.world",
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {message && (
         <div

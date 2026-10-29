@@ -17,6 +17,7 @@ from cinemate.api.deps import (
 )
 from cinemate.api.schemas import (
     BecauseOf,
+    MeOut,
     MovieCard,
     OnboardingCard,
     ProfileItem,
@@ -60,18 +61,42 @@ def open_session(
     token = session_token(request)
     user = get_user_by_token(session, token) if token else None
     if user is None:
-        user = create_session_user(
-            session, "ru" if language_from_request(request) == "ru" else "world"
-        )
-        response.set_cookie(
-            SESSION_COOKIE,
-            user.session_token or "",
-            max_age=COOKIE_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=request.app.state.cookie_secure,
-        )
+        user = _new_session_user(request, response, session)
     return SessionOut(user_id=user.id, pool=user.pool)
+
+
+def _new_session_user(request: Request, response: Response, session: Session) -> User:
+    """Create an anonymous user in the pool of the request language and set its cookie."""
+    user = create_session_user(session, "ru" if language_from_request(request) == "ru" else "world")
+    response.set_cookie(
+        SESSION_COOKIE,
+        user.session_token or "",
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=request.app.state.cookie_secure,
+    )
+    return user
+
+
+@router.post("/session/reset", response_model=SessionOut)
+def reset_session(
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> SessionOut:
+    """Start over: a new anonymous user (pool by language); the old user stays in the DB."""
+    user = _new_session_user(request, response, session)
+    return SessionOut(user_id=user.id, pool=user.pool)
+
+
+@router.get("/me", response_model=MeOut)
+def me(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+) -> MeOut:
+    """The current user's id, pool and number of ratings."""
+    return MeOut(user_id=user.id, pool=user.pool, rated_count=len(get_ratings(session, user)))
 
 
 @router.get("/profile", response_model=list[ProfileItem])

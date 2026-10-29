@@ -10,7 +10,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -23,7 +26,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, `Запрос ${path} завершился ошибкой ${response.status}`);
+    throw new ApiError(
+      response.status,
+      `Запрос ${path} завершился ошибкой ${response.status}`,
+    );
   }
   return (await response.json()) as T;
 }
@@ -49,7 +55,10 @@ export function fetchOnboarding(limit = 20): Promise<OnboardingCard[]> {
   return apiFetch(`/api/onboarding?limit=${limit}`);
 }
 
-export function postRating(movieId: number, value: 1 | -1): Promise<WriteResult> {
+export function postRating(
+  movieId: number,
+  value: 1 | -1,
+): Promise<WriteResult> {
   return apiFetch("/api/ratings", {
     method: "POST",
     body: JSON.stringify({ movie_id: movieId, value }),
@@ -85,7 +94,9 @@ export type RecommendationsResponse = {
 
 export type SeenType = "not_seen" | "watched" | "not_interested";
 
-export function fetchRecommendations(limit = 20): Promise<RecommendationsResponse> {
+export function fetchRecommendations(
+  limit = 20,
+): Promise<RecommendationsResponse> {
   return apiFetch(`/api/recommendations?limit=${limit}`);
 }
 
@@ -120,6 +131,19 @@ export type ProfileItem = {
   value: 1 | -1;
 };
 
+export type Me = { user_id: number; pool: "ru" | "world"; rated_count: number };
+
+export function fetchMe(): Promise<Me> {
+  return apiFetch("/api/me");
+}
+
+export function resetSession(): Promise<{
+  user_id: number;
+  pool: "ru" | "world";
+}> {
+  return apiFetch("/api/session/reset", { method: "POST" });
+}
+
 export function fetchProfile(): Promise<ProfileItem[]> {
   return apiFetch("/api/profile");
 }
@@ -135,11 +159,17 @@ export type SearchResult = {
   user_value: 1 | -1 | null;
 };
 
-export function searchMovies(query: string, signal?: AbortSignal): Promise<SearchResult[]> {
+export function searchMovies(
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchResult[]> {
   return apiFetch(`/api/search?q=${encodeURIComponent(query)}`, { signal });
 }
 
-export function resolveMovie(tmdbType: "movie" | "tv", tmdbId: number): Promise<{ id: number }> {
+export function resolveMovie(
+  tmdbType: "movie" | "tv",
+  tmdbId: number,
+): Promise<{ id: number }> {
   return apiFetch("/api/movies/resolve", {
     method: "POST",
     body: JSON.stringify({ tmdb_type: tmdbType, tmdb_id: tmdbId }),
