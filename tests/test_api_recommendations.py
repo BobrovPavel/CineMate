@@ -150,3 +150,26 @@ def test_route_passes_settings(monkeypatch):
         client.post("/api/session")
         assert client.get("/api/recommendations").status_code == 200
     assert seen["settings"] is settings
+
+
+def test_because_taste_in_the_request_language(app, client):
+    from cinemate.db.features import seed_genres
+    from cinemate.db.models import MovieGenre
+
+    seed_genres(app.state.engine)
+    with app.state.session_factory() as session:
+        session.add_all([MovieGenre(movie_id=i, genre_id=14) for i in range(1, 9)])
+        session.commit()
+    for movie_id in range(1, 7):
+        client.post("/api/ratings", json={"movie_id": movie_id, "value": 1})
+    en = client.get("/api/recommendations", headers={"Accept-Language": "en"}).json()
+    ru = client.get("/api/recommendations", headers={"Accept-Language": "ru"}).json()
+    assert en["items"][0]["because_taste"] == {"kind": "genre", "id": "14", "name": "Fantasy"}
+    assert ru["items"][0]["because_taste"]["name"] == "фэнтези"
+
+
+def test_no_because_taste_without_a_sure_feature(client):
+    for movie_id in range(1, 7):
+        client.post("/api/ratings", json={"movie_id": movie_id, "value": 1})
+    items = client.get("/api/recommendations").json()["items"]
+    assert items and all(i["because_taste"] is None for i in items)

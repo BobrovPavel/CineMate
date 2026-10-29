@@ -52,11 +52,18 @@ class BecauseOf(BaseModel):
     title_ru: str | None
 
 
+class BecauseTaste(BaseModel):
+    kind: str
+    id: str
+    name: str
+
+
 class RecommendationItem(BaseModel):
     movie: MovieCard
     score: float
     liked_by: int
     because_of: list[BecauseOf]
+    because_taste: BecauseTaste | None = None
 
 
 class RecommendationsOut(BaseModel):

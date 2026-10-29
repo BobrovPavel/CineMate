@@ -9,8 +9,10 @@ import numpy as np
 from sqlalchemy import Engine, func, insert, select
 from sqlalchemy.orm import sessionmaker
 
+from cinemate.db.features import seed_genres
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.models import Movie, MovieGenre, Rating, User
+from cinemate.genres import GENRES
 from cinemate.services.recommendations import get_recommendations
 
 _INSERT_CHUNK = 50_000
@@ -38,15 +40,41 @@ def fill_synthetic(engine: Engine, ratings: int, pool: str, seed: int = 0) -> in
     """
     if ratings < 1:
         raise ValueError("--synthetic must be >= 1")
+    seed_genres(engine)
     with engine.begin() as conn:
         if conn.scalar(select(func.count()).select_from(User)):
             raise ValueError("--synthetic needs an empty database")
         n_users = max(2, ratings // _RATINGS_PER_USER)
         n_movies = min(_MAX_MOVIES, max(10, ratings // 2))
         conn.execute(insert(User), [{"pool": pool, "is_synthetic": True}] * n_users)
-        conn.execute(insert(Movie), [{"title": f"Movie {i}"} for i in range(n_movies)])
+        feature_rng = np.random.default_rng(seed + 1)
+        years = feature_rng.integers(1950, 2025, n_movies)
+        languages = feature_rng.choice(["en", "en", "en", "fr", "ja", "ru"], n_movies)
+        conn.execute(
+            insert(Movie),
+            [
+                {
+                    "title": f"Movie {i}",
+                    "tmdb_type": "movie" if i % 5 else "tv",
+                    "year": int(years[i]),
+                    "original_language": str(languages[i]),
+                }
+                for i in range(n_movies)
+            ],
+        )
         user_ids = np.array(list(conn.scalars(select(User.id).order_by(User.id))))
         movie_ids = np.array(list(conn.scalars(select(Movie.id).order_by(Movie.id))))
+
+        genre_ids = [g.id for g in GENRES]
+        genre_rows = [
+            {"movie_id": int(movie_id), "genre_id": int(genre)}
+            for movie_id in movie_ids
+            for genre in feature_rng.choice(
+                genre_ids, size=int(feature_rng.integers(1, 4)), replace=False
+            )
+        ]
+        for start in range(0, len(genre_rows), _INSERT_CHUNK):
+            conn.execute(insert(MovieGenre), genre_rows[start : start + _INSERT_CHUNK])
 
         rng = np.random.default_rng(seed)
         weights = 1.0 / (np.arange(n_movies) + 50.0)

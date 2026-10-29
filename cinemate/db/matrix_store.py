@@ -1,5 +1,6 @@
 """In-memory cache of the ratings matrices (one per user pool) loaded from the database."""
 
+import dataclasses
 import logging
 import threading
 import time
@@ -11,8 +12,9 @@ from scipy.sparse import csr_matrix
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from cinemate.db.models import DEFAULT_POOL, Rating, User
+from cinemate.db.models import DEFAULT_POOL, Movie, MovieGenre, Rating, User
 from cinemate.recommender.matrix import RatingsMatrix
+from cinemate.recommender.taste import MovieFeatures, build_taste_data
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +143,39 @@ class MatrixStore:
                 users.append(chunk[:, 0])
                 movies.append(chunk[:, 1])
                 values.append(chunk[:, 2].astype(np.int8))
-        return matrix_from_arrays(users, movies, values)
+            matrix = matrix_from_arrays(users, movies, values)
+            return _with_taste(session, pool, matrix)
+
+
+def _with_taste(session: Session, pool: str, data: RatingsMatrix) -> RatingsMatrix:
+    """``data`` with the content features of its columns and the pool's like shares.
+
+    Features come from two queries restricted to the pool's rated movies, without ORM objects.
+    """
+    if not data.movie_ids:
+        return data
+    rated = select(Rating.movie_id).join(User, User.id == Rating.user_id).where(User.pool == pool)
+    genres: dict[int, list[int]] = {}
+    for movie_id, genre_id in session.connection().execute(
+        select(MovieGenre.movie_id, MovieGenre.genre_id).where(MovieGenre.movie_id.in_(rated))
+    ):
+        genres.setdefault(movie_id, []).append(genre_id)
+    columns: dict[int, MovieFeatures] = {}
+    for row in session.connection().execute(
+        select(
+            Movie.id, Movie.tmdb_type, Movie.original_language, Movie.year, Movie.collection_id
+        ).where(Movie.id.in_(rated))
+    ):
+        columns[row.id] = MovieFeatures(
+            genres=tuple(sorted(genres.get(row.id, ()))),
+            kind=row.tmdb_type,
+            language=row.original_language,
+            year=row.year,
+            collection_id=row.collection_id,
+        )
+    features = [columns.get(movie_id, MovieFeatures()) for movie_id in data.movie_ids]
+    likes = np.asarray((data.matrix > 0).sum(axis=0)).ravel()
+    return dataclasses.replace(data, taste=build_taste_data(features, likes))
 
 
 def matrix_from_arrays(

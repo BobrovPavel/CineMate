@@ -117,3 +117,14 @@ def test_blend_full_at_default_off_and_env():
 def test_blend_full_at_invalid(value):
     with pytest.raises(ValueError, match="REC_BLEND_FULL_AT"):
         RecommenderSettings.from_env({"REC_BLEND_FULL_AT": value})
+
+
+def test_taste_settings():
+    assert RecommenderSettings().taste_weight == 0.5
+    assert RecommenderSettings().taste_interest_weight == 0.5
+    parsed = RecommenderSettings.from_env(
+        {"REC_TASTE_WEIGHT": "0", "REC_TASTE_INTEREST_WEIGHT": "0.25"}
+    )
+    assert (parsed.taste_weight, parsed.taste_interest_weight) == (0.0, 0.25)
+    with pytest.raises(ValueError, match="REC_TASTE_WEIGHT"):
+        RecommenderSettings.from_env({"REC_TASTE_WEIGHT": "-1"})

@@ -17,6 +17,7 @@ from cinemate.api.deps import (
 )
 from cinemate.api.schemas import (
     BecauseOf,
+    BecauseTaste,
     MeOut,
     MovieCard,
     OnboardingCard,
@@ -214,7 +215,12 @@ def recommendations(
 ) -> RecommendationsOut:
     """Recommendations with explanations; each call is a new session with logged impressions."""
     result = get_recommendations(
-        session, store, user, limit=limit, settings=request.app.state.recommender_settings
+        session,
+        store,
+        user,
+        limit=limit,
+        settings=request.app.state.recommender_settings,
+        language=language_from_request(request),
     )
     session_id = uuid.uuid4().hex
     genres = _genre_names(session, request, [i.movie.id for i in result.items])
@@ -231,6 +237,15 @@ def recommendations(
                     BecauseOf(movie_id=m.id, title=m.title, title_ru=m.title_ru)
                     for m in item.because_of
                 ],
+                because_taste=(
+                    BecauseTaste(
+                        kind=item.because_taste.kind,
+                        id=item.because_taste.id,
+                        name=item.because_taste.name,
+                    )
+                    if item.because_taste
+                    else None
+                ),
             )
             for item in result.items
         ],

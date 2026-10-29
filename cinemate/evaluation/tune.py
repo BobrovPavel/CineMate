@@ -1,7 +1,7 @@
 """Grid search over CF parameters (K, LAMBDA, MIN_OVERLAP, POP_PENALTY) using ``evaluate``."""
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import product
 
 from cinemate.binarize import Binarizer
@@ -18,9 +18,11 @@ from cinemate.evaluation.runner import (
     new_users_line,
 )
 from cinemate.movielens import Rating
+from cinemate.recommender.taste import MovieFeatures
 
 GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty", "significance")
 DEFAULT_GRID = {"pop_penalty": [1.0], "significance": [0]}
+DEFAULT_TASTE_GRID = {"taste_weight": [0.0, 0.25, 0.5, 1.0], "taste_interest_weight": [0.0, 0.5]}
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,15 @@ class TuneRow:
 
 
 @dataclass(frozen=True)
+class TasteRow:
+    """``cf+taste`` metrics for one ``(taste_weight, taste_interest_weight)`` combination."""
+
+    taste_weight: float
+    taste_interest_weight: float
+    metrics: MethodMetrics
+
+
+@dataclass(frozen=True)
 class TuneResult:
     """Rows sorted by precision@k (descending), all baselines and the evaluated user count."""
 
@@ -48,6 +59,7 @@ class TuneResult:
     new_user_seen: NewUserSeen = "all"
     user_fraction: float = 1.0
     established_users: tuple[int, int] | None = None
+    taste_rows: tuple[TasteRow, ...] = ()
 
     @property
     def baseline(self) -> MethodMetrics:
@@ -69,6 +81,8 @@ def tune(
     new_user_seen: NewUserSeen = "all",
     blend_full_at: Sequence[float] = (),
     user_fraction: float = 1.0,
+    features: Mapping[int | str, MovieFeatures] | None = None,
+    taste_grid: Mapping[str, Sequence[float]] | None = None,
 ) -> TuneResult:
     """Evaluate CF for every combination in ``grid`` (keys ``k``, ``lam``, ``min_overlap``,
     ``pop_penalty``, ``significance``; the last two are optional and default to ``[1.0]`` and
@@ -85,6 +99,10 @@ def tune(
     recall and hit rate also get a standard deviation); rows sort by mean precision.
     ``new_user_pick``, ``new_user_seen``, ``blend_full_at`` (``hybrid(T=...)`` baseline rows)
     and ``user_fraction`` are passed to ``evaluate`` (see there).
+
+    With ``features`` the best CF row is re-evaluated as ``cf+taste`` for every combination of
+    ``taste_grid`` (keys ``taste_weight`` and ``taste_interest_weight``; defaults: weights
+    0, 0.25, 0.5, 1 and interest weights 0, 0.5) and the results land in ``taste_rows``.
     """
     grid = {**DEFAULT_GRID, **grid}
     missing = [key for key in GRID_KEYS if key not in grid]
@@ -115,6 +133,26 @@ def tune(
             )
         )  # fmt: skip
     rows.sort(key=lambda r: -r.metrics.precision_at_k)
+    taste_rows: list[TasteRow] = []
+    if features is not None and rows:
+        taste_grid = {**DEFAULT_TASTE_GRID, **(taste_grid or {})}
+        best = rows[0]
+        for gamma, interest in product(
+            taste_grid["taste_weight"], taste_grid["taste_interest_weight"]
+        ):
+            result = evaluate_seeds(
+                splits, binarizer, k=best.k, lam=best.lam, min_overlap=best.min_overlap,
+                top_n=top_n, pop_penalty=best.pop_penalty, significance=best.significance,
+                new_user_ratings=new_user_ratings,
+                settings=replace(
+                    settings or RecommenderSettings(),
+                    taste_weight=float(gamma),
+                    taste_interest_weight=float(interest),
+                ),
+                new_user_pick=new_user_pick, new_user_seen=new_user_seen,
+                user_fraction=user_fraction, features=features,
+            )  # fmt: skip
+            taste_rows.append(TasteRow(float(gamma), float(interest), result.baselines["cf+taste"]))
     return TuneResult(
         rows=rows,
         baselines=baselines,
@@ -125,6 +163,7 @@ def tune(
         new_user_seen=new_user_seen,
         user_fraction=user_fraction,
         established_users=established,
+        taste_rows=tuple(taste_rows),
     )
 
 
@@ -159,6 +198,25 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
     widths = [max(len(row[i]) for row in [headers, *table]) for i in range(len(headers))]
     lines = ["  ".join(h.rjust(w) for h, w in zip(headers, widths, strict=True))]
     lines += ["  ".join(c.rjust(w) for c, w in zip(row, widths, strict=True)) for row in table]
+    if result.taste_rows:
+        lines.append("")
+        lines.append("cf+taste (best CF parameters above):")
+        taste_headers = ["gamma", "w_i", *metric_headers(top_n)]
+        taste_table = [
+            [f"{r.taste_weight:g}", f"{r.taste_interest_weight:g}", *metric_cells(r.metrics)]
+            for r in result.taste_rows
+        ]
+        taste_widths = [
+            max(len(row[i]) for row in [taste_headers, *taste_table])
+            for i in range(len(taste_headers))
+        ]
+        lines.append(
+            "  ".join(h.rjust(w) for h, w in zip(taste_headers, taste_widths, strict=True))
+        )
+        lines += [
+            "  ".join(c.rjust(w) for c, w in zip(row, taste_widths, strict=True))
+            for row in taste_table
+        ]
     lines.append("")
     lines.append(f"users evaluated: {result.n_users}")
     lines.append(f"seeds: {','.join(map(str, result.seeds))}")

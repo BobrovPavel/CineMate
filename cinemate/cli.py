@@ -35,6 +35,7 @@ from cinemate.db.ratings_import import import_ratings_csv
 from cinemate.db.session import create_all, make_engine
 from cinemate.db.sync_catalog import DEFAULT_EXPORT_DIR, CatalogSyncError, sync_catalog
 from cinemate.db.sync_changes import ChangesPeriodTooLong, sync_changes
+from cinemate.evaluation.features import movielens_features
 from cinemate.evaluation.metrics import split_ratings
 from cinemate.evaluation.runner import (
     EvaluationResult,
@@ -51,6 +52,7 @@ from cinemate.evaluation.summary import describe_ratings, format_summary
 from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import Rating, iter_ratings, parse_ratings
 from cinemate.ratings_csv import CSV_MIN_RATINGS, load_ratings
+from cinemate.recommender.taste import MovieFeatures
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
 from cinemate.tmdb import (
     BULK_CONSECUTIVE_429,
@@ -403,6 +405,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--significance",
         default=str(RecommenderSettings().significance),
         help="comma-separated significance weighting thresholds, 0 disables it "
+        "(default: %(default)s)",
+    )
+    tu.add_argument(
+        "--taste-weight",
+        default="0,0.25,0.5,1",
+        help="comma-separated gamma values of the cf+taste re-ranking, MovieLens source only "
+        "(default: %(default)s)",
+    )
+    tu.add_argument(
+        "--taste-interest",
+        default="0,0.5",
+        help="comma-separated w_i values (weight of the interest term) of cf+taste "
         "(default: %(default)s)",
     )
     tu.add_argument(
@@ -1084,6 +1098,18 @@ def _load_source(args: argparse.Namespace, command: str) -> tuple[list[Rating], 
     return ratings, binarizer
 
 
+def _taste_features(
+    args: argparse.Namespace, command: str
+) -> dict[int | str, MovieFeatures] | None:
+    """Genres and years of the MovieLens movies for ``cf+taste``; ``None`` for other sources."""
+    if args.source != "movielens":
+        return None
+    dataset = _download_dataset(args, command)
+    if dataset is None or not (dataset / "movies.csv").is_file():
+        return None
+    return movielens_features(dataset / "movies.csv")
+
+
 def _run_evaluate(args: argparse.Namespace) -> int:
     if not args.pop_penalty >= 0:
         print("cinemate evaluate: error: --pop-penalty must be >= 0", file=sys.stderr)
@@ -1133,6 +1159,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     ratings, binarizer = source
     splits = _make_splits(args, "evaluate", ratings)
     assert splits is not None
+    features = _taste_features(args, "evaluate")
     result = evaluate_seeds(
         splits,
         binarizer,
@@ -1150,6 +1177,7 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         item_min_overlap=args.item_min_overlap,
         item_lam=args.item_lambda,
         user_fraction=args.user_fraction,
+        features=features,
     )
     print(format_summary(describe_ratings(ratings, binarizer)))
     print(format_table(result, args.top_n))
@@ -1169,6 +1197,12 @@ def _run_tune(args: argparse.Namespace) -> int:
             raise ValueError("pop_penalty values must be >= 0")
         if not all(v >= 0 for v in grid["significance"]):
             raise ValueError("significance values must be >= 0")
+        taste_grid = {
+            "taste_weight": parse_values(args.taste_weight, float),
+            "taste_interest_weight": parse_values(args.taste_interest, float),
+        }
+        if not all(v >= 0 for values in taste_grid.values() for v in values):
+            raise ValueError("--taste-weight and --taste-interest values must be >= 0")
     except ValueError as exc:
         print(f"cinemate tune: error: {exc}", file=sys.stderr)
         return 2
@@ -1202,6 +1236,7 @@ def _run_tune(args: argparse.Namespace) -> int:
     splits = _make_splits(args, "tune", ratings)
     assert splits is not None
     first, *rest = splits
+    features = _taste_features(args, "tune")
     result = tune(
         first.train,
         first.test,
@@ -1216,6 +1251,8 @@ def _run_tune(args: argparse.Namespace) -> int:
         new_user_seen=args.new_user_seen,
         blend_full_at=blend,
         user_fraction=args.user_fraction,
+        features=features,
+        taste_grid=taste_grid,
     )
     print(format_summary(describe_ratings(ratings, binarizer)))
     print(format_tune_table(result, args.top_n))

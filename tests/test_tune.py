@@ -5,6 +5,7 @@ from cinemate.cli import main, parse_values
 from cinemate.evaluation.runner import MethodMetrics
 from cinemate.evaluation.tune import TuneResult, TuneRow, format_tune_table, tune
 from cinemate.movielens import Rating
+from cinemate.recommender.taste import MovieFeatures
 
 B = MovieLensBinarizer()
 
@@ -312,3 +313,20 @@ def test_tune_table_has_new_metric_columns():
     lines = format_tune_table(result).splitlines()
     assert "dislike@10" in lines[0] and "like_share_judged" in lines[0]
     assert all("0.9000 (n=7)" in line for line in lines[1:3])
+
+
+def test_tune_taste_grid():
+    features = {m: MovieFeatures(genres=(14,)) for m in range(1, 11)}
+    result = tune(
+        make_train(), likes(1, 6, 7), B, GRID, top_n=2, features=features,
+        taste_grid={"taste_weight": [0, 1], "taste_interest_weight": [0, 0.5]},
+    )  # fmt: skip
+    assert [(r.taste_weight, r.taste_interest_weight) for r in result.taste_rows] == [
+        (0.0, 0.0),
+        (0.0, 0.5),
+        (1.0, 0.0),
+        (1.0, 0.5),
+    ]
+    table = format_tune_table(result, top_n=2)
+    assert "cf+taste" in table and "gamma" in table
+    assert tune(make_train(), likes(1, 6, 7), B, GRID, top_n=2).taste_rows == ()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { explainCollaborative } from "./explain";
+import { explainCollaborative, explainTaste } from "./explain";
 
 describe("explainCollaborative (ru)", () => {
   it("без because_of — только число людей", () => {
@@ -60,5 +60,12 @@ describe("explainCollaborative (en)", () => {
     expect(explainCollaborative("en", 7, ["A", "B", "C", "D"])).toBe(
       "Liked by 7 people with similar taste; they also rated «A», «B» and «C» highly",
     );
+  });
+});
+
+describe("explainTaste", () => {
+  it("говорит о вкусе на двух языках", () => {
+    expect(explainTaste("ru", "фэнтези")).toBe("Вы часто лайкаете фэнтези");
+    expect(explainTaste("en", "fantasy")).toBe("You often like fantasy");
   });
 });

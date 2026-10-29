@@ -15,7 +15,7 @@ import {
   type RecommendationItem,
   type SeenType,
 } from "@/lib/api";
-import { explainCollaborative } from "@/lib/explain";
+import { explainCollaborative, explainTaste } from "@/lib/explain";
 import type { MessageKey } from "@/lib/i18n";
 import { displayTitle } from "@/lib/titles";
 import { useLocale, useT } from "@/lib/LocaleProvider";
@@ -259,6 +259,11 @@ export default function RecommendationsPage() {
                         (b) => displayTitle(b, locale).primary,
                       ),
                     )}
+                  />
+                )}
+                {strategy === "collaborative" && item.because_taste && (
+                  <ClampedText
+                    text={explainTaste(locale, item.because_taste.name)}
                   />
                 )}
                 <div className="mt-auto grid grid-cols-2 gap-2">
