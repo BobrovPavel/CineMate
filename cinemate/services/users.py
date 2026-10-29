@@ -5,6 +5,7 @@ transaction is the caller's responsibility.
 """
 
 import secrets
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,11 +16,11 @@ from cinemate.db.models import DEFAULT_POOL, Movie, Rating, SeenMark, User
 SEEN_MARK_TYPES = ("not_seen", "watched", "not_interested")
 
 
-def pool_from_accept_language(header: str | None) -> str:
-    """``'ru'`` if the most preferred language of an ``Accept-Language`` header is Russian.
+def _preferred_tag(header: str | None) -> str | None:
+    """The most preferred tag (lowercase) of an ``Accept-Language`` header.
 
-    Ties on quality go to the language listed first; ``q=0`` entries and malformed
-    qualities are ignored. Anything else, including a missing header, gives ``'world'``.
+    Ties on quality go to the tag listed first; ``q=0`` entries and malformed
+    qualities are ignored.
     """
     best_lang, best_q = None, 0.0
     for part in (header or "").split(","):
@@ -36,22 +37,56 @@ def pool_from_accept_language(header: str | None) -> str:
                     q = 0.0
         if q > best_q:
             best_lang, best_q = lang.lower(), q
-    if best_lang == "ru" or (best_lang or "").startswith("ru-"):
+    return best_lang
+
+
+def pool_from_accept_language(header: str | None) -> str:
+    """``'ru'`` if the most preferred language of an ``Accept-Language`` header is Russian.
+
+    Anything else, including a missing header, gives ``'world'``.
+    """
+    best = _preferred_tag(header) or ""
+    if best == "ru" or best.startswith("ru-"):
         return "ru"
     return DEFAULT_POOL
 
 
-LANGUAGES = ("ru", "en")
+@dataclass(frozen=True)
+class LanguageInfo:
+    """What the API needs to know about an interface language."""
+
+    tmdb_language: str
+    pool: str
+
+
+# The one list of interface languages (the frontend keeps its own in ``locale.ts``).
+# To add a language: an entry here, an entry in ``LANGUAGES`` on the frontend and translations.
+LANGUAGES: dict[str, LanguageInfo] = {
+    "ru": LanguageInfo(tmdb_language="ru-RU", pool="ru"),
+    "en": LanguageInfo(tmdb_language="en-US", pool=DEFAULT_POOL),
+}
+FALLBACK_LANGUAGE = "en"
+
+
+def tmdb_language_for(lang: str) -> str:
+    """TMDB search language for an interface language (unknown codes use the fallback)."""
+    return LANGUAGES.get(lang, LANGUAGES[FALLBACK_LANGUAGE]).tmdb_language
+
+
+def pool_for_language(lang: str) -> str:
+    """User pool for an interface language (unknown codes use the fallback)."""
+    return LANGUAGES.get(lang, LANGUAGES[FALLBACK_LANGUAGE]).pool
 
 
 def language_from_headers(cookie_lang: str | None, accept_language: str | None) -> str:
     """Interface language: a valid ``cinemate_lang`` cookie wins, else the browser language.
 
-    Returns ``'ru'`` or ``'en'``; the browser language follows the pool rule.
+    Returns a code from ``LANGUAGES``: the main language of the browser if listed, else ``'en'``.
     """
     if cookie_lang in LANGUAGES:
         return cookie_lang
-    return "ru" if pool_from_accept_language(accept_language) == "ru" else "en"
+    primary = (_preferred_tag(accept_language) or "").split("-")[0]
+    return primary if primary in LANGUAGES else FALLBACK_LANGUAGE
 
 
 def create_session_user(session: Session, pool: str = DEFAULT_POOL) -> User:

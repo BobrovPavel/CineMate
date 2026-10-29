@@ -10,10 +10,13 @@ from cinemate.db.session import create_all, make_engine
 from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.recommendations import get_recommendations
 from cinemate.services.users import (
+    LANGUAGES,
     create_session_user,
     language_from_headers,
+    pool_for_language,
     pool_from_accept_language,
     set_rating,
+    tmdb_language_for,
 )
 
 
@@ -210,6 +213,27 @@ def test_api_rating_updates_only_own_pool(app):
 )
 def test_language_from_headers(cookie, header, lang):
     assert language_from_headers(cookie, header) == lang
+
+
+def test_language_list_drives_pool_and_tmdb_language():
+    assert {code: (i.tmdb_language, i.pool) for code, i in LANGUAGES.items()} == {
+        "ru": ("ru-RU", "ru"),
+        "en": ("en-US", "world"),
+    }
+    assert [pool_for_language(c) for c in ("ru", "en")] == ["ru", "world"]
+    assert [tmdb_language_for(c) for c in ("ru", "en")] == ["ru-RU", "en-US"]
+    assert pool_for_language("xx") == "world"
+    assert tmdb_language_for("xx") == "en-US"
+
+
+def test_language_cookie_accepts_any_listed_code(monkeypatch):
+    from cinemate.services import users
+
+    monkeypatch.setitem(users.LANGUAGES, "de", users.LanguageInfo("de-DE", "world"))
+    assert language_from_headers("de", "ru") == "de"
+    assert language_from_headers(None, "de-DE,ru;q=0.5") == "de"
+    assert language_from_headers(None, "fr") == "en"
+    assert users.tmdb_language_for("de") == "de-DE"
 
 
 def test_api_language_cookie_beats_header(app):

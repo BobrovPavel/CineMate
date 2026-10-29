@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pickLanguage, poolMismatchesLang } from "./locale";
+import { LANGUAGES, isLang, pickLanguage, poolMismatchesLang } from "./locale";
 
 describe("pickLanguage", () => {
   it.each([
@@ -36,5 +36,18 @@ describe("poolMismatchesLang", () => {
     ["ru", "en", true],
   ] as const)("pool %s + lang %s -> %s", (pool, lang, expected) => {
     expect(poolMismatchesLang(pool, lang)).toBe(expected);
+  });
+});
+
+describe("LANGUAGES", () => {
+  it("isLang принимает коды из списка и отказывает остальным", () => {
+    for (const { code } of LANGUAGES) expect(isLang(code)).toBe(true);
+    for (const bad of ["de", "", "RU", "ru-RU", null, undefined]) expect(isLang(bad)).toBe(false);
+  });
+
+  it("pickLanguage берёт основной язык браузера из списка, иначе en", () => {
+    expect(pickLanguage(undefined, "ru-RU,en;q=0.5")).toBe("ru");
+    expect(pickLanguage(undefined, "en-GB")).toBe("en");
+    expect(pickLanguage(undefined, "de-DE,ru;q=0.5")).toBe("en");
   });
 });
