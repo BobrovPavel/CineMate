@@ -3,7 +3,7 @@
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from itertools import chain
 
 import numpy as np
@@ -62,6 +62,14 @@ class MatrixStore:
             if cached is None:
                 cached = self._build(pool)
         return cached
+
+    def warm(self, pools: Iterable[str]) -> None:
+        """Build the first matrix of each pool; a failure is logged and left to the next ``get``."""
+        for pool in pools:
+            try:
+                self.get(pool)
+            except Exception:
+                logger.exception("warming the %r ratings matrix failed", pool)
 
     def invalidate(self, pool: str | None = None) -> None:
         """Mark ``pool`` (all cached pools if ``None``) stale; no database access happens here."""
