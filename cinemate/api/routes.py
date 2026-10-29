@@ -12,6 +12,7 @@ from cinemate.api.deps import (
     get_db_session,
     get_matrix_store,
     get_tmdb_client,
+    language_from_request,
     session_token,
 )
 from cinemate.api.schemas import (
@@ -39,7 +40,6 @@ from cinemate.services.users import (
     create_session_user,
     get_ratings,
     get_user_by_token,
-    pool_from_accept_language,
     set_rating,
     set_seen_mark,
 )
@@ -61,7 +61,7 @@ def open_session(
     user = get_user_by_token(session, token) if token else None
     if user is None:
         user = create_session_user(
-            session, pool_from_accept_language(request.headers.get("accept-language"))
+            session, "ru" if language_from_request(request) == "ru" else "world"
         )
         response.set_cookie(
             SESSION_COOKIE,
@@ -210,12 +210,11 @@ def search(
 ) -> list[SearchResultOut]:
     """Search movies and TV shows in our catalog or TMDB (``SEARCH_SOURCE``).
 
-    The language follows ``Accept-Language``.
+    The language follows the ``cinemate_lang`` cookie, then ``Accept-Language``.
     """
     if len(q.strip()) < 2:
         raise HTTPException(status_code=422, detail="q must have at least 2 characters")
-    pool = pool_from_accept_language(request.headers.get("accept-language"))
-    language = "ru-RU" if pool == "ru" else "en-US"
+    language = "ru-RU" if language_from_request(request) == "ru" else "en-US"
     selector = request.app.state.search_selector
     client: TmdbClient | None = request.app.state.tmdb_client
     use_local = selector.mode == "local" or (selector.mode == "auto" and selector.catalog_ready())

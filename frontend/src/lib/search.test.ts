@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { SearchResult } from "./api";
-import { isSearchable, normalizeQuery, ratingLabel, resultKey, updateResult } from "./search";
+import {
+  isSearchable,
+  normalizeQuery,
+  ratingKey,
+  resultKey,
+  updateResult,
+} from "./search";
 
 const base: SearchResult = {
   tmdb_type: "movie",
@@ -44,17 +50,20 @@ describe("updateResult", () => {
   it("меняет только нужный элемент и не мутирует исходный массив", () => {
     const tv = { ...base, tmdb_type: "tv" as const };
     const input = [base, tv];
-    const out = updateResult(input, resultKey(tv), { movie_id: 5, user_value: 1 });
+    const out = updateResult(input, resultKey(tv), {
+      movie_id: 5,
+      user_value: 1,
+    });
     expect(out[0]).toBe(base);
     expect(out[1]).toMatchObject({ movie_id: 5, user_value: 1 });
     expect(input[1].movie_id).toBeNull();
   });
 });
 
-describe("ratingLabel", () => {
-  it("подписи оценок", () => {
-    expect(ratingLabel(1)).toBe("Нравится");
-    expect(ratingLabel(-1)).toBe("Не нравится");
-    expect(ratingLabel(null)).toBeNull();
+describe("ratingKey", () => {
+  it("ключи подписей оценок", () => {
+    expect(ratingKey(1)).toBe("reaction.like");
+    expect(ratingKey(-1)).toBe("reaction.dislike");
+    expect(ratingKey(null)).toBeNull();
   });
 });

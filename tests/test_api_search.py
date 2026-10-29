@@ -171,3 +171,13 @@ def test_resolve_requires_session(app):
     with TestClient(app) as anonymous:
         response = anonymous.post("/api/movies/resolve", json={"tmdb_type": "movie", "tmdb_id": 1})
         assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("cookie", "header", "language"),
+    [("en", "ru-RU,ru;q=0.9", "en-US"), ("ru", "en-US", "ru-RU"), ("xx", "ru", "ru-RU")],
+)
+def test_search_language_follows_cookie(client, tmdb, cookie, header, language):
+    client.cookies.set("cinemate_lang", cookie)
+    client.get("/api/search", params={"q": "leviathan"}, headers={"Accept-Language": header})
+    assert tmdb.searches == [("leviathan", language, 1)]

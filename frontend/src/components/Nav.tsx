@@ -3,17 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const LINKS = [
-  { href: "/recommendations", label: "Подборка" },
-  { href: "/search", label: "Поиск" },
-  { href: "/profile", label: "Мои оценки" },
+import { useLocale, useT } from "@/lib/LocaleProvider";
+import { setLanguage, type Lang } from "@/lib/locale";
+import type { MessageKey } from "@/lib/i18n";
+
+const LINKS: { href: string; label: MessageKey }[] = [
+  { href: "/recommendations", label: "nav.recommendations" },
+  { href: "/search", label: "nav.search" },
+  { href: "/profile", label: "nav.profile" },
 ];
+
+const LANGS: Lang[] = ["ru", "en"];
 
 export function Nav() {
   const pathname = usePathname();
+  const t = useT();
+  const lang = useLocale();
   return (
-    <nav aria-label="Основная навигация" className="border-b border-gray-200 px-4 py-3">
-      <ul className="mx-auto flex max-w-6xl flex-wrap gap-4">
+    <nav
+      aria-label={t("nav.label")}
+      className="flex items-center justify-between gap-4 border-b border-gray-200 px-4 py-3"
+    >
+      <ul className="mx-auto flex max-w-6xl flex-1 flex-wrap gap-4">
         {LINKS.map((link) => {
           const current = pathname === link.href;
           return (
@@ -25,12 +36,36 @@ export function Nav() {
                   current ? "font-semibold underline" : "text-gray-700"
                 }`}
               >
-                {link.label}
+                {t(link.label)}
               </Link>
             </li>
           );
         })}
       </ul>
+      <div
+        role="group"
+        aria-label={t("nav.language")}
+        className="flex shrink-0 gap-1"
+      >
+        {LANGS.map((code) => (
+          <button
+            key={code}
+            type="button"
+            lang={code}
+            aria-pressed={code === lang}
+            onClick={() => {
+              if (code !== lang) setLanguage(code);
+            }}
+            className={`min-h-11 min-w-11 rounded-lg px-2 text-sm ${
+              code === lang
+                ? "bg-black font-semibold text-white"
+                : "text-gray-700"
+            }`}
+          >
+            {code.toUpperCase()}
+          </button>
+        ))}
+      </div>
     </nav>
   );
 }

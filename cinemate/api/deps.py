@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import User
-from cinemate.services.users import get_user_by_token
+from cinemate.services.users import get_user_by_token, language_from_headers
 from cinemate.tmdb import TmdbClient
 
 SESSION_COOKIE = "cinemate_session"
+LANG_COOKIE = "cinemate_lang"
 
 
 def get_db_session(request: Request) -> Iterator[Session]:
@@ -33,6 +34,13 @@ def get_matrix_store(request: Request) -> MatrixStore:
 def session_token(request: Request) -> str | None:
     """Return the session token from the cookie, if any."""
     return request.cookies.get(SESSION_COOKIE)
+
+
+def language_from_request(request: Request) -> str:
+    """``'ru'`` or ``'en'``: the ``cinemate_lang`` cookie, else ``Accept-Language``."""
+    return language_from_headers(
+        request.cookies.get(LANG_COOKIE), request.headers.get("accept-language")
+    )
 
 
 def get_current_user(

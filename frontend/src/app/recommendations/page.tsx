@@ -15,8 +15,9 @@ import {
   type SeenType,
 } from "@/lib/api";
 import { explainCollaborative } from "@/lib/explain";
+import type { MessageKey } from "@/lib/i18n";
 import { displayTitle } from "@/lib/titles";
-import { useLocale } from "@/lib/useLocale";
+import { useLocale, useT } from "@/lib/LocaleProvider";
 
 const LIMIT = 20;
 const LEAVE_MS = 250;
@@ -25,18 +26,37 @@ type Status = "loading" | "ready" | "error";
 type Reaction = "like" | "dislike" | "watched" | "not_interested";
 type Shown = RecommendationItem & { sessionId: string };
 
-const BUTTONS: { reaction: Reaction; label: string; style: string }[] = [
-  { reaction: "like", label: "Нравится", style: "bg-green-100 text-green-900" },
-  { reaction: "dislike", label: "Не нравится", style: "bg-red-100 text-red-900" },
-  { reaction: "watched", label: "Уже смотрел", style: "bg-gray-200 text-gray-900" },
-  { reaction: "not_interested", label: "Не интересует", style: "bg-gray-200 text-gray-900" },
+const BUTTONS: { reaction: Reaction; label: MessageKey; style: string }[] = [
+  {
+    reaction: "like",
+    label: "reaction.like",
+    style: "bg-green-100 text-green-900",
+  },
+  {
+    reaction: "dislike",
+    label: "reaction.dislike",
+    style: "bg-red-100 text-red-900",
+  },
+  {
+    reaction: "watched",
+    label: "reaction.watched",
+    style: "bg-gray-200 text-gray-900",
+  },
+  {
+    reaction: "not_interested",
+    label: "reaction.notInterested",
+    style: "bg-gray-200 text-gray-900",
+  },
 ];
 
 export default function RecommendationsPage() {
   const router = useRouter();
   const locale = useLocale();
+  const t = useT();
   const [status, setStatus] = useState<Status>("loading");
-  const [strategy, setStrategy] = useState<"collaborative" | "fallback">("collaborative");
+  const [strategy, setStrategy] = useState<"collaborative" | "fallback">(
+    "collaborative",
+  );
   const [items, setItems] = useState<Shown[]>([]);
   const [leaving, setLeaving] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
@@ -73,7 +93,10 @@ export default function RecommendationsPage() {
       setItems((prev) => {
         const known = new Set(prev.map((p) => p.movie.id));
         const fresh = data.items
-          .filter((it) => !known.has(it.movie.id) && !reacted.current.has(it.movie.id))
+          .filter(
+            (it) =>
+              !known.has(it.movie.id) && !reacted.current.has(it.movie.id),
+          )
           .map((it) => ({ ...it, sessionId: data.session_id }));
         return fresh.length > 0 ? [...prev, ...fresh] : prev;
       });
@@ -89,7 +112,11 @@ export default function RecommendationsPage() {
     setLeaving((s) => new Set(s).add(id));
     try {
       if (reaction === "like" || reaction === "dislike") {
-        await postReactionRating(id, reaction === "like" ? 1 : -1, item.sessionId);
+        await postReactionRating(
+          id,
+          reaction === "like" ? 1 : -1,
+          item.sessionId,
+        );
       } else {
         await postReactionSeen(id, reaction as SeenType, item.sessionId);
       }
@@ -103,7 +130,7 @@ export default function RecommendationsPage() {
         next.delete(id);
         return next;
       });
-      setMessage("Не удалось сохранить реакцию. Попробуйте ещё раз.");
+      setMessage(t("recommendations.reactError"));
       return;
     }
     reacted.current.add(id);
@@ -120,19 +147,24 @@ export default function RecommendationsPage() {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6">
-      <h1 className="mb-4 text-2xl font-semibold">Рекомендации</h1>
+      <h1 className="mb-4 text-2xl font-semibold">
+        {t("recommendations.title")}
+      </h1>
 
       {status === "ready" && strategy === "fallback" && (
         <div className="mb-4 rounded-xl bg-amber-100 p-4 text-amber-950">
-          Пока это просто популярное — оцените ещё несколько фильмов, и подборка станет точнее.{" "}
+          {t("recommendations.fallback")}{" "}
           <Link href="/onboarding" className="font-semibold underline">
-            Оценить фильмы
+            {t("recommendations.rateMore")}
           </Link>
         </div>
       )}
 
       {message && (
-        <div role="alert" className="mb-4 rounded-xl bg-red-100 p-3 text-sm text-red-900">
+        <div
+          role="alert"
+          className="mb-4 rounded-xl bg-red-100 p-3 text-sm text-red-900"
+        >
           {message}
         </div>
       )}
@@ -146,20 +178,23 @@ export default function RecommendationsPage() {
       )}
 
       {status === "error" && (
-        <div role="alert" className="flex flex-col items-center gap-4 py-10 text-center">
-          <p>Не удалось загрузить рекомендации. Проверьте соединение и попробуйте ещё раз.</p>
+        <div
+          role="alert"
+          className="flex flex-col items-center gap-4 py-10 text-center"
+        >
+          <p>{t("recommendations.loadError")}</p>
           <button
             type="button"
             onClick={() => void load()}
             className="min-h-12 rounded-xl bg-black px-6 text-white"
           >
-            Повторить
+            {t("common.retry")}
           </button>
         </div>
       )}
 
       {status === "ready" && items.length === 0 && (
-        <p className="py-10 text-center">Фильмы закончились — загляните позже.</p>
+        <p className="py-10 text-center">{t("recommendations.empty")}</p>
       )}
 
       {status === "ready" && items.length > 0 && (
@@ -182,7 +217,7 @@ export default function RecommendationsPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`${TMDB_IMAGE_BASE}${item.movie.poster_path}`}
-                      alt={`Постер фильма «${primary}»`}
+                      alt={t("poster.alt", { title: primary })}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -190,20 +225,27 @@ export default function RecommendationsPage() {
                     <div
                       className="flex h-full w-full items-center justify-center p-4 text-center text-gray-500"
                       role="img"
-                      aria-label="Постер отсутствует"
+                      aria-label={t("poster.missing")}
                     >
-                      Постер отсутствует
+                      {t("poster.missing")}
                     </div>
                   )}
                 </div>
                 <h2 className="text-lg font-semibold break-words">{primary}</h2>
-                {secondary && <p className="text-sm break-words text-gray-600">({secondary})</p>}
+                {secondary && (
+                  <p className="text-sm break-words text-gray-600">
+                    ({secondary})
+                  </p>
+                )}
                 {meta && <p className="text-sm text-gray-600">{meta}</p>}
                 {strategy === "collaborative" && (
                   <p className="text-sm">
                     {explainCollaborative(
+                      locale,
                       item.liked_by,
-                      item.because_of.map((b) => displayTitle(b, locale).primary),
+                      item.because_of.map(
+                        (b) => displayTitle(b, locale).primary,
+                      ),
                     )}
                   </p>
                 )}
@@ -212,12 +254,15 @@ export default function RecommendationsPage() {
                     <button
                       key={b.reaction}
                       type="button"
-                      aria-label={`${b.label}: ${primary}`}
+                      aria-label={t("recommendations.buttonLabel", {
+                        action: t(b.label),
+                        title: primary,
+                      })}
                       disabled={gone}
                       onClick={() => void react(item, b.reaction)}
                       className={`min-h-11 min-w-11 rounded-xl px-2 text-sm font-semibold disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 ${b.style}`}
                     >
-                      {b.label}
+                      {t(b.label)}
                     </button>
                   ))}
                 </div>

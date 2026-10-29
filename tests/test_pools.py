@@ -11,6 +11,7 @@ from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.recommendations import get_recommendations
 from cinemate.services.users import (
     create_session_user,
+    language_from_headers,
     pool_from_accept_language,
     set_rating,
 )
@@ -192,3 +193,41 @@ def test_api_rating_updates_only_own_pool(app):
         store.rebuild_now()
         assert 3 in store.get("ru").movie_ids
         assert 3 not in store.get("world").movie_ids
+
+
+@pytest.mark.parametrize(
+    ("cookie", "header", "lang"),
+    [
+        ("en", "ru-RU,ru;q=0.9", "en"),
+        ("ru", "en-US", "ru"),
+        (None, "ru-RU,ru;q=0.9,en;q=0.8", "ru"),
+        (None, "en-US,ru;q=0.5", "en"),
+        (None, None, "en"),
+        ("de", "ru", "ru"),
+        ("", "en", "en"),
+        ("RU", "en", "en"),
+    ],
+)
+def test_language_from_headers(cookie, header, lang):
+    assert language_from_headers(cookie, header) == lang
+
+
+def test_api_language_cookie_beats_header(app):
+    with TestClient(app) as client:
+        client.cookies.set("cinemate_lang", "en")
+        body = client.post("/api/session", headers={"Accept-Language": "ru-RU"}).json()
+        assert body["pool"] == "world"
+
+
+def test_api_invalid_language_cookie_is_ignored(app):
+    with TestClient(app) as client:
+        client.cookies.set("cinemate_lang", "xx")
+        body = client.post("/api/session", headers={"Accept-Language": "ru-RU"}).json()
+        assert body["pool"] == "ru"
+
+
+def test_api_language_switch_keeps_existing_pool(app):
+    with TestClient(app) as client:
+        assert client.post("/api/session", headers={"Accept-Language": "ru"}).json()["pool"] == "ru"
+        client.cookies.set("cinemate_lang", "en")
+        assert client.post("/api/session").json()["pool"] == "ru"

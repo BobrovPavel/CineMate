@@ -15,13 +15,13 @@ import {
 import {
   isSearchable,
   normalizeQuery,
-  ratingLabel,
+  ratingKey,
   resultKey,
   SEARCH_DEBOUNCE_MS,
   updateResult,
 } from "@/lib/search";
 import { displayTitle } from "@/lib/titles";
-import { useLocale } from "@/lib/useLocale";
+import { useLocale, useT } from "@/lib/LocaleProvider";
 
 type Status = "idle" | "loading" | "ready" | "unavailable" | "error";
 type Action = "like" | "dislike" | "watched";
@@ -29,6 +29,7 @@ type Action = "like" | "dislike" | "watched";
 export default function SearchPage() {
   const router = useRouter();
   const locale = useLocale();
+  const t = useT();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -46,7 +47,10 @@ export default function SearchPage() {
     const timer = setTimeout(async () => {
       setStatus("loading");
       try {
-        const found = await searchMovies(normalizeQuery(query), controller.signal);
+        const found = await searchMovies(
+          normalizeQuery(query),
+          controller.signal,
+        );
         setResults(found);
         setStatus("ready");
       } catch (e) {
@@ -65,7 +69,6 @@ export default function SearchPage() {
       controller.abort();
     };
   }, [query, router]);
-
 
   async function act(item: SearchResult, action: Action) {
     const key = resultKey(item);
@@ -91,7 +94,7 @@ export default function SearchPage() {
         router.replace("/onboarding");
         return;
       }
-      setMessage("Не удалось сохранить. Попробуйте ещё раз.");
+      setMessage(t("search.saveError"));
     } finally {
       setPending((s) => {
         const copy = new Set(s);
@@ -103,9 +106,9 @@ export default function SearchPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-6">
-      <h1 className="mb-4 text-2xl font-semibold">Поиск</h1>
+      <h1 className="mb-4 text-2xl font-semibold">{t("search.title")}</h1>
       <label htmlFor="search-input" className="sr-only">
-        Название фильма или сериала
+        {t("search.label")}
       </label>
       <input
         id="search-input"
@@ -114,35 +117,39 @@ export default function SearchPage() {
         onChange={(e) => setQuery(e.target.value)}
         maxLength={100}
         autoComplete="off"
-        placeholder="Название фильма или сериала"
+        placeholder={t("search.label")}
         className="mb-4 min-h-12 w-full rounded-xl border border-gray-300 px-4"
       />
 
       {message && (
-        <div role="alert" className="mb-4 rounded-xl bg-red-100 p-3 text-sm text-red-900">
+        <div
+          role="alert"
+          className="mb-4 rounded-xl bg-red-100 p-3 text-sm text-red-900"
+        >
           {message}
         </div>
       )}
 
-      {status === "idle" && (
-        <p className="text-gray-600">Введите хотя бы два символа, чтобы найти фильм или сериал.</p>
-      )}
+      {status === "idle" && <p className="text-gray-600">{t("search.hint")}</p>}
       {status === "loading" && (
         <p role="status" aria-busy="true" className="text-gray-600">
-          Ищем…
+          {t("search.searching")}
         </p>
       )}
       {status === "unavailable" && (
-        <div role="alert" className="rounded-xl bg-yellow-100 p-3 text-yellow-900">
-          Поиск недоступен: на сервере не задан ключ TMDB.
+        <div
+          role="alert"
+          className="rounded-xl bg-yellow-100 p-3 text-yellow-900"
+        >
+          {t("search.unavailable")}
         </div>
       )}
       {status === "error" && (
         <div role="alert" className="rounded-xl bg-red-100 p-3 text-red-900">
-          Не удалось выполнить поиск. Попробуйте ещё раз чуть позже.
+          {t("search.error")}
         </div>
       )}
-      {status === "ready" && results.length === 0 && <p>Ничего не найдено.</p>}
+      {status === "ready" && results.length === 0 && <p>{t("search.empty")}</p>}
 
       {status === "ready" && results.length > 0 && (
         <ul className="flex flex-col gap-4">
@@ -153,9 +160,12 @@ export default function SearchPage() {
               locale,
             );
             const busy = pending.has(key);
-            const current = ratingLabel(item.user_value);
+            const ratingMessage = ratingKey(item.user_value);
+            const current = ratingMessage ? t(ratingMessage) : null;
             const original =
-              item.original_title && item.original_title !== item.title ? item.original_title : secondary;
+              item.original_title && item.original_title !== item.title
+                ? item.original_title
+                : secondary;
             return (
               <li key={key} className="flex min-w-0 gap-3">
                 <div className="h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-200">
@@ -163,7 +173,7 @@ export default function SearchPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`${TMDB_IMAGE_BASE}${item.poster_path}`}
-                      alt={`Постер «${primary}»`}
+                      alt={t("poster.alt", { title: primary })}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -171,42 +181,51 @@ export default function SearchPage() {
                     <div
                       className="flex h-full w-full items-center justify-center p-1 text-center text-xs text-gray-500"
                       role="img"
-                      aria-label="Постер отсутствует"
+                      aria-label={t("poster.missing")}
                     >
-                      Нет постера
+                      {t("poster.none")}
                     </div>
                   )}
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <h2 className="font-semibold break-words">{primary}</h2>
-                  {original && <p className="text-sm break-words text-gray-600">({original})</p>}
+                  {original && (
+                    <p className="text-sm break-words text-gray-600">
+                      ({original})
+                    </p>
+                  )}
                   <p className="text-sm text-gray-600">
-                    {[item.year, item.tmdb_type === "tv" ? "Сериал" : null]
+                    {[
+                      item.year,
+                      item.tmdb_type === "tv" ? t("search.tv") : null,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
                   {(current || watched.has(key)) && (
                     <p className="text-sm font-medium text-gray-900">
-                      {[current, watched.has(key) ? "Смотрел" : null].filter(Boolean).join(" · ")}
+                      {[current, watched.has(key) ? t("search.watched") : null]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                   )}
                   <div className="mt-1 flex flex-wrap gap-2">
                     {(
                       [
-                        ["like", "Нравится"],
-                        ["dislike", "Не нравится"],
-                        ["watched", "Смотрел"],
+                        ["like", "reaction.like"],
+                        ["dislike", "reaction.dislike"],
+                        ["watched", "search.watched"],
                       ] as const
-                    ).map(([action, label]) => (
+                    ).map(([action, labelKey]) => (
                       <button
                         key={action}
                         type="button"
                         disabled={busy}
                         onClick={() => void act(item, action)}
-                        aria-label={`${label}: «${primary}»`}
+                        aria-label={`${t(labelKey)}: «${primary}»`}
                         className="min-h-11 rounded-xl bg-gray-200 px-3 text-sm text-gray-900 disabled:opacity-50"
                       >
-                        {label}
+                        {t(labelKey)}
                       </button>
                     ))}
                   </div>

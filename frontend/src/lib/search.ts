@@ -14,7 +14,9 @@ export function isSearchable(raw: string): boolean {
 }
 
 /** Stable key of a result: TMDB movie and tv ids live in different spaces. */
-export function resultKey(item: Pick<SearchResult, "tmdb_type" | "tmdb_id">): string {
+export function resultKey(
+  item: Pick<SearchResult, "tmdb_type" | "tmdb_id">,
+): string {
   return `${item.tmdb_type}:${item.tmdb_id}`;
 }
 
@@ -27,8 +29,10 @@ export function updateResult(
   return results.map((r) => (resultKey(r) === key ? { ...r, ...patch } : r));
 }
 
-export function ratingLabel(value: 1 | -1 | null): string | null {
-  if (value === 1) return "Нравится";
-  if (value === -1) return "Не нравится";
+export function ratingKey(
+  value: 1 | -1 | null,
+): "reaction.like" | "reaction.dislike" | null {
+  if (value === 1) return "reaction.like";
+  if (value === -1) return "reaction.dislike";
   return null;
 }

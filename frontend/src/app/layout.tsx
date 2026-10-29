@@ -1,25 +1,32 @@
 import type { Metadata } from "next";
 import { Nav } from "@/components/Nav";
+import { translate } from "@/lib/i18n";
+import { LocaleProvider } from "@/lib/LocaleProvider";
+import { getServerLanguage } from "@/lib/serverLocale";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "CineMate — что посмотреть сегодня",
-  description: "Рекомендации фильмов по вашему вкусу: пара минут онбординга — и список с объяснением.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = translate(await getServerLanguage());
+  return { title: t("meta.title"), description: t("meta.description") };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const lang = await getServerLanguage();
+  const t = translate(lang);
   return (
-    <html lang="ru">
+    <html lang={lang}>
       <body className="flex min-h-screen flex-col antialiased">
-        <Nav />
-        <div className="flex-1">{children}</div>
+        <LocaleProvider lang={lang}>
+          <Nav />
+          <div className="flex-1">{children}</div>
+        </LocaleProvider>
         <footer className="border-t border-gray-200 px-4 py-6 text-sm text-gray-600">
           <p className="mx-auto max-w-2xl">
-            Данные о фильмах и оценках —{" "}
+            {t("footer.data")}{" "}
             <a
               className="underline"
               href="https://grouplens.org/datasets/movielens/"
@@ -28,7 +35,7 @@ export default function RootLayout({
             >
               MovieLens (GroupLens)
             </a>
-            . This product uses the{" "}
+            . {t("footer.tmdbIntro")} This product uses the{" "}
             <a
               className="underline"
               href="https://www.themoviedb.org/"
