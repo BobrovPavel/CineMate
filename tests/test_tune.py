@@ -300,3 +300,15 @@ def test_commands_run_with_user_fraction(command, monkeypatch, tmp_path, capsys)
         argv += ["--k", "3", "--lambda", "1"]
     assert main([*argv, "--new-user-pick", "onboarding", "--user-fraction", "0.5"]) == 0
     assert "established users:" in capsys.readouterr().out
+
+
+def test_tune_table_has_new_metric_columns():
+    from cinemate.evaluation.runner import MethodMetrics
+    from cinemate.evaluation.tune import TuneResult, TuneRow, format_tune_table
+
+    m = MethodMetrics(0.2, 0.1, 0.5, 0.3, 0.6, dislike_at_k=0.01, like_share_judged=0.9,
+                      judged_users=7)  # fmt: skip
+    result = TuneResult(rows=[TuneRow(40, 5.0, 5, m)], baselines={"popular": m}, n_users=3)
+    lines = format_tune_table(result).splitlines()
+    assert "dislike@10" in lines[0] and "like_share_judged" in lines[0]
+    assert all("0.9000 (n=7)" in line for line in lines[1:3])

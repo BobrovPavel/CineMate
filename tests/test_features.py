@@ -156,16 +156,16 @@ def test_missing_features_rated_movies_first():
             requested.append(tmdb_id)
             return _client(MOVIE_PAYLOAD).fetch_details(tmdb_type, tmdb_id)
 
-    stats = enrich_movies(session, Fake(), missing_features=True)
+    stats = enrich_movies(session, Fake(), missing_features=True, workers=1)
     assert requested == [3, 2]
     assert (stats.enriched, stats.skipped) == (2, 1)
-    assert enrich_movies(session, Fake(), missing_features=True).enriched == 0
+    assert enrich_movies(session, Fake(), missing_features=True, workers=1).enriched == 0
     assert requested == [3, 2]
 
     requested.clear()
     session.add(Movie(title="another", tmdb_type="movie", tmdb_id=9))
     session.commit()
-    enrich_movies(session, Fake(), missing_features=True, limit=1)
+    enrich_movies(session, Fake(), missing_features=True, workers=1, limit=1)
     assert requested == [9]
 
 

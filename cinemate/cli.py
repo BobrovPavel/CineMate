@@ -43,6 +43,7 @@ from cinemate.evaluation.runner import (
     established_users_line,
     evaluate_seeds,
     format_metric_cells,
+    metric_headers,
     new_users_line,
     parse_seeds,
 )
@@ -51,7 +52,15 @@ from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import Rating, iter_ratings, parse_ratings
 from cinemate.ratings_csv import CSV_MIN_RATINGS, load_ratings
 from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
-from cinemate.tmdb import TmdbClient, TmdbError
+from cinemate.tmdb import (
+    BULK_CONSECUTIVE_429,
+    DEFAULT_RPS,
+    DEFAULT_WORKERS,
+    MAX_RPS,
+    MAX_WORKERS,
+    TmdbClient,
+    TmdbError,
+)
 from cinemate.wikidata import DEFAULT_PATH as WIKIDATA_PATH
 from cinemate.wikidata import WikidataError, fetch_mapping, load_mapping, save_mapping
 
@@ -79,13 +88,7 @@ def _open_engine(args: argparse.Namespace) -> Engine | None:
 
 def format_table(result: EvaluationResult, top_n: int = 10) -> str:
     """Render ``result`` as a text table: one row per method (CF and baselines), then users."""
-    headers = [
-        f"precision@{top_n}",
-        f"recall@{top_n}",
-        f"hit_rate@{top_n}",
-        "coverage",
-        "mean popularity",
-    ]
+    headers = metric_headers(top_n)
     rows = [("collaborative", result.cf), *result.baselines.items()]
 
     multi = len(result.seeds) > 1
@@ -146,6 +149,48 @@ def _non_negative_float(text: str) -> float:
     if not value >= 0:
         raise argparse.ArgumentTypeError("must be >= 0")
     return value
+
+
+def _workers(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid int value: {text!r}") from None
+    if not 1 <= value <= MAX_WORKERS:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_WORKERS}")
+    return value
+
+
+def _rps(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid number: {text!r}") from None
+    if not 0 < value <= MAX_RPS:
+        raise argparse.ArgumentTypeError(f"must be above 0 and at most {MAX_RPS}")
+    return value
+
+
+def _add_tmdb_load_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--workers",
+        type=_workers,
+        default=DEFAULT_WORKERS,
+        help=f"parallel TMDB requests (1..{MAX_WORKERS}, default {DEFAULT_WORKERS})",
+    )
+    p.add_argument(
+        "--rps",
+        type=_rps,
+        default=DEFAULT_RPS,
+        help=f"TMDB requests per second over all workers (up to {MAX_RPS}, default {DEFAULT_RPS})",
+    )
+
+
+def _bulk_client(args: argparse.Namespace, api_key: str) -> TmdbClient:
+    """Client for the bulk commands: ``--rps`` and a stop after 5 rate-limit answers in a row."""
+    return TmdbClient(
+        api_key, requests_per_second=args.rps, max_consecutive_429=BULK_CONSECUTIVE_429
+    )
 
 
 def _iso_date(text: str) -> date:
@@ -496,6 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"refresh movies fetched from TMDB more than this many days ago (1..{MAX_STALE_DAYS},"
         f" default {DEFAULT_STALE_DAYS})",
     )
+    _add_tmdb_load_args(en)
     sc = sub.add_parser(
         "sync-catalog", help="load the TMDB catalog into the database from the daily ID exports"
     )
@@ -537,6 +583,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_EXPORT_DIR,
         help="where exports are stored (default: %(default)s)",
     )
+    _add_tmdb_load_args(sc)
     be = sub.add_parser(
         "bench-recommendations",
         help="time the matrix load and get_recommendations on a database",
@@ -700,7 +747,11 @@ def _run_sync_catalog(args: argparse.Namespace) -> int:
 
     def progress(done: int, total: int, rate: float, eta: float | None) -> None:
         left = f", about {int(eta // 60)} min left" if eta is not None else ""
-        print(f"processed {done}/{total}, {rate:.1f}/s{left}", flush=True)
+        print(
+            f"processed {done}/{total}, {rate:.1f}/s{left} "
+            f"(workers {args.workers}, rps {args.rps:g})",
+            flush=True,
+        )
 
     types = ("movie", "tv") if args.media_type == "all" else (args.media_type,)
     if args.changes:
@@ -712,11 +763,12 @@ def _run_sync_catalog(args: argparse.Namespace) -> int:
         try:
             stats = sync_catalog(
                 session,
-                TmdbClient(api_key),
+                _bulk_client(args, api_key),
                 types=types,
                 min_popularity=args.min_popularity,
                 include_video=args.include_video,
                 limit=args.limit,
+                workers=args.workers,
                 day=args.date,
                 export_dir=args.export_dir,
                 progress=progress,
@@ -735,18 +787,22 @@ def _run_sync_catalog(args: argparse.Namespace) -> int:
 
 def _run_sync_changes(args: argparse.Namespace, engine, api_key: str, types: tuple) -> int:
     def progress(tmdb_type: str, done: int, total: int) -> None:
-        print(f"{tmdb_type}: processed {done}/{total}", flush=True)
+        print(
+            f"{tmdb_type}: processed {done}/{total} (workers {args.workers}, rps {args.rps:g})",
+            flush=True,
+        )
 
     since = datetime(args.since.year, args.since.month, args.since.day, tzinfo=UTC)
     with Session(engine) as session:
         try:
             stats = sync_changes(
                 session,
-                TmdbClient(api_key),
+                _bulk_client(args, api_key),
                 types=types,
                 since=since if args.since else None,
                 min_popularity=args.min_popularity,
                 limit=args.limit,
+                workers=args.workers,
                 progress=progress,
             )
         except ChangesPeriodTooLong as exc:
@@ -780,11 +836,12 @@ def _run_enrich(args: argparse.Namespace) -> int:
         try:
             stats = enrich_movies(
                 session,
-                TmdbClient(api_key),
+                _bulk_client(args, api_key),
                 limit=args.limit,
                 refresh_titles=args.refresh_titles,
                 missing_features=args.missing_features,
                 stale_days=args.stale_days,
+                workers=args.workers,
             )
         except TmdbError as exc:
             print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)

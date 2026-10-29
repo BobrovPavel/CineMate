@@ -14,7 +14,9 @@ from cinemate.binarize import Binarizer
 from cinemate.config import RecommenderSettings
 from cinemate.evaluation.metrics import (
     coverage,
+    dislike_at_k,
     hit_rate_at_k,
+    like_share_judged,
     mean_popularity,
     precision_at_k,
 )
@@ -40,6 +42,11 @@ class MethodMetrics:
 
     The ``*_std`` fields are the sample standard deviation (``ddof=1``) over several seeds;
     they stay ``0.0`` for a single run.
+
+    ``dislike_at_k`` is the mean share of the top-``top_n`` movies the user disliked in the test
+    part (lower is better). ``like_share_judged`` is the mean share of likes among recommended
+    movies rated in the test part (higher is better), averaged over the ``judged_users`` users
+    who have at least one such movie (the mean over seeds when aggregated).
     """
 
     precision_at_k: float
@@ -50,6 +57,11 @@ class MethodMetrics:
     precision_std: float = 0.0
     recall_std: float = 0.0
     hit_rate_std: float = 0.0
+    dislike_at_k: float = 0.0
+    like_share_judged: float = 0.0
+    judged_users: int = 0
+    dislike_std: float = 0.0
+    like_share_std: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -99,6 +111,8 @@ def aggregate_metrics(runs: Sequence[MethodMetrics]) -> MethodMetrics:
             return 0.0
         return statistics.stdev(getattr(r, field) for r in runs)
 
+    # A seed without judged users has no like share; it must not drag the mean down.
+    shares = [r.like_share_judged for r in runs if r.judged_users > 0]
     return MethodMetrics(
         precision_at_k=mean("precision_at_k"),
         recall_at_k=mean("recall_at_k"),
@@ -108,20 +122,46 @@ def aggregate_metrics(runs: Sequence[MethodMetrics]) -> MethodMetrics:
         precision_std=std("precision_at_k"),
         recall_std=std("recall_at_k"),
         hit_rate_std=std("hit_rate_at_k"),
+        dislike_at_k=mean("dislike_at_k"),
+        like_share_judged=statistics.fmean(shares) if shares else 0.0,
+        judged_users=round(mean("judged_users")),
+        dislike_std=std("dislike_at_k"),
+        like_share_std=std("like_share_judged"),
     )
 
 
-def format_metric_cells(m: MethodMetrics, with_std: bool) -> list[str]:
-    """Cells: precision, recall, hit rate (``mean±std`` if ``with_std``), coverage, popularity."""
-    cells = [
-        f"{value:.4f}±{std:.4f}" if with_std else f"{value:.4f}"
-        for value, std in (
-            (m.precision_at_k, m.precision_std),
-            (m.recall_at_k, m.recall_std),
-            (m.hit_rate_at_k, m.hit_rate_std),
-        )
+def metric_headers(top_n: int) -> list[str]:
+    """Headers matching ``format_metric_cells``."""
+    return [
+        f"precision@{top_n}",
+        f"recall@{top_n}",
+        f"hit_rate@{top_n}",
+        "coverage",
+        "mean popularity",
+        f"dislike@{top_n}",
+        "like_share_judged",
     ]
-    return [*cells, f"{m.coverage:.4f}", f"{m.mean_popularity:.4f}"]
+
+
+def format_metric_cells(m: MethodMetrics, with_std: bool) -> list[str]:
+    """Cells: precision, recall, hit rate, coverage, popularity, dislike@k, like share judged.
+
+    Precision, recall, hit rate, dislike@k and like share get ``mean±std`` if ``with_std``;
+    the like share is followed by ``(n=<judged users>)``.
+    """
+
+    def cell(value: float, std: float) -> str:
+        return f"{value:.4f}±{std:.4f}" if with_std else f"{value:.4f}"
+
+    return [
+        cell(m.precision_at_k, m.precision_std),
+        cell(m.recall_at_k, m.recall_std),
+        cell(m.hit_rate_at_k, m.hit_rate_std),
+        f"{m.coverage:.4f}",
+        f"{m.mean_popularity:.4f}",
+        cell(m.dislike_at_k, m.dislike_std),
+        f"{cell(m.like_share_judged, m.like_share_std)} (n={m.judged_users})",
+    ]
 
 
 def new_users_line(n_ratings: int, pick: NewUserPick, seen: NewUserSeen = "all") -> str:
@@ -356,11 +396,15 @@ def evaluate(
     movie_index = {m: i for i, m in enumerate(built.movie_ids)}
 
     test_likes: dict[int, set[int]] = defaultdict(set)
+    test_dislikes: dict[int, set[int]] = defaultdict(set)
     for r in test:
-        if binarizer.binarize(r.score, r.user_id) == 1 and (
-            new_users is None or r.user_id in new_users
-        ):
+        if new_users is not None and r.user_id not in new_users:
+            continue
+        label = binarizer.binarize(r.score, r.user_id)
+        if label == 1:
             test_likes[r.user_id].add(r.movie_id)
+        elif label == -1:
+            test_dislikes[r.user_id].add(r.movie_id)
 
     n_movies = len(built.movie_ids)
     n_train_users = len(built.user_ids)
@@ -444,6 +488,8 @@ def evaluate(
     recalls: dict[str, list[float]] = {name: [] for name in methods}
     hit_rates: dict[str, list[float]] = {name: [] for name in methods}
     pops: dict[str, list[float]] = {name: [] for name in methods}
+    dislikes: dict[str, list[float]] = {name: [] for name in methods}
+    like_shares: dict[str, list[float]] = {name: [] for name in methods}
 
     n_users = 0
     for user_id in sorted(test_likes):
@@ -455,6 +501,7 @@ def evaluate(
         relevant = {movie_index[m] for m in test_likes[user_id] if m in movie_index}
         # Test likes unseen in train still count in the recall denominator.
         n_relevant = len(test_likes[user_id])
+        disliked = {movie_index[m] for m in test_dislikes[user_id] if m in movie_index}
         for name, method in methods.items():
             recs = method(u, exclude)
             lists[name].append(recs)
@@ -463,6 +510,10 @@ def evaluate(
             recalls[name].append(hits / n_relevant if n_relevant else 0.0)
             hit_rates[name].append(hit_rate_at_k(recs, relevant, top_n))
             pops[name].append(mean_popularity(recs, popularity))
+            dislikes[name].append(dislike_at_k(recs, disliked, top_n))
+            share = like_share_judged(recs, relevant, disliked, top_n)
+            if share is not None:
+                like_shares[name].append(share)
 
     def summarize(name: str) -> MethodMetrics:
         if n_users == 0:
@@ -473,6 +524,11 @@ def evaluate(
             coverage=coverage(lists[name], n_movies),
             mean_popularity=sum(pops[name]) / n_users,
             hit_rate_at_k=sum(hit_rates[name]) / n_users,
+            dislike_at_k=sum(dislikes[name]) / n_users,
+            like_share_judged=(
+                sum(like_shares[name]) / len(like_shares[name]) if like_shares[name] else 0.0
+            ),
+            judged_users=len(like_shares[name]),
         )
 
     return EvaluationResult(
