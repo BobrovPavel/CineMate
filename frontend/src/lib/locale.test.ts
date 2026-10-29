@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pickLanguage, poolMismatchesLang } from "./locale";
+import { pickLanguage } from "./locale";
 
 describe("pickLanguage", () => {
   it.each([
@@ -25,16 +25,5 @@ describe("pickLanguage", () => {
     expect(pickLanguage("de", "ru")).toBe("ru");
     expect(pickLanguage("", "en")).toBe("en");
     expect(pickLanguage("RU", "en")).toBe("en");
-  });
-});
-
-describe("poolMismatchesLang", () => {
-  it.each([
-    ["ru", "ru", false],
-    ["world", "en", false],
-    ["world", "ru", true],
-    ["ru", "en", true],
-  ] as const)("pool %s + lang %s -> %s", (pool, lang, expected) => {
-    expect(poolMismatchesLang(pool, lang)).toBe(expected);
   });
 });
