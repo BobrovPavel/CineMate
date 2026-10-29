@@ -484,6 +484,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="only refresh movies that lack a Russian title, whatever their age",
     )
     en.add_argument(
+        "--missing-features",
+        action="store_true",
+        help="only fetch movies with a TMDB pair that have no genres/collection/companies/"
+        "countries/vote yet, rated movies first",
+    )
+    en.add_argument(
         "--stale-days",
         type=_stale_days,
         default=DEFAULT_STALE_DAYS,
@@ -777,6 +783,7 @@ def _run_enrich(args: argparse.Namespace) -> int:
                 TmdbClient(api_key),
                 limit=args.limit,
                 refresh_titles=args.refresh_titles,
+                missing_features=args.missing_features,
                 stale_days=args.stale_days,
             )
         except TmdbError as exc:

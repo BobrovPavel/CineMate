@@ -58,6 +58,13 @@ class TmdbDetails:
     overview_ru: str | None = None
     overview: str | None = None
     popularity: float | None = None
+    genre_ids: list[int] = field(default_factory=list)
+    collection: tuple[int, str] | None = None  # (id, name)
+    companies: list[tuple[int, str, str | None]] = field(default_factory=list)  # id, name, logo
+    countries: list[str] = field(default_factory=list)  # ISO 3166-1
+    original_language: str | None = None  # ISO 639-1
+    vote_average: float | None = None
+    vote_count: int | None = None
 
 
 def _parse_retry_after(value: str | None) -> float:
@@ -252,6 +259,11 @@ class TmdbClient:
         genres = [
             g["name"] for g in data.get("genres") or [] if isinstance(g, dict) and g.get("name")
         ]
+        genre_ids = [
+            g["id"]
+            for g in data.get("genres") or []
+            if isinstance(g, dict) and _int_or_none(g.get("id")) is not None
+        ]
         title_ru, overview_ru = self._russian(data.get("translations"), tv)
         return TmdbDetails(
             tmdb_type=tmdb_type,
@@ -269,6 +281,15 @@ class TmdbClient:
             popularity=float(pop)
             if isinstance(pop := data.get("popularity"), int | float)
             else None,
+            genre_ids=genre_ids,
+            collection=self._collection(data.get("belongs_to_collection")),
+            companies=self._companies(data.get("production_companies")),
+            countries=self._countries(data, tv),
+            original_language=data.get("original_language") or None,
+            vote_average=float(avg)
+            if isinstance(avg := data.get("vote_average"), int | float)
+            else None,
+            vote_count=_int_or_none(data.get("vote_count")),
         )
 
     def changes(self, tmdb_type: str, start: date, end: date) -> Iterator[int]:
@@ -302,6 +323,33 @@ class TmdbClient:
                         continue
                     seen.add(tmdb_id)
                     yield tmdb_id
+
+    @staticmethod
+    def _collection(raw: object) -> tuple[int, str] | None:
+        if not isinstance(raw, dict) or _int_or_none(raw.get("id")) is None or not raw.get("name"):
+            return None
+        return raw["id"], raw["name"]
+
+    @staticmethod
+    def _companies(raw: object) -> list[tuple[int, str, str | None]]:
+        return [
+            (c["id"], c["name"], c.get("logo_path") or None)
+            for c in raw or []
+            if isinstance(c, dict) and _int_or_none(c.get("id")) is not None and c.get("name")
+        ]
+
+    @staticmethod
+    def _countries(data: dict, tv: bool) -> list[str]:
+        """ISO 3166-1 codes: ``origin_country`` for TV, ``production_countries`` for movies."""
+        if tv:
+            codes = data.get("origin_country") or []
+        else:
+            codes = [
+                c.get("iso_3166_1")
+                for c in data.get("production_countries") or []
+                if isinstance(c, dict)
+            ]
+        return [code for code in codes if isinstance(code, str) and code]
 
     @staticmethod
     def _russian(translations: object, tv: bool) -> tuple[str | None, str | None]:

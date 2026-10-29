@@ -7,7 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import CatalogConflict, link
-from cinemate.db.models import Movie
+from cinemate.db.features import apply_features
+from cinemate.db.models import Movie, Rating
 from cinemate.tmdb import TmdbClient, TmdbDetails
 
 DEFAULT_STALE_DAYS = 30
@@ -25,7 +26,9 @@ class EnrichStats:
 def apply_details(session: Session, movie: Movie, details: TmdbDetails) -> None:
     """Overwrite ``movie`` fields with TMDB values; an empty value never erases a stored one.
 
-    ``genres`` are left alone, ``tmdb_fetched_at`` is set and the IMDb id is linked.
+    TMDB genres replace the stored ones (see ``apply_features``), the collection, companies,
+    countries, original language and vote are written, ``tmdb_fetched_at`` is set and the IMDb id
+    is linked.
     """
     for field, value in (
         ("title", details.title),
@@ -39,6 +42,7 @@ def apply_details(session: Session, movie: Movie, details: TmdbDetails) -> None:
         if value:
             setattr(movie, field, value)
     movie.tmdb_fetched_at = datetime.now(UTC)
+    apply_features(session, movie, details)
     if details.imdb_id:
         try:
             with session.begin_nested():
@@ -53,6 +57,7 @@ def enrich_movies(
     limit: int | None = None,
     refresh_titles: bool = False,
     stale_days: int = DEFAULT_STALE_DAYS,
+    missing_features: bool = False,
 ) -> EnrichStats:
     """Re-fetch TMDB details for movies with a TMDB pair whose data is stale.
 
@@ -60,7 +65,9 @@ def enrich_movies(
     ``NULL`` ones go first, then the oldest. With ``refresh_titles`` only movies without
     ``title_ru`` are requested, whatever their age. Details come from
     ``client.fetch_details(tmdb_type, tmdb_id)``; fields are overwritten with TMDB values but an
-    empty TMDB value never erases a stored one, ``genres`` are left alone, the IMDb id is linked.
+    empty TMDB value never erases a stored one, TMDB genres replace the old ones, the IMDb id is
+    linked. With ``missing_features`` only movies that never got their features (no TMDB vote
+    count) are requested, whatever their age: first those with ratings in any pool, then the rest.
     A 404 leaves the movie untouched (``not_found``). ``skipped`` counts movies without a TMDB
     pair. ``limit`` caps the number of movies requested; progress is committed every
     ``COMMIT_EVERY`` movies and when a ``TmdbError`` propagates.
@@ -71,7 +78,10 @@ def enrich_movies(
     skipped = session.scalar(select(func.count()).select_from(Movie).where(~has_pair)) or 0
 
     query = select(Movie).where(has_pair)
-    if refresh_titles:
+    if missing_features:
+        rated = select(Rating.id).where(Rating.movie_id == Movie.id).exists()
+        query = query.where(Movie.tmdb_vote_count.is_(None)).order_by(~rated, Movie.id)
+    elif refresh_titles:
         query = query.where((Movie.title_ru.is_(None)) | (Movie.title_ru == ""))
         query = query.order_by(Movie.id)
     else:

@@ -55,6 +55,57 @@ class Movie(Base):
     tmdb_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # TMDB's own popularity (not the like count in ``popularity_score``); used to sort search
     tmdb_popularity: Mapped[float | None] = mapped_column(Float)
+    collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
+    countries: Mapped[list[str] | None] = mapped_column(JSON)  # ISO 3166-1 codes
+    original_language: Mapped[str | None] = mapped_column(String(8))  # ISO 639-1
+    tmdb_vote_average: Mapped[float | None] = mapped_column(Float)
+    # NULL = the movie features were never fetched from TMDB (see ``enrich-movies``)
+    tmdb_vote_count: Mapped[int | None] = mapped_column(Integer)
+
+
+class Genre(Base):
+    """Genre dictionary: ``id`` is the TMDB genre id; filled from ``cinemate.genres.GENRES``."""
+
+    __tablename__ = "genres"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name_en: Mapped[str] = mapped_column(String(64))
+    name_ru: Mapped[str] = mapped_column(String(64))
+
+
+class MovieGenre(Base):
+    __tablename__ = "movie_genres"
+    __table_args__ = (Index("ix_movie_genres_genre_id", "genre_id"),)
+
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"), primary_key=True)
+    genre_id: Mapped[int] = mapped_column(ForeignKey("genres.id"), primary_key=True)
+
+
+class Collection(Base):
+    """A TMDB collection (franchise)."""
+
+    __tablename__ = "collections"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(256))
+
+
+class Company(Base):
+    """A TMDB production company (studio)."""
+
+    __tablename__ = "companies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(256))
+    logo_path: Mapped[str | None] = mapped_column(String(512))
+
+
+class MovieCompany(Base):
+    __tablename__ = "movie_companies"
+    __table_args__ = (Index("ix_movie_companies_company_id", "company_id"),)
+
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"), primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), primary_key=True)
 
 
 class MovieExternalId(Base):

@@ -30,5 +30,8 @@ def make_engine(url: str) -> Engine:
 
 
 def create_all(engine: Engine) -> None:
-    """Create all tables that do not exist yet."""
+    """Create all tables that do not exist yet and fill the genre dictionary."""
+    from cinemate.db.features import seed_genres
+
     Base.metadata.create_all(engine)
+    seed_genres(engine)

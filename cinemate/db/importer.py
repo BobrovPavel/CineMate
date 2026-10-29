@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
 from cinemate.db.catalog import CatalogConflict, find_movie, link, merge_movies
+from cinemate.db.features import set_legacy_genres
 from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.popularity import update_popularity
 from cinemate.movielens import iter_ratings, parse_links, parse_movies
@@ -77,17 +78,20 @@ def import_movielens(
         movies[parsed.movielens_id] = movie
         # a movie matched through another source (or another MovieLens duplicate) only gets
         # linked: its own data stays as it is
+        own_genres = False
         if movie.external_movielens_id == parsed.movielens_id:
             movie.title = parsed.title
             if parsed.alt_title and not movie.original_title:
                 movie.original_title = parsed.alt_title
             movie.year = parsed.year
-            movie.genres = list(parsed.genres)
+            own_genres = True
         if tmdb is not None and movie.tmdb_id is None:
             movie.tmdb_type, movie.tmdb_id = tmdb
         if parsed_link is not None and parsed_link.imdb_id and movie.imdb_id is None:
             movie.imdb_id = parsed_link.imdb_id
         link(session, movie, "movielens", parsed.movielens_id)
+        if own_genres:
+            set_legacy_genres(session, movie, parsed.genres)
         if parsed_link is not None and parsed_link.imdb_id:
             # an IMDb id that belongs to another movie is left unlinked
             with contextlib.suppress(CatalogConflict):

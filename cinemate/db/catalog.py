@@ -11,7 +11,16 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from cinemate.db.models import Event, Movie, MovieExternalId, Rating, SeenMark
+from cinemate.db.features import apply_features, has_genres, set_movie_genres
+from cinemate.db.models import (
+    Event,
+    Movie,
+    MovieCompany,
+    MovieExternalId,
+    MovieGenre,
+    Rating,
+    SeenMark,
+)
 from cinemate.tmdb import TmdbClient, TmdbDetails
 
 SOURCE_ORDER = ("imdb", "movielens", "kinopoisk", "ratings_csv")
@@ -24,6 +33,11 @@ _MOVIE_FIELDS = (
     "overview",
     "poster_path",
     "runtime",
+    "collection_id",
+    "countries",
+    "original_language",
+    "tmdb_vote_average",
+    "tmdb_vote_count",
 )
 
 
@@ -138,8 +152,22 @@ def merge_movies(session: Session, keep_id: int, drop_id: int) -> None:
     for field in _MOVIE_FIELDS:
         if getattr(keep, field) is None and getattr(drop, field) is not None:
             setattr(keep, field, getattr(drop, field))
-    if not keep.genres and drop.genres:
-        keep.genres = list(drop.genres)
+    drop_genres = list(
+        session.scalars(select(MovieGenre.genre_id).where(MovieGenre.movie_id == drop_id))
+    )
+    if drop_genres and not has_genres(session, keep_id):
+        set_movie_genres(session, keep_id, drop_genres)
+    kept_companies = set(
+        session.scalars(select(MovieCompany.company_id).where(MovieCompany.movie_id == keep_id))
+    )
+    for company_id in session.scalars(
+        select(MovieCompany.company_id).where(MovieCompany.movie_id == drop_id)
+    ).all():
+        if company_id not in kept_companies:
+            session.add(MovieCompany(movie_id=keep_id, company_id=company_id))
+    session.flush()
+    session.execute(delete(MovieGenre).where(MovieGenre.movie_id == drop_id))
+    session.execute(delete(MovieCompany).where(MovieCompany.movie_id == drop_id))
     if keep.tmdb_id is None and drop.tmdb_id is not None:
         pair = (drop.tmdb_type, drop.tmdb_id)
         # free the pair first: it is unique (uq_movies_tmdb)
@@ -191,7 +219,6 @@ def movie_from_details(session: Session, details: TmdbDetails) -> Movie:
         overview=details.overview_ru or details.overview,
         poster_path=details.poster_path,
         runtime=details.runtime,
-        genres=list(details.genres),
         popularity_score=0.0,
         tmdb_fetched_at=datetime.now(UTC),
         tmdb_popularity=details.popularity,
@@ -205,6 +232,7 @@ def movie_from_details(session: Session, details: TmdbDetails) -> Movie:
         if winner is None:
             raise
         return winner
+    apply_features(session, movie, details)
     if details.imdb_id:
         try:
             with session.begin_nested():

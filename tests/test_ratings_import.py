@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from cinemate.binarize import RelativeMeanBinarizer
 from cinemate.cli import main
 from cinemate.db.catalog import link
+from cinemate.db.features import genre_names_by_movie
 from cinemate.db.models import Movie, Rating, User
 from cinemate.db.ratings_import import import_ratings_csv, normalize_title
 from cinemate.db.session import create_all, make_engine
@@ -35,6 +36,10 @@ def _user_rows(user_id, scores, first_movie=1000):
         f"драма,,{s}\n"
         for i, s in enumerate(scores)
     )
+
+
+def _genres(session, movie):
+    return genre_names_by_movie(session, [movie.id], "en").get(movie.id, [])
 
 
 def _run(session, path, types=None, threshold=0.5):
@@ -124,7 +129,7 @@ def test_new_movie_fields(tmp_path):
     _run(session, _write(tmp_path, '1,5,Жара,Heat,Film,1995,"драма, криминал",,10\n'))
     movie = session.scalars(select(Movie)).one()
     assert (movie.title, movie.original_title, movie.year) == ("Жара", "Heat", 1995)
-    assert movie.genres == ["драма", "криминал"]
+    assert _genres(session, movie) == ["Drama", "Crime"]
     assert movie.external_ratings_id == 5
     assert movie.tmdb_id is None
 
@@ -146,7 +151,7 @@ def test_existing_external_movie_only_fills_empty_fields(tmp_path):
     _run(session, _write(tmp_path, '1,5,Other,Heat,Film,1995,"драма",,10\n'))
     movie = session.scalars(select(Movie)).one()
     assert (movie.title, movie.year, movie.original_title) == ("Keep", 2000, "Heat")
-    assert movie.genres == ["драма"]
+    assert _genres(session, movie) == ["Drama"]
 
 
 def test_types_filter(tmp_path):
