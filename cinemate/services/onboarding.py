@@ -12,6 +12,7 @@ from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, Rating, SeenMark, User
 
 MAX_PER_GENRE = 3
+GENRE_BATCH = 10_000
 
 
 def pick_onboarding_movies(
@@ -74,10 +75,16 @@ def onboarding_for_user(
     done = set(session.scalars(select(Rating.movie_id).where(Rating.user_id == user.id)))
     done |= set(session.scalars(select(SeenMark.movie_id).where(SeenMark.user_id == user.id)))
 
-    wanted = set(ratings.movie_ids)
-    by_id = {m.id: m for m in session.scalars(select(Movie)) if m.id in wanted}
-    genres = [by_id[mid].genres or [] if mid in by_id else [] for mid in ratings.movie_ids]
+    genre_of: dict[int, list[str]] = {}
+    for start in range(0, len(ratings.movie_ids), GENRE_BATCH):
+        chunk = ratings.movie_ids[start : start + GENRE_BATCH]
+        query = select(Movie.id, Movie.genres).where(Movie.id.in_(chunk))
+        for mid, movie_genres in session.execute(query):
+            genre_of[mid] = movie_genres or []
+    genres = [genre_of.get(mid, []) for mid in ratings.movie_ids]
     exclude = {i for i, mid in enumerate(ratings.movie_ids) if mid in done}
 
     indices = pick_onboarding_movies(ratings.matrix, genres, n=n, exclude=exclude)
-    return [by_id[ratings.movie_ids[i]] for i in indices if ratings.movie_ids[i] in by_id]
+    picked = [ratings.movie_ids[i] for i in indices if ratings.movie_ids[i] in genre_of]
+    by_id = {m.id: m for m in session.scalars(select(Movie).where(Movie.id.in_(picked)))}
+    return [by_id[mid] for mid in picked]

@@ -96,12 +96,15 @@ def import_ratings_csv(
         )
     )
     index: dict[tuple[str, int], set[int]] = defaultdict(set)
-    by_id: dict[int, Movie] = {}
-    for m in session.scalars(select(Movie).where(Movie.year.is_not(None))):
-        by_id[m.id] = m
-        for name in (m.title, m.original_title):
+    known: set[int] = set()  # ids of indexed movies; dropped (merged) ones are removed
+    titles = select(Movie.id, Movie.title, Movie.original_title, Movie.year)
+    for movie_id, title, original_title, year in session.execute(
+        titles.where(Movie.year.is_not(None))
+    ):
+        known.add(movie_id)
+        for name in (title, original_title):
             if name:
-                index[(normalize_title(name), m.year)].add(m.id)
+                index[(normalize_title(name), year)].add(movie_id)
 
     lookup = _Lookup(session, client if use_tmdb else None)
     counts = {
@@ -122,15 +125,15 @@ def import_ratings_csv(
         movie, method = _match(session, client, lookup, row, entry)
         if movie is not None:
             if movie.tmdb_id is None and entry is not None and method != "wikidata":
-                movie = _attach_wikidata(session, lookup, movie, entry, counts, redirect, by_id)
+                movie = _attach_wikidata(session, lookup, movie, entry, counts, redirect, known)
             _fill_empty(movie, row)
             if movie.tmdb_id is None and lookup.enabled:
                 _attach_pair(session, client, lookup, movie, row, counts)
         else:
             method = None
-            candidates = {i for i in _candidates(index, row) if i in by_id}
+            candidates = {i for i in _candidates(index, row) if i in known}
             if len(candidates) == 1:
-                found = by_id[next(iter(candidates))]
+                found = session.get(Movie, next(iter(candidates)))
                 if found.id not in csv_linked:
                     movie = found
                     merged += 1
@@ -353,7 +356,7 @@ def _attach_wikidata(
     entry: WikidataEntry,
     counts: dict[str, int],
     redirect: dict[int, int],
-    by_id: dict[int, Movie],
+    known: set[int],
 ) -> Movie:
     """Give a movie without a TMDB pair the Wikidata pair; merge into the pair's owner if any.
 
@@ -369,7 +372,7 @@ def _attach_wikidata(
         drop_id = movie.id
         merge_movies(session, keep_id=owner.id, drop_id=drop_id)
         redirect[drop_id] = owner.id
-        by_id.pop(drop_id, None)
+        known.discard(drop_id)
         counts["wikidata_merged"] += 1
         counts["wikidata"] += 1
         return session.get(Movie, owner.id)

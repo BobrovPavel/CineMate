@@ -75,3 +75,21 @@ def test_onboarding_for_user_excludes_done(factory):
         user = s.get(User, 3)
         movies = onboarding_for_user(s, store, user, n=10)
         assert [m.id for m in movies] == [3, 4]
+
+
+def test_onboarding_does_not_load_movies_outside_pool(factory):
+    with factory() as s:
+        s.add_all([User(id=1), User(id=2), User(id=99)])
+        s.add_all(Movie(id=i, title=f"m{i}", genres=["g"]) for i in range(1, 101))
+        s.flush()
+        for mid in (1, 2, 3):
+            s.add(Rating(user_id=1, movie_id=mid, value=1))
+            s.add(Rating(user_id=2, movie_id=mid, value=-1))
+        s.commit()
+    store = MatrixStore(factory)
+    with factory() as s:
+        user = s.get(User, 99)
+        movies = onboarding_for_user(s, store, user, n=2)
+        loaded = {m.id for m in s.identity_map.values() if isinstance(m, Movie)}
+    assert len(movies) == 2
+    assert loaded == {m.id for m in movies}
