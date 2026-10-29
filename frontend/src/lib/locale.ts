@@ -44,3 +44,10 @@ export function setLanguage(lang: Lang): void {
   document.cookie = `${LANG_COOKIE}=${lang}; path=/; max-age=${LANG_COOKIE_MAX_AGE}; SameSite=Lax`;
   window.location.reload();
 }
+
+export type Pool = "ru" | "world";
+
+/** True when the site language would put a new user in a different pool than the current one. */
+export function poolMismatchesLang(pool: string, lang: Lang): boolean {
+  return pool !== (lang === "ru" ? "ru" : "world");
+}

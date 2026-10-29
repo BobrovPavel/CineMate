@@ -10,6 +10,12 @@ class SessionOut(BaseModel):
     pool: str
 
 
+class MeOut(BaseModel):
+    user_id: int
+    pool: str
+    rated_count: int
+
+
 class ProfileItem(BaseModel):
     movie_id: int
     title: str

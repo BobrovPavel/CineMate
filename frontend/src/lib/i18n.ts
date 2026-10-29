@@ -61,6 +61,17 @@ const ru = {
   "profile.empty": "Вы пока ничего не оценили.",
   "profile.rate": "Оценить фильмы",
   "profile.changeTo": "Изменить оценку фильма «{title}» на «{value}»",
+  "profile.pool.ru": "Рекомендации на основе оценок русскоязычных зрителей",
+  "profile.pool.world": "Рекомендации на основе оценок MovieLens",
+  "profile.restart": "Начать заново",
+  "profile.restartConfirm":
+    "Ваши оценки на этом устройстве будут потеряны. Новый профиль получит набор оценок по текущему языку сайта.",
+  "profile.restartCancel": "Отмена",
+  "profile.restartError": "Не удалось начать заново. Попробуйте ещё раз.",
+  "profile.restartHint.ru":
+    "Чтобы получать рекомендации по русскоязычным зрителям, начните заново.",
+  "profile.restartHint.world":
+    "Чтобы получать рекомендации по оценкам MovieLens, начните заново.",
 
   "search.title": "Поиск",
   "search.label": "Название фильма или сериала",
@@ -137,6 +148,17 @@ const en: Record<MessageKey, string> = {
   "profile.empty": "You haven't rated anything yet.",
   "profile.rate": "Rate movies",
   "profile.changeTo": "Change the rating of “{title}” to “{value}”",
+  "profile.pool.ru": "Recommendations based on Russian-speaking viewers",
+  "profile.pool.world": "Recommendations based on MovieLens ratings",
+  "profile.restart": "Start over",
+  "profile.restartConfirm":
+    "Your ratings on this device will be lost. The new profile will get a set of ratings for the current site language.",
+  "profile.restartCancel": "Cancel",
+  "profile.restartError": "Could not start over. Please try again.",
+  "profile.restartHint.ru":
+    "To get recommendations based on Russian-speaking viewers, start over.",
+  "profile.restartHint.world":
+    "To get recommendations based on MovieLens ratings, start over.",
 
   "search.title": "Search",
   "search.label": "Movie or TV show title",
