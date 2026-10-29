@@ -86,3 +86,20 @@ def test_session_is_closed_after_load(factory):
     finally:
         Session.close = original
     assert closed
+
+
+def test_store_caches_content_features_of_the_columns(factory):
+    from cinemate.db.models import MovieGenre
+
+    _seed(factory, [(1, 1, 1), (1, 2, 1), (2, 1, 1)])
+    with factory() as s:
+        s.get(Movie, 1).tmdb_type = "movie"
+        s.get(Movie, 1).year = 1994
+        s.add_all([MovieGenre(movie_id=1, genre_id=14), MovieGenre(movie_id=1, genre_id=18)])
+        s.commit()
+    taste = MatrixStore(factory).get().taste
+    assert taste is not None
+    assert [("genre", 14) in g[0] for g in taste.groups[:1]] == [True]
+    assert taste.groups[1] == ()  # movie 2 has no features
+    assert taste.base[("genre", 14)] == pytest.approx(2 / 3)  # movie 1 holds 2 of 3 likes
+    assert taste.primary_genre == [14, None]

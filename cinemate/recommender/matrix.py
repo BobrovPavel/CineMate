@@ -8,6 +8,7 @@ from scipy.sparse import csr_matrix
 
 from cinemate.binarize import Binarizer
 from cinemate.movielens import Rating
+from cinemate.recommender.taste import TasteData
 
 
 @dataclass(frozen=True)
@@ -15,11 +16,13 @@ class RatingsMatrix:
     """Sparse ratings matrix with id lookup tables.
 
     Position in ``user_ids`` / ``movie_ids`` is the row / column index in ``matrix``.
+    ``taste`` holds the content features of the columns when the store loaded them.
     """
 
     matrix: csr_matrix
     user_ids: list[int]
     movie_ids: list[int]
+    taste: TasteData | None = None
 
 
 def build_matrix(ratings: Iterable[Rating], binarizer: Binarizer) -> RatingsMatrix:

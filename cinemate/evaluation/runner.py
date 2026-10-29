@@ -3,7 +3,7 @@
 import random
 import statistics
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -26,6 +26,12 @@ from cinemate.recommender.item_based import recommend_item_based
 from cinemate.recommender.matrix import build_matrix
 from cinemate.recommender.scoring import recommend
 from cinemate.recommender.strategy import recommend_with_strategy
+from cinemate.recommender.taste import (
+    CANDIDATES,
+    MovieFeatures,
+    build_taste_data,
+    rerank_candidates,
+)
 from cinemate.services.onboarding import pick_onboarding_movies
 
 # Threshold of the weak ``popular`` baseline; fixed so results stay comparable with earlier runs.
@@ -302,6 +308,7 @@ def evaluate(
     item_min_overlap: int = 3,
     item_lam: float = 5.0,
     user_fraction: float = 1.0,
+    features: Mapping[int | str, MovieFeatures] | None = None,
 ) -> EvaluationResult:
     """Compare ``recommend`` (CF) with the popular baseline on a train/test split.
 
@@ -355,6 +362,11 @@ def evaluate(
     matrix and the rest are removed entirely. The set of "new" (evaluated) users does not
     depend on ``F``; thinning is deterministic for a ``seed``. It measures how CF quality
     depends on the size of the user base. Requires ``new_user_ratings``.
+
+    With ``features`` (movie id -> :class:`MovieFeatures`) a ``cf+taste`` baseline is added: the
+    same CF lists, but ``CANDIDATES`` candidates are re-ranked by the taste profile and
+    diversified as on the site, with ``settings.taste_weight`` and
+    ``settings.taste_interest_weight``.
     """
     if new_user_ratings is not None and new_user_ratings < 1:
         raise ValueError("new_user_ratings must be at least 1")
@@ -469,6 +481,35 @@ def evaluate(
         )
         return [m for m, _ in recs if m not in exclude][:top_n]
 
+    taste_data = (
+        build_taste_data([features.get(m, MovieFeatures()) for m in built.movie_ids], like_counts)
+        if features is not None
+        else None
+    )
+
+    def cf_taste(u: int, exclude: set[int]) -> list[int]:
+        assert taste_data is not None
+        recs = recommend(
+            matrix,
+            u,
+            n=CANDIDATES + len(exclude),
+            k=k,
+            min_overlap=min_overlap,
+            lam=lam,
+            pop_penalty=pop_penalty,
+            significance=significance,
+        )
+        candidates = [(m, s) for m, s in recs if m not in exclude][:CANDIDATES]
+        if settings.taste_weight > 0 and candidates:
+            candidates, _ = rerank_candidates(
+                taste_data,
+                matrix[u],
+                candidates,
+                settings.taste_weight,
+                settings.taste_interest_weight,
+            )
+        return [m for m, _ in candidates][:top_n]
+
     methods: dict[str, Callable[[int, set[int]], list[int]]] = {
         "cf": cf,
         "popular": lambda _u, exclude: popular_baseline(matrix, exclude, n=top_n),
@@ -482,6 +523,7 @@ def evaluate(
         "product": product,
         "item_based": item_based,
         **{f"hybrid(T={t:g})": hybrid(t) for t in blend_full_at},
+        **({"cf+taste": cf_taste} if taste_data is not None else {}),
     }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}

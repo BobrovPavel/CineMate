@@ -21,3 +21,7 @@ export function explainCollaborative(
   }
   return text;
 }
+
+export function explainTaste(lang: Lang, name: string): string {
+  return translate(lang)("explain.taste", { name });
+}

@@ -10,6 +10,7 @@ from cinemate.evaluation.runner import (
 )
 from cinemate.movielens import Rating
 from cinemate.recommender.matrix import build_matrix
+from cinemate.recommender.taste import MovieFeatures
 
 B = MovieLensBinarizer()
 
@@ -524,3 +525,24 @@ def test_no_judged_users_gives_zero_like_share():
     result = run(likes(1, 8))
     assert result.cf.judged_users == 0
     assert result.cf.like_share_judged == 0.0
+
+
+def test_cf_taste_baseline_needs_features_and_matches_cf_without_weight():
+    assert "cf+taste" not in run(likes(1, 6, 7)).baselines
+    features = {m: MovieFeatures(genres=(14 if m % 2 else 18,)) for m in range(1, 11)}
+    off = run(likes(1, 6, 7), features=features, settings=RecommenderSettings(taste_weight=0))
+    assert off.baselines["cf+taste"].precision_at_k == off.cf.precision_at_k
+    on = run(likes(1, 6, 7), features=features)
+    assert set(on.baselines["cf+taste"].__dict__) == set(on.cf.__dict__)
+
+
+def test_cf_taste_moves_liked_genre_up():
+    train = likes(1, 1, 2, 3, 4) + likes(2, 1, 2, 3, 4, 5, 6) + likes(3, 1, 2, 3, 4, 5)
+    # movie 5 (drama) is liked by one more neighbour than movie 6 (fantasy)
+    features = {m: MovieFeatures(genres=(14,)) for m in (1, 2, 3, 4, 6)}
+    features[5] = MovieFeatures(genres=(18,))
+    settings = RecommenderSettings(taste_weight=3.0)
+    kw = dict(k=5, lam=0.0, min_overlap=1, top_n=1, pop_penalty=0.0)
+    cf = evaluate(train, likes(1, 6), B, features=features, settings=settings, **kw)
+    assert cf.cf.precision_at_k == 0.0  # plain CF puts the drama first
+    assert cf.baselines["cf+taste"].precision_at_k == 1.0
