@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from cinemate.api.app import create_app
-from cinemate.db.models import Event, Movie, Rating, SeenMark, User
+from cinemate.db.models import Event, Movie, MovieGenre, Rating, SeenMark, User
 
 
 @pytest.fixture
@@ -18,10 +18,11 @@ def app():
                     title_ru="Эй",
                     year=1999,
                     poster_path="/a.jpg",
-                    genres=["Drama"],
                 ),
-                Movie(id=2, title="B", genres=["Comedy"]),
+                Movie(id=2, title="B"),
                 Movie(id=3, title="C"),
+                MovieGenre(movie_id=1, genre_id=18),
+                MovieGenre(movie_id=2, genre_id=35),
             ]
         )
         others = [User(is_synthetic=True) for _ in range(2)]

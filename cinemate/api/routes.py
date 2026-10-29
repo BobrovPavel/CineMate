@@ -31,6 +31,7 @@ from cinemate.api.schemas import (
     WriteOut,
 )
 from cinemate.db.catalog import import_from_tmdb
+from cinemate.db.features import genre_names_by_movie
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, User
 from cinemate.services.events import log_impressions, log_reaction
@@ -127,12 +128,15 @@ def profile(
 
 @router.get("/onboarding", response_model=list[OnboardingCard])
 def onboarding(
+    request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db_session)],
     store: Annotated[MatrixStore, Depends(get_matrix_store)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[OnboardingCard]:
     """Cards to rate during onboarding; already rated or marked movies are excluded."""
+    movies = onboarding_for_user(session, store, user, n=limit)
+    genres = _genre_names(session, request, [m.id for m in movies])
     return [
         OnboardingCard(
             movie_id=movie.id,
@@ -140,9 +144,9 @@ def onboarding(
             title_ru=movie.title_ru,
             year=movie.year,
             poster_path=movie.poster_path,
-            genres=list(movie.genres or []),
+            genres=genres.get(movie.id, []),
         )
-        for movie in onboarding_for_user(session, store, user, n=limit)
+        for movie in movies
     ]
 
 
@@ -181,7 +185,12 @@ def seen(
     return WriteOut(ok=True, rated_count=len(get_ratings(session, user)))
 
 
-def _card(movie: Movie) -> MovieCard:
+def _genre_names(session: Session, request: Request, movie_ids: list[int]) -> dict[int, list[str]]:
+    """Genre names of the movies in the language of the request."""
+    return genre_names_by_movie(session, movie_ids, language_from_request(request))
+
+
+def _card(movie: Movie, genres: list[str]) -> MovieCard:
     return MovieCard(
         id=movie.id,
         title=movie.title,
@@ -190,7 +199,7 @@ def _card(movie: Movie) -> MovieCard:
         year=movie.year,
         overview=movie.overview,
         poster_path=movie.poster_path,
-        genres=list(movie.genres or []),
+        genres=genres,
         runtime=movie.runtime,
     )
 
@@ -208,13 +217,14 @@ def recommendations(
         session, store, user, limit=limit, settings=request.app.state.recommender_settings
     )
     session_id = uuid.uuid4().hex
+    genres = _genre_names(session, request, [i.movie.id for i in result.items])
     log_impressions(session, user, session_id, [i.movie.id for i in result.items], result.strategy)
     return RecommendationsOut(
         strategy=result.strategy,
         session_id=session_id,
         items=[
             RecommendationItem(
-                movie=_card(item.movie),
+                movie=_card(item.movie, genres.get(item.movie.id, [])),
                 score=item.score,
                 liked_by=item.liked_by,
                 because_of=[
@@ -284,6 +294,7 @@ def search(
 
 @router.post("/movies/resolve", response_model=MovieCard)
 def resolve_movie(
+    request: Request,
     body: ResolveIn,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db_session)],
@@ -296,11 +307,12 @@ def resolve_movie(
         raise HTTPException(status_code=404, detail="movie not found") from exc
     except TmdbError as exc:
         raise HTTPException(status_code=502, detail="ошибка TMDB") from exc
-    return _card(movie)
+    return _card(movie, _genre_names(session, request, [movie.id]).get(movie.id, []))
 
 
 @router.get("/movies/{movie_id}", response_model=MovieCard)
 def movie_detail(
+    request: Request,
     movie_id: int,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db_session)],
@@ -309,4 +321,4 @@ def movie_detail(
     movie = session.get(Movie, movie_id)
     if movie is None:
         raise HTTPException(status_code=404, detail="movie not found")
-    return _card(movie)
+    return _card(movie, _genre_names(session, request, [movie.id]).get(movie.id, []))

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
 from cinemate.db.catalog import CatalogConflict, find_movie, import_from_tmdb, link, merge_movies
+from cinemate.db.features import has_genres, set_legacy_genres
 from cinemate.db.models import Movie, MovieExternalId, Rating, TmdbLookup, User
 from cinemate.db.popularity import update_popularity
 from cinemate.ratings_csv import CsvRow, movie_key, read_rows
@@ -126,7 +127,7 @@ def import_ratings_csv(
         if movie is not None:
             if movie.tmdb_id is None and entry is not None and method != "wikidata":
                 movie = _attach_wikidata(session, lookup, movie, entry, counts, redirect, known)
-            _fill_empty(movie, row)
+            _fill_empty(session, movie, row)
             if movie.tmdb_id is None and lookup.enabled:
                 _attach_pair(session, client, lookup, movie, row, counts)
         else:
@@ -151,13 +152,13 @@ def import_ratings_csv(
                     title=title,
                     original_title=row.title_original,
                     year=row.year,
-                    genres=list(row.genres),
                 )
                 session.add(movie)
                 session.flush()
+                set_legacy_genres(session, movie, row.genres)
                 added += 1
             else:
-                _fill_empty(movie, row)
+                _fill_empty(session, movie, row)
         if method is not None:
             counts[method] += 1
         for source, value in (("kinopoisk", row.kp_id), ("imdb", row.imdb_id)):
@@ -442,10 +443,10 @@ def _fill_gaps(first: CsvRow, other: CsvRow) -> CsvRow:
     )
 
 
-def _fill_empty(movie: Movie, row: CsvRow) -> None:
+def _fill_empty(session: Session, movie: Movie, row: CsvRow) -> None:
     if movie.original_title is None and row.title_original:
         movie.original_title = row.title_original
     if movie.year is None and row.year is not None:
         movie.year = row.year
-    if not movie.genres and row.genres:
-        movie.genres = list(row.genres)
+    if row.genres and not has_genres(session, movie.id):
+        set_legacy_genres(session, movie, row.genres)

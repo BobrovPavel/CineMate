@@ -1,13 +1,14 @@
 """Choosing well-known, controversial movies to show a new user during onboarding."""
 
 from collections import Counter
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Hashable, Sequence
 
 import numpy as np
 from scipy.sparse import csr_matrix
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from cinemate.db.features import genre_ids_by_movie
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, Rating, SeenMark, User
 
@@ -17,7 +18,7 @@ GENRE_BATCH = 10_000
 
 def pick_onboarding_movies(
     matrix: csr_matrix,
-    genres: Sequence[Sequence[str]],
+    genres: Sequence[Sequence[Hashable]],
     n: int = 20,
     pool: int = 300,
     exclude: Collection[int] = (),
@@ -32,7 +33,7 @@ def pick_onboarding_movies(
     Genre diversity: at most ``MAX_PER_GENRE`` movies sharing the same first genre are
     taken while other candidates remain; if fewer than ``n`` movies are found that way,
     the skipped ones fill the rest in the same order. Movies without genres are not
-    limited. ``genres[i]`` lists the genres of column ``i``.
+    limited. ``genres[i]`` lists the genre ids of column ``i``.
     """
     if n <= 0 or matrix.shape[1] == 0:
         return []
@@ -49,7 +50,7 @@ def pick_onboarding_movies(
 
     picked: list[int] = []
     skipped: list[int] = []
-    per_genre: Counter[str] = Counter()
+    per_genre: Counter[Hashable] = Counter()
     for i in candidates:
         if len(picked) >= n:
             break
@@ -75,16 +76,15 @@ def onboarding_for_user(
     done = set(session.scalars(select(Rating.movie_id).where(Rating.user_id == user.id)))
     done |= set(session.scalars(select(SeenMark.movie_id).where(SeenMark.user_id == user.id)))
 
-    genre_of: dict[int, list[str]] = {}
+    existing: set[int] = set()
     for start in range(0, len(ratings.movie_ids), GENRE_BATCH):
         chunk = ratings.movie_ids[start : start + GENRE_BATCH]
-        query = select(Movie.id, Movie.genres).where(Movie.id.in_(chunk))
-        for mid, movie_genres in session.execute(query):
-            genre_of[mid] = movie_genres or []
+        existing.update(session.scalars(select(Movie.id).where(Movie.id.in_(chunk))))
+    genre_of = genre_ids_by_movie(session, ratings.movie_ids)
     genres = [genre_of.get(mid, []) for mid in ratings.movie_ids]
     exclude = {i for i, mid in enumerate(ratings.movie_ids) if mid in done}
 
     indices = pick_onboarding_movies(ratings.matrix, genres, n=n, exclude=exclude)
-    picked = [ratings.movie_ids[i] for i in indices if ratings.movie_ids[i] in genre_of]
+    picked = [ratings.movie_ids[i] for i in indices if ratings.movie_ids[i] in existing]
     by_id = {m.id: m for m in session.scalars(select(Movie).where(Movie.id.in_(picked)))}
     return [by_id[mid] for mid in picked]

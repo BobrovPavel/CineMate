@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from cinemate.binarize import MovieLensBinarizer
 from cinemate.cli import main
 from cinemate.db.catalog import find_movie, merge_movies
+from cinemate.db.features import genre_names_by_movie
 from cinemate.db.importer import ImportStats, import_movielens
 from cinemate.db.models import Movie, Rating, User
 from cinemate.db.session import create_all, make_engine
@@ -43,6 +44,10 @@ def _snapshot(session):
     return sorted(movies), sorted(ratings), sorted(users)
 
 
+def _genres(session, movie):
+    return genre_names_by_movie(session, [movie.id], "en").get(movie.id, [])
+
+
 def test_first_import(tmp_path):
     data = _write_dataset(tmp_path)
     with _session() as session:
@@ -55,10 +60,14 @@ def test_first_import(tmp_path):
             popularity_updated=2,
         )
         toy = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
-        assert (toy.title, toy.year, toy.genres) == ("Toy Story", 1995, ["Adventure", "Animation"])
+        assert (toy.title, toy.year, _genres(session, toy)) == (
+            "Toy Story",
+            1995,
+            ["Adventure", "Animation"],
+        )
         assert (toy.imdb_id, toy.tmdb_id) == ("tt0114709", 862)
         jumanji = session.scalar(select(Movie).where(Movie.external_movielens_id == 2))
-        assert jumanji.genres == [] and jumanji.tmdb_id is None
+        assert _genres(session, jumanji) == [] and jumanji.tmdb_id is None
         assert sorted(session.scalars(select(Rating.value))) == [-1, 1, 1]
 
 
@@ -92,7 +101,7 @@ def test_reimport_updates_existing_movie(tmp_path):
         import_movielens(session, data, MovieLensBinarizer())
         assert session.scalar(select(func.count()).select_from(Movie)) == 2
         toy = session.scalar(select(Movie).where(Movie.external_movielens_id == 1))
-        assert (toy.title, toy.year, toy.genres) == ("Toy Story 2", 1999, ["Animation"])
+        assert (toy.title, toy.year, _genres(session, toy)) == ("Toy Story 2", 1999, ["Animation"])
 
 
 def test_cli_import_movielens(tmp_path, monkeypatch, capsys):
@@ -345,7 +354,11 @@ def test_ratings_are_written_in_batches(tmp_path, monkeypatch):
         original = session.execute
 
         def spy(statement, params=None, *a, **kw):
-            if isinstance(params, list) and getattr(statement, "is_insert", False):
+            if (
+                isinstance(params, list)
+                and getattr(statement, "is_insert", False)
+                and statement.table.name == "ratings"
+            ):
                 executed.append(len(params))
             return original(statement, params, *a, **kw)
 

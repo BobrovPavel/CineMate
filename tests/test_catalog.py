@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import CatalogConflict, find_movie, link, merge_movies
+from cinemate.db.features import genre_names_by_movie
 from cinemate.db.models import Event, Movie, MovieExternalId, Rating, SeenMark, User
 from cinemate.db.session import create_all, make_engine
 
@@ -174,6 +175,7 @@ def _details(**kw):
         poster_path="/p.jpg",
         runtime=140,
         genres=["Drama"],
+        genre_ids=[18],
         imdb_id="tt2802154",
         title_ru="Левиафан",
         overview_ru="Описание",
@@ -206,7 +208,8 @@ def test_import_from_tmdb_creates_movie_and_imdb_link(session):
         "Левиафан",
         "Левиафан",
     )
-    assert (movie.year, movie.runtime, movie.genres, movie.poster_path) == (
+    genres = genre_names_by_movie(session, [movie.id], "en")[movie.id]
+    assert (movie.year, movie.runtime, genres, movie.poster_path) == (
         2014,
         140,
         ["Drama"],
