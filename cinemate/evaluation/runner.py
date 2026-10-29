@@ -111,6 +111,8 @@ def aggregate_metrics(runs: Sequence[MethodMetrics]) -> MethodMetrics:
             return 0.0
         return statistics.stdev(getattr(r, field) for r in runs)
 
+    # A seed without judged users has no like share; it must not drag the mean down.
+    shares = [r.like_share_judged for r in runs if r.judged_users > 0]
     return MethodMetrics(
         precision_at_k=mean("precision_at_k"),
         recall_at_k=mean("recall_at_k"),
@@ -121,7 +123,7 @@ def aggregate_metrics(runs: Sequence[MethodMetrics]) -> MethodMetrics:
         recall_std=std("recall_at_k"),
         hit_rate_std=std("hit_rate_at_k"),
         dislike_at_k=mean("dislike_at_k"),
-        like_share_judged=mean("like_share_judged"),
+        like_share_judged=statistics.fmean(shares) if shares else 0.0,
         judged_users=round(mean("judged_users")),
         dislike_std=std("dislike_at_k"),
         like_share_std=std("like_share_judged"),

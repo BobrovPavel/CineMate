@@ -164,3 +164,11 @@ def test_aggregate_new_metrics_mean_std_and_judged_users():
     assert agg.like_share_judged == pytest.approx(0.85)
     assert agg.like_share_std == pytest.approx(statistics.stdev([0.8, 0.9]))
     assert agg.judged_users == 15
+
+
+def test_aggregate_like_share_skips_runs_without_judged_users():
+    runs = [
+        MethodMetrics(0.2, 0.1, 0.5, 0.3, like_share_judged=0.8, judged_users=10),
+        MethodMetrics(0.2, 0.1, 0.5, 0.3),
+    ]
+    assert aggregate_metrics(runs).like_share_judged == pytest.approx(0.8)
