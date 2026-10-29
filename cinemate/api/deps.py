@@ -37,7 +37,7 @@ def session_token(request: Request) -> str | None:
 
 
 def language_from_request(request: Request) -> str:
-    """``'ru'`` or ``'en'``: the ``cinemate_lang`` cookie, else ``Accept-Language``."""
+    """A code from ``LANGUAGES``: the ``cinemate_lang`` cookie, else ``Accept-Language``."""
     return language_from_headers(
         request.cookies.get(LANG_COOKIE), request.headers.get("accept-language")
     )
