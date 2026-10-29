@@ -109,7 +109,7 @@ def _pairs(session):
 
 def test_filters_and_summary(session, http, tmp_path):
     client = FakeClient(missing=[("movie", 6)])
-    stats = _run(session, http, tmp_path, client, min_popularity=1)
+    stats = _run(session, http, tmp_path, client, min_popularity=1, workers=1)
     assert stats == SyncStats(
         in_export=8,
         skipped_adult=1,
@@ -139,7 +139,7 @@ def test_single_type(session, http, tmp_path):
 
 def test_new_pairs_go_by_descending_popularity(session, http, tmp_path):
     client = FakeClient()
-    _run(session, http, tmp_path, client, min_popularity=1)
+    _run(session, http, tmp_path, client, min_popularity=1, workers=1)
     assert client.requested == [("movie", 2), ("tv", 10), ("movie", 6), ("movie", 5)]
 
 
@@ -164,7 +164,7 @@ def test_existing_pairs_are_not_requested_but_popularity_is_updated(session, htt
     )
     session.commit()
     client = FakeClient()
-    stats = _run(session, http, tmp_path, client, min_popularity=1)
+    stats = _run(session, http, tmp_path, client, min_popularity=1, workers=1)
     assert ("movie", 2) not in client.requested
     assert stats.already_present == 3
     assert stats.popularity_updated == 3
@@ -180,7 +180,7 @@ def test_limit_and_resume_without_duplicates(session, http, tmp_path):
     assert (first.added, first.remaining) == (2, 2)
     assert _pairs(session) == {("movie", 2), ("tv", 10)}
     client = FakeClient()
-    second = _run(session, http, tmp_path, client, min_popularity=1)
+    second = _run(session, http, tmp_path, client, min_popularity=1, workers=1)
     assert client.requested == [("movie", 6), ("movie", 5)]
     assert (second.already_present, second.added, second.remaining) == (2, 2, 0)
     total = session.scalar(select(func.count()).select_from(Movie))
@@ -190,7 +190,7 @@ def test_limit_and_resume_without_duplicates(session, http, tmp_path):
 def test_interrupted_run_keeps_what_is_written(session, factory, http, tmp_path):
     client = FakeClient(fail_on=("movie", 6))
     with pytest.raises(TmdbError):
-        _run(session, http, tmp_path, client, min_popularity=1)
+        _run(session, http, tmp_path, client, min_popularity=1, workers=1)
     with factory() as other:
         assert _pairs(other) == {("movie", 2), ("tv", 10)}
 
@@ -203,7 +203,7 @@ def test_keyboard_interrupt_commits_written_records(session, factory, http, tmp_
             return super().fetch_details(tmdb_type, tmdb_id)
 
     with pytest.raises(KeyboardInterrupt):
-        _run(session, http, tmp_path, Interrupt(), min_popularity=1)
+        _run(session, http, tmp_path, Interrupt(), min_popularity=1, workers=1)
     with factory() as other:
         assert _pairs(other) == {("movie", 2), ("tv", 10)}
 
@@ -291,7 +291,7 @@ def test_cli_requires_api_key(monkeypatch, tmp_path, capsys):
 def test_cli_runs_with_fake_transport(monkeypatch, tmp_path, capsys, http):
     monkeypatch.setenv("TMDB_API_KEY", "k")
     monkeypatch.setattr("cinemate.db.sync_catalog.urllib_get", http)
-    monkeypatch.setattr("cinemate.cli.TmdbClient", lambda key: FakeClient())
+    monkeypatch.setattr("cinemate.cli.TmdbClient", lambda key, **kw: FakeClient())
     url = f"sqlite:///{tmp_path / 'db.sqlite'}"
     export_dir = tmp_path / "exports"
     code = main(

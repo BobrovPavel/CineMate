@@ -1,11 +1,13 @@
 """Load the TMDB catalog into the database from the daily ID exports (no key needed for those).
 
 TMDB publishes ``movie_ids_MM_DD_YYYY.json.gz`` and ``tv_series_ids_MM_DD_YYYY.json.gz``: gzip,
-one JSON object per line. New pairs get one details request each (``import_from_tmdb``), most
-popular first, so an interrupted run has already stored the best part. Rerunning continues:
-pairs that are in ``movies`` are skipped.
+one JSON object per line. New pairs get one details request each (``fetch_many``, several at a
+time; the database is written by the calling thread), most popular first, so an interrupted
+run has already stored the best part. Rerunning continues: pairs that are in ``movies`` are
+skipped.
 """
 
+import contextlib
 import gzip
 import json
 import os
@@ -19,9 +21,9 @@ from pathlib import Path
 from sqlalchemy import bindparam, select, update
 from sqlalchemy.orm import Session
 
-from cinemate.db.catalog import import_from_tmdb
+from cinemate.db.catalog import movie_from_details
 from cinemate.db.models import Movie
-from cinemate.tmdb import HttpGet, TmdbClient, urllib_get
+from cinemate.tmdb import DEFAULT_WORKERS, HttpGet, TmdbClient, fetch_many, urllib_get
 
 EXPORT_BASE = "https://files.tmdb.org/p/exports"
 EXPORT_PREFIX = {"movie": "movie_ids", "tv": "tv_series_ids"}
@@ -117,6 +119,7 @@ def sync_catalog(
     min_popularity: float = 0.0,
     include_video: bool = False,
     limit: int | None = None,
+    workers: int = DEFAULT_WORKERS,
     day: date | None = None,
     export_dir: Path = DEFAULT_EXPORT_DIR,
     http_get: HttpGet | None = None,
@@ -127,7 +130,8 @@ def sync_catalog(
 
     ``adult`` records are always skipped; ``video`` ones (movies) unless ``include_video``;
     records below ``min_popularity`` are skipped. New pairs go in by descending popularity,
-    at most ``limit`` of them per run (``remaining`` counts the rest). ``tmdb_popularity`` of
+    at most ``limit`` of them per run (``remaining`` counts the rest), fetched by ``workers``
+    threads. ``tmdb_popularity`` of
     pairs already stored is refreshed from the export without any TMDB request. A 404 on
     details counts as ``not_found``. Progress is committed every ``COMMIT_EVERY`` movies and
     whenever the run ends, also with ``TmdbError`` or ``KeyboardInterrupt``;
@@ -180,20 +184,21 @@ def sync_catalog(
     added = not_found = 0
     started = clock()
     try:
-        for done, (pop, tmdb_type, tmdb_id) in enumerate(todo, start=1):
-            try:
-                movie = import_from_tmdb(session, client, tmdb_type, tmdb_id)
-            except LookupError:
-                not_found += 1
-            else:
-                movie.tmdb_popularity = pop
-                added += 1
-            if done % COMMIT_EVERY == 0:
-                session.commit()
-            if progress is not None and done % PROGRESS_EVERY == 0:
-                elapsed = clock() - started
-                rate = done / elapsed if elapsed > 0 else 0.0
-                progress(done, len(todo), rate, (len(todo) - done) / rate if rate else None)
+        popularity = {(tmdb_type, tmdb_id): pop for pop, tmdb_type, tmdb_id in todo}
+        pairs = ((t, i) for _, t, i in todo)
+        with contextlib.closing(fetch_many(client, pairs, workers)) as fetched:
+            for done, (pair, details) in enumerate(fetched, start=1):
+                if details is None:
+                    not_found += 1
+                else:
+                    movie_from_details(session, details).tmdb_popularity = popularity[pair]
+                    added += 1
+                if done % COMMIT_EVERY == 0:
+                    session.commit()
+                if progress is not None and done % PROGRESS_EVERY == 0:
+                    elapsed = clock() - started
+                    rate = done / elapsed if elapsed > 0 else 0.0
+                    progress(done, len(todo), rate, (len(todo) - done) / rate if rate else None)
     finally:
         session.commit()
     return SyncStats(

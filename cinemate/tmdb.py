@@ -1,18 +1,28 @@
 """Minimal TMDB client: movie metadata in Russian, multi-search and details by TMDB pair."""
 
+import base64
+import contextlib
+import http.client
 import json
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 API_BASE = "https://api.themoviedb.org/3"
 TIMEOUT = 10.0
 MAX_REQUESTS_PER_SECOND = 20
+DEFAULT_WORKERS = 8
+MAX_WORKERS = 16
+DEFAULT_RPS = MAX_REQUESTS_PER_SECOND
+MAX_RPS = 35
+BULK_CONSECUTIVE_429 = 5  # bulk commands stop after this many 429 in a row
+MAX_CONSECUTIVE_429 = 2  # API default: one retry after a 429, the second one in a row fails
 DEFAULT_RETRY_AFTER = 1.0
 MAX_RETRY_AFTER = 10.0
 MEDIA_TYPES = ("movie", "tv")
@@ -29,7 +39,7 @@ class TmdbRateLimited(TmdbError):
     """TMDB answered 429; ``retry_after`` is the pause (seconds) it asked for."""
 
     def __init__(self, retry_after: float = DEFAULT_RETRY_AFTER) -> None:
-        super().__init__("TMDB rate limit exceeded")
+        super().__init__("TMDB rate limit exceeded (HTTP 429); progress is saved, rerun later")
         self.retry_after = retry_after
 
 
@@ -105,28 +115,114 @@ def urllib_get(url: str) -> tuple[int, bytes]:
         raise TmdbError(f"TMDB request failed: {type(exc).__name__}") from None
 
 
+ConnectionFactory = Callable[[str, float], http.client.HTTPSConnection]
+
+
+def _https_connection(host: str, timeout: float) -> http.client.HTTPSConnection:
+    """HTTPS connection to ``host``, via ``HTTPS_PROXY`` (CONNECT) unless ``NO_PROXY`` skips it."""
+    proxy = urllib.request.getproxies().get("https")
+    if not proxy or urllib.request.proxy_bypass(host):
+        return http.client.HTTPSConnection(host, timeout=timeout)
+    parts = urllib.parse.urlsplit(proxy if "//" in proxy else f"//{proxy}")
+    connection = http.client.HTTPSConnection(
+        parts.hostname or "", parts.port or 8080, timeout=timeout
+    )
+    headers = {}
+    if parts.username:
+        credentials = (
+            f"{urllib.parse.unquote(parts.username)}:{urllib.parse.unquote(parts.password or '')}"
+        )
+        headers["Proxy-Authorization"] = "Basic " + base64.b64encode(credentials.encode()).decode()
+    connection.set_tunnel(host, headers=headers)
+    return connection
+
+
+class PersistentTransport:
+    """Default TMDB transport: one kept-alive HTTPS connection per thread and host.
+
+    A broken connection (reset, timeout, closed by the server) is replaced and the request is
+    repeated once on the new one. Same contract as ``urllib_get``: ``(status, body)``, a 429 raises
+    ``TmdbRateLimited``, other failures ``TmdbError`` without the URL (it holds the API key).
+    """
+
+    def __init__(
+        self,
+        connection_factory: ConnectionFactory = _https_connection,
+        timeout: float = TIMEOUT,
+    ) -> None:
+        self._factory = connection_factory
+        self._timeout = timeout
+        self._local = threading.local()
+
+    def _connection(self, host: str) -> http.client.HTTPSConnection:
+        connections = self._local.__dict__.setdefault("connections", {})
+        if host not in connections:
+            connections[host] = self._factory(host, self._timeout)
+        return connections[host]
+
+    def _drop(self, host: str) -> None:
+        connection = self._local.__dict__.setdefault("connections", {}).pop(host, None)
+        if connection is not None:
+            with contextlib.suppress(Exception):  # already broken, nothing to save
+                connection.close()
+
+    def __call__(self, url: str) -> tuple[int, bytes]:
+        parts = urllib.parse.urlsplit(url)
+        target = f"{parts.path}?{parts.query}" if parts.query else parts.path
+        failure: Exception | None = None
+        for _ in range(2):
+            try:
+                connection = self._connection(parts.netloc)
+                connection.request("GET", target)
+                response = connection.getresponse()
+                body = response.read()
+            except (http.client.HTTPException, OSError) as exc:
+                self._drop(parts.netloc)
+                failure = exc
+                continue
+            if response.will_close:
+                self._drop(parts.netloc)
+            if response.status == 429:
+                raise TmdbRateLimited(_parse_retry_after(response.getheader("Retry-After")))
+            return response.status, body
+        # The original exception may mention the URL (and so the key); keep only its type.
+        raise TmdbError(f"TMDB request failed: {type(failure).__name__}") from None
+
+
 class TmdbClient:
     """Thin TMDB v3 client.
 
-    Requests are spaced to at most ``MAX_REQUESTS_PER_SECOND`` per client (and so per process,
-    as the app keeps one); a 429 answer pauses for ``Retry-After`` and retries once.
+    Requests are spaced to at most ``requests_per_second`` per client (and so per process, as the
+    app keeps one), whatever the number of threads. A 429 answer shifts the shared limiter by
+    ``Retry-After``, so every thread pauses, and the request is repeated; the
+    ``max_consecutive_429``-th 429 in a row (counted over all threads) raises ``TmdbRateLimited``.
     """
 
     def __init__(
         self,
         api_key: str,
-        http_get: HttpGet = urllib_get,
+        http_get: HttpGet | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        requests_per_second: float = MAX_REQUESTS_PER_SECOND,
+        max_consecutive_429: int = MAX_CONSECUTIVE_429,
     ) -> None:
         if not api_key:
             raise ValueError("api_key must not be empty")
+        if not requests_per_second > 0:
+            raise ValueError("requests_per_second must be > 0")
+        if max_consecutive_429 < 1:
+            raise ValueError("max_consecutive_429 must be >= 1")
         self._api_key = api_key
-        self._http_get = http_get
+        self._http_get = http_get or PersistentTransport()
         self._clock = clock
         self._sleep = sleep
+        self._interval = 1.0 / requests_per_second
+        self._max_429 = max_consecutive_429
         self._lock = threading.Lock()
         self._next_slot = 0.0
+        self._streak_429 = 0
+        self._pause_epoch = 0
 
     def __repr__(self) -> str:
         return "TmdbClient(api_key='***')"
@@ -135,9 +231,30 @@ class TmdbClient:
         with self._lock:
             now = self._clock()
             wait = self._next_slot - now
-            self._next_slot = max(now, self._next_slot) + 1.0 / MAX_REQUESTS_PER_SECOND
+            self._next_slot = max(now, self._next_slot) + self._interval
         if wait > 0:
             self._sleep(wait)
+
+    def _rate_limited(self, retry_after: float, epoch: int) -> None:
+        """Pause every thread for ``retry_after`` after a 429 of a request sent in ``epoch``.
+
+        Requests in flight when a pause starts all come back with 429 together; only the first of
+        them counts towards the streak, the rest (older ``epoch``) just keep the pause. The
+        ``max_consecutive_429``-th counted 429 in a row raises.
+        """
+        with self._lock:
+            self._next_slot = max(self._next_slot, self._clock() + retry_after)
+            if epoch != self._pause_epoch:
+                return
+            self._pause_epoch += 1
+            self._streak_429 += 1
+            if self._streak_429 >= self._max_429:
+                self._streak_429 = 0
+                raise TmdbRateLimited(retry_after)
+
+    def _succeeded(self) -> None:
+        with self._lock:
+            self._streak_429 = 0
 
     def _send(self, url: str) -> tuple[int, bytes]:
         self._throttle()
@@ -152,18 +269,19 @@ class TmdbClient:
         """GET ``path``; ``None`` on 404, ``TmdbError`` on anything but a JSON object."""
         query = urllib.parse.urlencode({"api_key": self._api_key, **params})
         url = f"{API_BASE}{path}?{query}"
-        try:
-            status, body = self._send(url)
-        except TmdbRateLimited as exc:
-            self._sleep(exc.retry_after)
-            status, body = self._send(url)
-        if status == 429:
-            self._sleep(DEFAULT_RETRY_AFTER)
-            status, body = self._send(url)
+        while True:
+            epoch = self._pause_epoch
+            try:
+                status, body = self._send(url)
+            except TmdbRateLimited as exc:
+                self._rate_limited(exc.retry_after, epoch)
+                continue
+            if status != 429:
+                break
+            self._rate_limited(DEFAULT_RETRY_AFTER, epoch)
+        self._succeeded()
         if status == 404:
             return None
-        if status == 429:
-            raise TmdbRateLimited
         if status != 200:
             raise TmdbError(f"TMDB returned HTTP {status}")
         try:
@@ -314,3 +432,58 @@ class TmdbClient:
                     return None, None
                 return (data.get("name" if tv else "title") or None, data.get("overview") or None)
         return None, None
+
+
+def fetch_many(
+    client: TmdbClient, items: Iterable[tuple[str, int]], workers: int = DEFAULT_WORKERS
+) -> Iterator[tuple[tuple[str, int], TmdbDetails | None]]:
+    """``client.fetch_details`` for each ``(tmdb_type, tmdb_id)``, ``workers`` at a time.
+
+    Yields ``((tmdb_type, tmdb_id), details)`` in completion order, in the calling thread (so the
+    caller may use a database session there); ``details`` is ``None`` for a 404. At most
+    ``2 * workers`` requests are submitted ahead. When a request fails (any exception, including
+    ``KeyboardInterrupt`` in the caller or a worker) nothing new is sent, requests already running
+    finish and their results are yielded, then the first error is raised. ``workers == 1`` runs
+    in the calling thread, one request after another.
+    """
+    if workers < 1:
+        raise ValueError("workers must be >= 1")
+    if workers == 1:
+        for pair in items:
+            yield pair, client.fetch_details(*pair)
+        return
+    iterator = iter(items)
+    pending: dict[Future, tuple[str, int]] = {}
+    error: BaseException | None = None
+    executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tmdb")
+    try:
+        while True:
+            while error is None and len(pending) < 2 * workers:
+                pair = next(iterator, None)
+                if pair is None:
+                    break
+                pending[executor.submit(client.fetch_details, *pair)] = pair
+            if not pending:
+                break
+            try:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            except BaseException as exc:  # noqa: BLE001 - Ctrl+C while waiting
+                error, done = error or exc, set()
+            for future in done:
+                pair = pending.pop(future)
+                if future.cancelled():
+                    continue
+                try:
+                    details = future.result()
+                except BaseException as exc:  # noqa: BLE001 - a worker may raise anything
+                    error = error or exc
+                else:
+                    yield pair, details
+            if error is not None:
+                for future in list(pending):
+                    if future.cancel():
+                        del pending[future]
+        if error is not None:
+            raise error
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)

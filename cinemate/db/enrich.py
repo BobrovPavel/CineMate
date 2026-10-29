@@ -1,5 +1,6 @@
 """Refresh movie metadata (titles, overview, poster, runtime) from TMDB into the database."""
 
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import CatalogConflict, link
 from cinemate.db.models import Movie
-from cinemate.tmdb import TmdbClient, TmdbDetails
+from cinemate.tmdb import DEFAULT_WORKERS, TmdbClient, TmdbDetails, fetch_many
 
 DEFAULT_STALE_DAYS = 30
 MAX_STALE_DAYS = 180  # TMDB terms: stored data must not be kept longer than 6 months
@@ -53,13 +54,15 @@ def enrich_movies(
     limit: int | None = None,
     refresh_titles: bool = False,
     stale_days: int = DEFAULT_STALE_DAYS,
+    workers: int = DEFAULT_WORKERS,
 ) -> EnrichStats:
     """Re-fetch TMDB details for movies with a TMDB pair whose data is stale.
 
     Stale means ``tmdb_fetched_at`` is ``NULL`` or older than ``stale_days`` (1..180); the
     ``NULL`` ones go first, then the oldest. With ``refresh_titles`` only movies without
     ``title_ru`` are requested, whatever their age. Details come from
-    ``client.fetch_details(tmdb_type, tmdb_id)``; fields are overwritten with TMDB values but an
+    ``client.fetch_details(tmdb_type, tmdb_id)``, ``workers`` requests at a time (the database is
+    written by the calling thread only); fields are overwritten with TMDB values but an
     empty TMDB value never erases a stored one, ``genres`` are left alone, the IMDb id is linked.
     A 404 leaves the movie untouched (``not_found``). ``skipped`` counts movies without a TMDB
     pair. ``limit`` caps the number of movies requested; progress is committed every
@@ -84,15 +87,16 @@ def enrich_movies(
 
     enriched = not_found = 0
     try:
-        for movie in movies:
-            details = client.fetch_details(movie.tmdb_type, movie.tmdb_id)
-            if details is None:
-                not_found += 1
-                continue
-            apply_details(session, movie, details)
-            enriched += 1
-            if enriched % COMMIT_EVERY == 0:
-                session.commit()
+        by_pair = {(m.tmdb_type, m.tmdb_id): m for m in movies}
+        with contextlib.closing(fetch_many(client, by_pair, workers)) as fetched:
+            for pair, details in fetched:
+                if details is None:
+                    not_found += 1
+                    continue
+                apply_details(session, by_pair[pair], details)
+                enriched += 1
+                if enriched % COMMIT_EVERY == 0:
+                    session.commit()
     finally:
         session.commit()
     return EnrichStats(enriched, not_found, skipped)
