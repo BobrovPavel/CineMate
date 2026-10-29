@@ -16,7 +16,7 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   const target = `${base}/api/${path.map(encodeURIComponent).join("/")}${search}`;
 
   const headers = new Headers();
-  for (const name of ["cookie", "content-type"]) {
+  for (const name of ["cookie", "content-type", "accept-language"]) {
     const value = request.headers.get(name);
     if (value !== null) headers.set(name, value);
   }

@@ -26,7 +26,7 @@ describe("API proxy", () => {
     );
     const request = new Request("http://site.test/api/ratings", {
       method: "POST",
-      headers: { cookie: "cinemate_session=abc", "content-type": "application/json", "x-evil": "1" },
+      headers: { cookie: "cinemate_session=abc", "content-type": "application/json", "accept-language": "ru-RU,ru;q=0.9", "x-evil": "1" },
       body: '{"movie_id":1}',
     });
     const response = await POST(request, ctx("ratings"));
@@ -39,6 +39,7 @@ describe("API proxy", () => {
     const sent = new Headers(init.headers);
     expect(sent.get("cookie")).toBe("cinemate_session=abc");
     expect(sent.get("content-type")).toBe("application/json");
+    expect(sent.get("accept-language")).toBe("ru-RU,ru;q=0.9");
     expect(sent.get("x-evil")).toBeNull();
     expect(new TextDecoder().decode(init.body)).toBe('{"movie_id":1}');
   });
