@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ClampedText } from "@/components/ClampedText";
 import { CardSkeleton } from "@/components/MovieCard";
 import {
   ApiError,
@@ -208,7 +209,7 @@ export default function RecommendationsPage() {
             return (
               <li
                 key={item.movie.id}
-                className={`flex min-w-0 flex-col gap-3 transition duration-200 ${
+                className={`flex h-full min-w-0 flex-col gap-3 transition duration-200 ${
                   gone ? "scale-95 opacity-0" : "opacity-100"
                 }`}
               >
@@ -231,25 +232,36 @@ export default function RecommendationsPage() {
                     </div>
                   )}
                 </div>
-                <h2 className="text-lg font-semibold break-words">{primary}</h2>
-                {secondary && (
-                  <p className="text-sm break-words text-gray-600">
-                    ({secondary})
-                  </p>
-                )}
-                {meta && <p className="text-sm text-gray-600">{meta}</p>}
+                <h2
+                  title={primary}
+                  className="line-clamp-2 min-h-14 text-lg leading-7 font-semibold break-words"
+                >
+                  {primary}
+                </h2>
+                <p
+                  title={secondary ?? undefined}
+                  className="min-h-5 truncate text-sm leading-5 text-gray-600"
+                >
+                  {secondary ? `(${secondary})` : null}
+                </p>
+                <p
+                  title={meta || undefined}
+                  className="min-h-5 truncate text-sm leading-5 text-gray-600"
+                >
+                  {meta}
+                </p>
                 {strategy === "collaborative" && (
-                  <p className="text-sm">
-                    {explainCollaborative(
+                  <ClampedText
+                    text={explainCollaborative(
                       locale,
                       item.liked_by,
                       item.because_of.map(
                         (b) => displayTitle(b, locale).primary,
                       ),
                     )}
-                  </p>
+                  />
                 )}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="mt-auto grid grid-cols-2 gap-2">
                   {BUTTONS.map((b) => (
                     <button
                       key={b.reaction}
