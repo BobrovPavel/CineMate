@@ -14,6 +14,7 @@ from cinemate.evaluation.runner import (
     established_users_line,
     evaluate_seeds,
     format_metric_cells,
+    metric_headers,
     new_users_line,
 )
 from cinemate.movielens import Rating
@@ -135,11 +136,7 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         "min_overlap",
         "pop_penalty",
         "signif",
-        f"precision@{top_n}",
-        f"recall@{top_n}",
-        f"hit_rate@{top_n}",
-        "coverage",
-        "mean popularity",
+        *metric_headers(top_n),
     ]
 
     multi = len(result.seeds) > 1

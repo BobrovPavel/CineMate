@@ -71,6 +71,31 @@ def hit_rate_at_k(recommended: Sequence[int], relevant: Collection[int], k: int)
     return 1.0 if _hits(recommended, relevant, k) > 0 else 0.0
 
 
+def dislike_at_k(recommended: Sequence[int], disliked: Collection[int], k: int) -> float:
+    """Share of the top-``k`` recommendations the user disliked (lower is better).
+
+    The denominator is ``k``, as in ``precision_at_k``. Returns ``0.0`` if ``k <= 0``.
+    """
+    if k <= 0:
+        return 0.0
+    return _hits(recommended, disliked, k) / k
+
+
+def like_share_judged(
+    recommended: Sequence[int], liked: Collection[int], disliked: Collection[int], k: int
+) -> float | None:
+    """Share of likes among the top-``k`` movies the user rated in the test part.
+
+    Movies without a test rating are ignored. Returns ``None`` when no recommended movie
+    was judged (or ``k <= 0``), so such users stay out of the average.
+    """
+    if k <= 0:
+        return None
+    likes = _hits(recommended, liked, k)
+    judged = likes + _hits(recommended, disliked, k)
+    return likes / judged if judged else None
+
+
 def coverage(all_recommended: Iterable[Iterable[int]], n_movies: int) -> float:
     """Fraction of the catalogue that appears in at least one recommendation list."""
     if n_movies <= 0:
