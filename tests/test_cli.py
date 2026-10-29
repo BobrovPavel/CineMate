@@ -53,8 +53,11 @@ def test_format_table_rows_and_values():
     assert "hit_rate@10" in lines[0]
     headers = lines[0].split()
     assert headers.index("hit_rate@10") == headers.index("recall@10") + 1
-    assert lines[1].split() == ["collaborative", "0.1234", "0.2000", "0.9000", "0.3000", "0.0500"]
-    assert lines[2].split() == ["popular", "0.0500", "0.1000", "0.0000", "0.0100", "0.4000"]
+    assert lines[1].split() == [
+        "collaborative", "0.1234", "0.2000", "0.9000", "0.3000", "0.0500",
+        "0.0000", "0.0000", "(n=0)",
+    ]  # fmt: skip
+    assert lines[2].split()[:6] == ["popular", "0.0500", "0.1000", "0.0000", "0.0100", "0.4000"]
     assert [line.split()[0] for line in lines[3:6]] == [
         "popular_likes",
         "popular_share_20",
@@ -506,3 +509,14 @@ def test_checksum_error_is_reported(monkeypatch, tmp_path, capsys):
 def test_dataset_flags_rejected_for_csv_source(capsys):
     assert main(["evaluate", "--source", "csv", "--ratings-csv", "x.csv", "--max-users", "5"]) == 2
     assert "--max-users requires --source movielens" in capsys.readouterr().err
+
+
+def test_format_table_has_dislike_and_like_share_columns():
+    from cinemate.cli import format_table
+    from cinemate.evaluation.runner import EvaluationResult, MethodMetrics
+
+    cf = MethodMetrics(0.2, 0.1, 0.5, 0.3, 0.6, dislike_at_k=0.0076, like_share_judged=0.959,
+                       judged_users=321)  # fmt: skip
+    lines = format_table(EvaluationResult(cf=cf, baselines={}, n_users=1), top_n=5).splitlines()
+    assert "dislike@5" in lines[0] and "like_share_judged" in lines[0]
+    assert "0.0076" in lines[1] and "0.9590 (n=321)" in lines[1]

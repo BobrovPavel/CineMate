@@ -114,7 +114,8 @@ def test_tables_show_mean_and_std_only_with_several_seeds():
     m, multi = _result((0, 1, 2))
     lines = format_table(multi).splitlines()
     assert lines[1].split() == ["collaborative", "0.1997±0.0042", "0.2000±0.0100",
-                                "0.8000±0.0200", "0.5000", "0.3000"]  # fmt: skip
+                                "0.8000±0.0200", "0.5000", "0.3000", "0.0000±0.0000",
+                                "0.0000±0.0000", "(n=0)"]  # fmt: skip
     assert lines[-1] == "seeds: 0,1,2"
     tuned = format_tune_table(TuneResult([TuneRow(3, 1.0, 1, m)], {"popular": m}, 5, seeds=(0, 1)))
     assert "0.1997±0.0042" in tuned and tuned.splitlines()[-1] == "seeds: 0,1"
@@ -146,3 +147,28 @@ def test_help_describes_seeds(command, capsys):
     with pytest.raises(SystemExit):
         main([command, "--help"])
     assert "--seeds" in capsys.readouterr().out
+
+
+def test_aggregate_new_metrics_mean_std_and_judged_users():
+    runs = [
+        MethodMetrics(
+            0.2, 0.1, 0.5, 0.3, 0.6, dislike_at_k=0.1, like_share_judged=0.8, judged_users=10
+        ),
+        MethodMetrics(
+            0.4, 0.3, 0.7, 0.5, 0.8, dislike_at_k=0.3, like_share_judged=0.9, judged_users=20
+        ),
+    ]
+    agg = aggregate_metrics(runs)
+    assert agg.dislike_at_k == pytest.approx(0.2)
+    assert agg.dislike_std == pytest.approx(statistics.stdev([0.1, 0.3]))
+    assert agg.like_share_judged == pytest.approx(0.85)
+    assert agg.like_share_std == pytest.approx(statistics.stdev([0.8, 0.9]))
+    assert agg.judged_users == 15
+
+
+def test_aggregate_like_share_skips_runs_without_judged_users():
+    runs = [
+        MethodMetrics(0.2, 0.1, 0.5, 0.3, like_share_judged=0.8, judged_users=10),
+        MethodMetrics(0.2, 0.1, 0.5, 0.3),
+    ]
+    assert aggregate_metrics(runs).like_share_judged == pytest.approx(0.8)

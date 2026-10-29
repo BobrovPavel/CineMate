@@ -493,3 +493,34 @@ def test_user_fraction_requires_new_user_ratings():
     train, test = cold_data()
     with pytest.raises(ValueError, match="requires new_user_ratings"):
         evaluate(train, test, B, user_fraction=0.5)
+
+
+def test_test_dislike_in_top_counts_in_dislike_at_k_and_like_share():
+    result = run(likes(1, 6) + [Rating(1, 7, 1.0)])
+    assert result.n_users == 1
+    assert result.cf.dislike_at_k == 0.5  # movie 7 is in the top-2 and disliked in test
+    assert result.cf.like_share_judged == 0.5
+    assert result.cf.judged_users == 1
+
+
+def test_unrated_in_test_movie_is_not_judged():
+    result = run(likes(1, 6))  # movie 7 is recommended too but has no test rating
+    assert result.cf.dislike_at_k == 0.0
+    assert result.cf.like_share_judged == 1.0
+    assert result.cf.judged_users == 1
+
+
+def test_user_without_judged_recommendations_is_left_out_of_like_share():
+    # User 1 is judged (like 6, dislike 7: share 0.5); user 2's only test like (8) is not in
+    # their top-2, so user 2 counts in dislike@k but not in the like share average.
+    result = run(likes(1, 6) + [Rating(1, 7, 1.0)] + likes(2, 8))
+    assert result.n_users == 2
+    assert result.cf.judged_users == 1
+    assert result.cf.like_share_judged == 0.5
+    assert result.cf.dislike_at_k == 0.25
+
+
+def test_no_judged_users_gives_zero_like_share():
+    result = run(likes(1, 8))
+    assert result.cf.judged_users == 0
+    assert result.cf.like_share_judged == 0.0

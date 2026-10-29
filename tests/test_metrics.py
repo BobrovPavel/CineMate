@@ -85,3 +85,20 @@ def test_split_zero_fraction_and_validation():
     assert test == [] and len(train) == len(_ratings())
     with pytest.raises(ValueError):
         split_ratings(_ratings(), 1.0)
+
+
+def test_dislike_at_k():
+    from cinemate.evaluation.metrics import dislike_at_k
+
+    assert dislike_at_k([1, 2, 3, 4], {2, 4, 9}, 4) == 0.5
+    assert dislike_at_k([1, 2, 3, 4], {4}, 2) == 0.0  # beyond k
+    assert dislike_at_k([1, 2], {1}, 0) == 0.0
+
+
+def test_like_share_judged_ignores_unrated_and_empty():
+    from cinemate.evaluation.metrics import like_share_judged
+
+    assert like_share_judged([1, 2, 3, 4], {1, 2}, {3}, 4) == pytest.approx(2 / 3)
+    assert like_share_judged([1, 2, 3, 4], {9}, {8}, 4) is None
+    assert like_share_judged([1, 2, 3], {3}, set(), 2) is None  # judged only beyond k
+    assert like_share_judged([1], {1}, set(), 0) is None
