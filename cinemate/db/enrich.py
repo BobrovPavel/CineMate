@@ -1,5 +1,6 @@
 """Refresh movie metadata (titles, overview, poster, runtime) from TMDB into the database."""
 
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -87,14 +88,15 @@ def enrich_movies(
     enriched = not_found = 0
     try:
         by_pair = {(m.tmdb_type, m.tmdb_id): m for m in movies}
-        for pair, details in fetch_many(client, by_pair, workers):
-            if details is None:
-                not_found += 1
-                continue
-            apply_details(session, by_pair[pair], details)
-            enriched += 1
-            if enriched % COMMIT_EVERY == 0:
-                session.commit()
+        with contextlib.closing(fetch_many(client, by_pair, workers)) as fetched:
+            for pair, details in fetched:
+                if details is None:
+                    not_found += 1
+                    continue
+                apply_details(session, by_pair[pair], details)
+                enriched += 1
+                if enriched % COMMIT_EVERY == 0:
+                    session.commit()
     finally:
         session.commit()
     return EnrichStats(enriched, not_found, skipped)

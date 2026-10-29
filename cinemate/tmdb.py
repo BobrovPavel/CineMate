@@ -1,5 +1,6 @@
 """Minimal TMDB client: movie metadata in Russian, multi-search and details by TMDB pair."""
 
+import base64
 import contextlib
 import http.client
 import json
@@ -118,7 +119,22 @@ ConnectionFactory = Callable[[str, float], http.client.HTTPSConnection]
 
 
 def _https_connection(host: str, timeout: float) -> http.client.HTTPSConnection:
-    return http.client.HTTPSConnection(host, timeout=timeout)
+    """HTTPS connection to ``host``, via ``HTTPS_PROXY`` (CONNECT) unless ``NO_PROXY`` skips it."""
+    proxy = urllib.request.getproxies().get("https")
+    if not proxy or urllib.request.proxy_bypass(host):
+        return http.client.HTTPSConnection(host, timeout=timeout)
+    parts = urllib.parse.urlsplit(proxy if "//" in proxy else f"//{proxy}")
+    connection = http.client.HTTPSConnection(
+        parts.hostname or "", parts.port or 8080, timeout=timeout
+    )
+    headers = {}
+    if parts.username:
+        credentials = (
+            f"{urllib.parse.unquote(parts.username)}:{urllib.parse.unquote(parts.password or '')}"
+        )
+        headers["Proxy-Authorization"] = "Basic " + base64.b64encode(credentials.encode()).decode()
+    connection.set_tunnel(host, headers=headers)
+    return connection
 
 
 class PersistentTransport:
@@ -206,6 +222,7 @@ class TmdbClient:
         self._lock = threading.Lock()
         self._next_slot = 0.0
         self._streak_429 = 0
+        self._pause_epoch = 0
 
     def __repr__(self) -> str:
         return "TmdbClient(api_key='***')"
@@ -218,14 +235,22 @@ class TmdbClient:
         if wait > 0:
             self._sleep(wait)
 
-    def _rate_limited(self, retry_after: float) -> None:
-        """Count a 429 and pause every thread for ``retry_after``; raise after too many."""
+    def _rate_limited(self, retry_after: float, epoch: int) -> None:
+        """Pause every thread for ``retry_after`` after a 429 of a request sent in ``epoch``.
+
+        Requests in flight when a pause starts all come back with 429 together; only the first of
+        them counts towards the streak, the rest (older ``epoch``) just keep the pause. The
+        ``max_consecutive_429``-th counted 429 in a row raises.
+        """
         with self._lock:
+            self._next_slot = max(self._next_slot, self._clock() + retry_after)
+            if epoch != self._pause_epoch:
+                return
+            self._pause_epoch += 1
             self._streak_429 += 1
             if self._streak_429 >= self._max_429:
                 self._streak_429 = 0
                 raise TmdbRateLimited(retry_after)
-            self._next_slot = max(self._next_slot, self._clock() + retry_after)
 
     def _succeeded(self) -> None:
         with self._lock:
@@ -245,14 +270,15 @@ class TmdbClient:
         query = urllib.parse.urlencode({"api_key": self._api_key, **params})
         url = f"{API_BASE}{path}?{query}"
         while True:
+            epoch = self._pause_epoch
             try:
                 status, body = self._send(url)
             except TmdbRateLimited as exc:
-                self._rate_limited(exc.retry_after)
+                self._rate_limited(exc.retry_after, epoch)
                 continue
             if status != 429:
                 break
-            self._rate_limited(DEFAULT_RETRY_AFTER)
+            self._rate_limited(DEFAULT_RETRY_AFTER, epoch)
         self._succeeded()
         if status == 404:
             return None

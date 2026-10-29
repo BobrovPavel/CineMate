@@ -7,6 +7,7 @@ run has already stored the best part. Rerunning continues: pairs that are in ``m
 skipped.
 """
 
+import contextlib
 import gzip
 import json
 import os
@@ -184,19 +185,20 @@ def sync_catalog(
     started = clock()
     try:
         popularity = {(tmdb_type, tmdb_id): pop for pop, tmdb_type, tmdb_id in todo}
-        fetched = fetch_many(client, ((t, i) for _, t, i in todo), workers)
-        for done, (pair, details) in enumerate(fetched, start=1):
-            if details is None:
-                not_found += 1
-            else:
-                movie_from_details(session, details).tmdb_popularity = popularity[pair]
-                added += 1
-            if done % COMMIT_EVERY == 0:
-                session.commit()
-            if progress is not None and done % PROGRESS_EVERY == 0:
-                elapsed = clock() - started
-                rate = done / elapsed if elapsed > 0 else 0.0
-                progress(done, len(todo), rate, (len(todo) - done) / rate if rate else None)
+        pairs = ((t, i) for _, t, i in todo)
+        with contextlib.closing(fetch_many(client, pairs, workers)) as fetched:
+            for done, (pair, details) in enumerate(fetched, start=1):
+                if details is None:
+                    not_found += 1
+                else:
+                    movie_from_details(session, details).tmdb_popularity = popularity[pair]
+                    added += 1
+                if done % COMMIT_EVERY == 0:
+                    session.commit()
+                if progress is not None and done % PROGRESS_EVERY == 0:
+                    elapsed = clock() - started
+                    rate = done / elapsed if elapsed > 0 else 0.0
+                    progress(done, len(todo), rate, (len(todo) - done) / rate if rate else None)
     finally:
         session.commit()
     return SyncStats(

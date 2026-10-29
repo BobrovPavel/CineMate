@@ -426,3 +426,40 @@ def test_cli_passes_workers_and_rps(monkeypatch, tmp_path, capsys):
     url = f"sqlite:///{tmp_path / 'db.sqlite'}"
     assert main(["enrich-movies", "--database-url", url, "--workers", "3", "--rps", "30"]) == 0
     assert made == {"requests_per_second": 30.0, "max_consecutive_429": 5}
+
+
+def test_a_burst_of_in_flight_429_counts_once():
+    n = 8
+    barrier = threading.Barrier(n)
+    first = threading.local()
+
+    def http_get(url):
+        if not getattr(first, "done", False):
+            first.done = True
+            barrier.wait(5)  # all requests are in flight before any answer
+            raise TmdbRateLimited(0.0)
+        return 200, b'{"results": []}'
+
+    client = TmdbClient(KEY, http_get=http_get, requests_per_second=35, max_consecutive_429=5)
+    threads = [threading.Thread(target=client.search, args=("a", "en")) for _ in range(n)]
+    errors = []
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert not errors and not any(t.is_alive() for t in threads)
+    assert client._streak_429 == 0
+
+
+def test_https_connection_uses_proxy_tunnel(monkeypatch):
+    from cinemate.tmdb import _https_connection
+
+    proxies = {"https": "http://user:pw@proxy.local:3128"}
+    monkeypatch.setattr("urllib.request.getproxies", lambda: proxies)
+    monkeypatch.setattr("urllib.request.proxy_bypass", lambda host: False)
+    connection = _https_connection("api.themoviedb.org", 5.0)
+    assert (connection.host, connection.port) == ("proxy.local", 3128)
+    assert connection._tunnel_host == "api.themoviedb.org"
+    assert connection._tunnel_headers["Proxy-Authorization"].startswith("Basic ")
+    proxies.clear()
+    assert _https_connection("api.themoviedb.org", 5.0).host == "api.themoviedb.org"

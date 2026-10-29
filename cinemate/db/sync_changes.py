@@ -7,6 +7,7 @@ interrupted run repeats the period; pairs already fetched since the start day ar
 which is also why a second run on the same day asks TMDB for almost nothing.
 """
 
+import contextlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -109,26 +110,25 @@ def sync_changes(
                     budget -= 1
                 todo[tmdb_id] = movie
             pairs = ((tmdb_type, tmdb_id) for tmdb_id in todo)
-            for done, ((_, tmdb_id), details) in enumerate(
-                fetch_many(client, pairs, workers), start=1
-            ):
-                movie = todo[tmdb_id]
-                if details is None:
-                    counts["not_found"] += 1
-                elif movie is not None:
-                    apply_details(session, movie, details)
-                    if details.popularity is not None:
-                        movie.tmdb_popularity = details.popularity
-                    counts["updated"] += 1
-                elif details.popularity is not None and details.popularity < min_popularity:
-                    counts["low"] += 1
-                else:
-                    movie_from_details(session, details)
-                    counts["added"] += 1
-                if done % COMMIT_EVERY == 0:
-                    session.commit()
-                    if progress is not None:
-                        progress(tmdb_type, done, len(todo))
+            with contextlib.closing(fetch_many(client, pairs, workers)) as fetched:
+                for done, ((_, tmdb_id), details) in enumerate(fetched, start=1):
+                    movie = todo[tmdb_id]
+                    if details is None:
+                        counts["not_found"] += 1
+                    elif movie is not None:
+                        apply_details(session, movie, details)
+                        if details.popularity is not None:
+                            movie.tmdb_popularity = details.popularity
+                        counts["updated"] += 1
+                    elif details.popularity is not None and details.popularity < min_popularity:
+                        counts["low"] += 1
+                    else:
+                        movie_from_details(session, details)
+                        counts["added"] += 1
+                    if done % COMMIT_EVERY == 0:
+                        session.commit()
+                        if progress is not None:
+                            progress(tmdb_type, done, len(todo))
             if complete:
                 state = states[tmdb_type]
                 if state is None:
