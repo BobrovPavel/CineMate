@@ -231,6 +231,8 @@ def test_language_cookie_accepts_any_listed_code(monkeypatch):
 
     monkeypatch.setitem(users.LANGUAGES, "de", users.LanguageInfo("de-DE", "world"))
     assert language_from_headers("de", "ru") == "de"
+    assert language_from_headers(None, "de-DE,ru;q=0.5") == "de"
+    assert language_from_headers(None, "fr") == "en"
     assert users.tmdb_language_for("de") == "de-DE"
 
 

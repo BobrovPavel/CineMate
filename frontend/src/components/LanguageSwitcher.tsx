@@ -30,7 +30,12 @@ export function LanguageSwitcher() {
   const [state, dispatch] = useReducer(menuReducer, undefined, initialMenu);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const listId = useId();
+
+  useEffect(() => {
+    if (state.open) listRef.current?.focus();
+  }, [state.open]);
 
   useEffect(() => {
     if (!state.open) return;
@@ -55,7 +60,9 @@ export function LanguageSwitcher() {
       else dispatch({ type: "close" });
       return;
     }
-    if (["ArrowDown", "ArrowUp", "Home", "End", "Enter", " ", "Escape"].includes(event.key)) {
+    // Enter/Space on the closed button are left to its native click.
+    if (!state.open && (event.key === "Enter" || event.key === " ")) return;
+    if (["ArrowDown", "ArrowUp", "Home", "End", "Escape"].includes(event.key)) {
       event.preventDefault();
     }
     dispatch({ type: "key", key: event.key, current: lang });
@@ -71,7 +78,7 @@ export function LanguageSwitcher() {
         aria-haspopup="listbox"
         aria-expanded={state.open}
         aria-controls={state.open ? listId : undefined}
-        aria-label={t("nav.language")}
+        aria-label={`${t("nav.language")}: ${current.name}`}
         onClick={() => dispatch({ type: "toggle", current: lang })}
         className="inline-flex min-h-11 min-w-11 items-center gap-1.5 rounded-lg px-2 text-sm text-gray-800"
       >
@@ -97,7 +104,7 @@ export function LanguageSwitcher() {
           aria-label={t("nav.language")}
           aria-activedescendant={`${listId}-${LANGUAGES[state.active].code}`}
           tabIndex={-1}
-          ref={(el) => el?.focus()}
+          ref={listRef}
           className="absolute right-0 z-10 mt-1 max-w-[calc(100vw-2rem)] min-w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg outline-none"
         >
           {LANGUAGES.map((language, index) => (
@@ -110,7 +117,13 @@ export function LanguageSwitcher() {
               onClick={() => choose(language.code)}
               className={`flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm ${
                 language.code === lang ? "bg-black font-semibold text-white" : "text-gray-800"
-              } ${index === state.active && language.code !== lang ? "bg-gray-100" : ""}`}
+              } ${
+                index === state.active
+                  ? language.code === lang
+                    ? "ring-2 ring-inset ring-gray-400"
+                    : "bg-gray-100"
+                  : ""
+              }`}
             >
               <span aria-hidden="true">{language.flag}</span>
               <span>{language.label}</span>

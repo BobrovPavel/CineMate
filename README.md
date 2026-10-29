@@ -438,8 +438,8 @@ cinemate bench-recommendations [--database-url URL] [--pool world] [--requests 2
 3. API: запись в `LANGUAGES` в `cinemate/services/users.py` с языком поиска TMDB
    (`tmdb_language`, например `de-DE`) и пулом пользователей (`pool`: `ru` или `world`).
 
-Cookie `cinemate_lang` принимает любой код из этих списков; языка браузера хватает для `ru`
-и `en` (прочие дают `en`).
+Cookie `cinemate_lang` принимает любой код из списка. Без cookie берётся основной язык
+браузера, если он есть в списке, иначе `en` (на фронтенде и в API одинаково).
 
 ## Миграции базы
 
