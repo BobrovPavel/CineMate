@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, PositiveInt, StrictInt, field_validator
+from pydantic import BaseModel, Field, PositiveInt, StrictInt, field_validator
 
 
 class SessionOut(BaseModel):
@@ -110,3 +110,21 @@ class SearchResultOut(BaseModel):
 class ResolveIn(BaseModel):
     tmdb_type: Literal["movie", "tv"]
     tmdb_id: PositiveInt
+
+
+class CategoryPrefIn(BaseModel):
+    kind: Literal["collection", "studio", "genre", "anime"]
+    key: str = Field(min_length=1, max_length=64)
+    show: bool
+
+
+class CategoryPrefOut(BaseModel):
+    """A category the rule hides (``show`` false) or the user chose to show; ``disliked`` of
+    ``rated`` is the "N of N"."""
+
+    kind: Literal["collection", "studio", "genre", "anime"]
+    key: str
+    name: str
+    disliked: int
+    rated: int
+    show: bool

@@ -70,6 +70,21 @@ const ru = {
   "profile.restartCancel": "Отмена",
   "profile.restartError": "Не удалось начать заново. Попробуйте ещё раз.",
 
+  "categories.banner": "Опустили ниже:",
+  "categories.count": "вы дизлайкнули {n} из {total}",
+  "categories.show": "Показывать",
+  "categories.hide": "Скрывать",
+  "categories.showLabel": "Показывать категорию «{name}» в ленте",
+  "categories.hideLabel": "Снова опускать категорию «{name}» в ленте",
+  "categories.title": "Скрытые категории",
+  "categories.hint":
+    "Если вы дизлайкнули категорию целиком, её фильмы опускаются ниже в ленте. Вы можете вернуть их.",
+  "categories.empty": "Пока ничего не скрыто.",
+  "categories.shown": "показываем",
+  "categories.hidden": "опущена ниже",
+  "categories.saveError": "Не удалось сохранить выбор. Попробуйте ещё раз.",
+  "categories.loadError": "Не удалось загрузить скрытые категории.",
+
   "search.title": "Поиск",
   "search.label": "Название фильма или сериала",
   "search.hint": "Введите хотя бы два символа, чтобы найти фильм или сериал.",
@@ -153,6 +168,21 @@ const en: Record<MessageKey, string> = {
     "Your ratings on this device will be lost.",
   "profile.restartCancel": "Cancel",
   "profile.restartError": "Could not start over. Please try again.",
+
+  "categories.banner": "Moved down:",
+  "categories.count": "you disliked {n} of {total}",
+  "categories.show": "Show",
+  "categories.hide": "Hide",
+  "categories.showLabel": "Show the category “{name}” in the feed",
+  "categories.hideLabel": "Move the category “{name}” down in the feed again",
+  "categories.title": "Hidden categories",
+  "categories.hint":
+    "If you disliked a whole category, its movies are moved lower in the feed. You can bring them back.",
+  "categories.empty": "Nothing is hidden yet.",
+  "categories.shown": "shown",
+  "categories.hidden": "moved down",
+  "categories.saveError": "Could not save your choice. Please try again.",
+  "categories.loadError": "Could not load hidden categories.",
 
   "search.title": "Search",
   "search.label": "Movie or TV show title",

@@ -5,6 +5,8 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from cinemate.recommender.categories import CategoryThresholds
+
 
 @dataclass(frozen=True)
 class RecommenderSettings:
@@ -25,13 +27,24 @@ class RecommenderSettings:
     blend_full_at: float = 0.0
     taste_weight: float = 0.5
     taste_interest_weight: float = 0.5
+    dislike_item_weight: float = 0.5
+    dislike_item_min_ratings: int = 50
+    hide_studio_max_movies: int = 150
+    hide_dislikes_collection: int = 3
+    hide_dislikes_studio: int = 3
+    hide_dislikes_anime: int = 3
+    hide_dislikes_genre: int = 5
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "RecommenderSettings":
         """Read ``REC_K``, ``REC_LAMBDA``, ``REC_MIN_OVERLAP``, ``REC_POP_PENALTY``,
         ``REC_SIGNIFICANCE``, ``REC_BLEND_FULL_AT`` (0 turns the hybrid off),
         ``REC_MIN_USER_RATINGS``, ``REC_FALLBACK_POOL_FACTOR``, ``REC_TASTE_WEIGHT`` (``gamma``
-        of the taste re-ranking, 0 turns it off) and ``REC_TASTE_INTEREST_WEIGHT`` (``w_i``).
+        of the taste re-ranking, 0 turns it off), ``REC_TASTE_INTEREST_WEIGHT`` (``w_i``),
+        ``REC_DISLIKE_ITEM_WEIGHT`` (``epsilon`` of the similarity-to-disliked penalty, 0 turns it
+        off), ``REC_DISLIKE_ITEM_MIN_RATINGS``, ``REC_HIDE_STUDIO_MAX_MOVIES`` and
+        ``REC_HIDE_DISLIKES_COLLECTION`` / ``_STUDIO`` / ``_ANIME`` / ``_GENRE`` (dislikes that
+        hide a category).
 
         Empty or missing variables keep the defaults; invalid ones raise ``ValueError``
         naming the variable.
@@ -64,6 +77,62 @@ class RecommenderSettings:
                 lambda v: v >= 0,
                 ">= 0",
             ),
+            dislike_item_weight=_read(
+                env,
+                "REC_DISLIKE_ITEM_WEIGHT",
+                float,
+                default.dislike_item_weight,
+                lambda v: v >= 0,
+                ">= 0",
+            ),
+            dislike_item_min_ratings=_read(
+                env,
+                "REC_DISLIKE_ITEM_MIN_RATINGS",
+                int,
+                default.dislike_item_min_ratings,
+                lambda v: v >= 1,
+                ">= 1",
+            ),
+            hide_studio_max_movies=_read(
+                env,
+                "REC_HIDE_STUDIO_MAX_MOVIES",
+                int,
+                default.hide_studio_max_movies,
+                lambda v: v >= 1,
+                ">= 1",
+            ),
+            hide_dislikes_collection=_read(
+                env,
+                "REC_HIDE_DISLIKES_COLLECTION",
+                int,
+                default.hide_dislikes_collection,
+                lambda v: v >= 1,
+                ">= 1",
+            ),
+            hide_dislikes_studio=_read(
+                env,
+                "REC_HIDE_DISLIKES_STUDIO",
+                int,
+                default.hide_dislikes_studio,
+                lambda v: v >= 1,
+                ">= 1",
+            ),
+            hide_dislikes_anime=_read(
+                env,
+                "REC_HIDE_DISLIKES_ANIME",
+                int,
+                default.hide_dislikes_anime,
+                lambda v: v >= 1,
+                ">= 1",
+            ),
+            hide_dislikes_genre=_read(
+                env,
+                "REC_HIDE_DISLIKES_GENRE",
+                int,
+                default.hide_dislikes_genre,
+                lambda v: v >= 1,
+                ">= 1",
+            ),
             min_user_ratings=_read(
                 env, "REC_MIN_USER_RATINGS", int, default.min_user_ratings, lambda v: v >= 1, ">= 1"
             ),
@@ -75,6 +144,16 @@ class RecommenderSettings:
                 lambda v: v >= 1,
                 ">= 1",
             ),
+        )
+
+    @property
+    def category_thresholds(self) -> CategoryThresholds:
+        return CategoryThresholds(
+            collection=self.hide_dislikes_collection,
+            studio=self.hide_dislikes_studio,
+            anime=self.hide_dislikes_anime,
+            genre=self.hide_dislikes_genre,
+            studio_max_movies=self.hide_studio_max_movies,
         )
 
 

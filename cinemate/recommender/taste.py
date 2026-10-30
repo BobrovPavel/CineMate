@@ -48,6 +48,7 @@ class MovieFeatures:
     language: str | None = None  # ISO 639-1 original language
     year: int | None = None
     collection_id: int | None = None
+    companies: tuple[int, ...] = ()  # production company (studio) ids
 
 
 def movie_groups(features: MovieFeatures) -> Groups:
@@ -77,6 +78,8 @@ class TasteData:
     base: dict[FeatureKey, float]
     primary_genre: list[int | None]
     collection: list[int | None]
+    companies: list[tuple[int, ...]] = field(default_factory=list)
+    company_sizes: dict[int, int] = field(default_factory=dict)  # company id -> columns it has
 
 
 def build_taste_data(features: Sequence[MovieFeatures], likes: np.ndarray) -> TasteData:
@@ -101,11 +104,14 @@ def build_taste_data(features: Sequence[MovieFeatures], likes: np.ndarray) -> Ta
             primary.append(min(f.genres, key=lambda g: (base.get((GENRE, g), 0.0), g)))
         else:
             primary.append(None)
+    company_sizes: Counter[int] = Counter(c for f in features for c in set(f.companies))
     return TasteData(
         groups=groups,
         base=base,
         primary_genre=primary,
         collection=[f.collection_id for f in features],
+        companies=[tuple(f.companies) for f in features],
+        company_sizes=dict(company_sizes),
     )
 
 
@@ -181,9 +187,18 @@ def zscore(values: Sequence[float]) -> np.ndarray:
     return (array - array.mean()) / std if std > 0 else np.zeros_like(array)
 
 
-def rerank(cf_scores: Sequence[float], taste_scores: Sequence[float], weight: float) -> list[int]:
-    """Positions ordered by ``z(cf) + weight * z(taste)`` descending (ties keep the CF order)."""
+def rerank(
+    cf_scores: Sequence[float],
+    taste_scores: Sequence[float],
+    weight: float,
+    penalties: Sequence[float] | None = None,
+    penalty_weight: float = 0.0,
+) -> list[int]:
+    """Positions ordered by ``z(cf) + weight * z(taste) - penalty_weight * z(penalty)``
+    descending (ties keep the CF order)."""
     combined = zscore(cf_scores) + weight * zscore(taste_scores)
+    if penalties is not None and penalty_weight > 0:
+        combined = combined - penalty_weight * zscore(penalties)
     return sorted(range(len(combined)), key=lambda i: (-combined[i], i))
 
 
@@ -251,12 +266,15 @@ def rerank_candidates(
     weight: float,
     interest_weight: float = DEFAULT_INTEREST_WEIGHT,
     not_interested: Iterable[int] = (),
+    penalties: Sequence[float] | None = None,
+    penalty_weight: float = 0.0,
 ) -> tuple[list[tuple[int, float]], TasteProfile]:
     """Re-rank CF ``(column, score)`` candidates for the user whose matrix row is ``row``.
 
     The profile is built from the row's likes and dislikes (``+1`` / ``-1``) and the
     ``not_interested`` columns; the order is :func:`rerank` followed by :func:`diversify`.
-    Returns the new order (scores unchanged) and the profile.
+    ``penalties[i]`` (e.g. the similarity to disliked movies) of candidate ``i`` is subtracted
+    as ``penalty_weight * z(penalty)``. Returns the new order (scores unchanged) and the profile.
     """
     profile = build_profile(
         data,
@@ -266,7 +284,7 @@ def rerank_candidates(
         interest_weight=interest_weight,
     )
     tastes = [taste_score(profile, data.groups[j]) for j, _ in candidates]
-    order = rerank([score for _, score in candidates], tastes, weight)
+    order = rerank([score for _, score in candidates], tastes, weight, penalties, penalty_weight)
     order = diversify(
         order,
         lambda i: data.primary_genre[candidates[i][0]],

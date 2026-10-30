@@ -15,7 +15,15 @@ from sqlalchemy.orm import Session
 
 from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.models import Genre, Movie, Rating, SeenMark, User
+from cinemate.db.models import Genre, Movie, Rating, SeenMark, User, UserCategoryPref
+from cinemate.recommender.categories import (
+    category_stats,
+    column_categories,
+    demote,
+    dislike_similarity,
+    disliked_columns,
+    triggered_categories,
+)
 from cinemate.recommender.explain import explain
 from cinemate.recommender.matrix import RatingsMatrix
 from cinemate.recommender.similarity import find_neighbors
@@ -110,7 +118,7 @@ def _reason_name(key: FeatureKey, genre_names: dict[int, str], language: str) ->
     return names[0 if ru else 1] if names else None
 
 
-def _with_fresh_row(session: Session, data: RatingsMatrix, user: User) -> tuple[csr_matrix, int]:
+def with_fresh_row(session: Session, data: RatingsMatrix, user: User) -> tuple[csr_matrix, int]:
     """Return the cached matrix with ``user``'s row taken from the database, and its index.
 
     The cached matrix may be older than the user's latest ratings. The row is replaced (or
@@ -176,7 +184,7 @@ def get_recommendations(
         return RecommendationsResult(strategy="fallback", items=[])
 
     data = store.get(user.pool)
-    matrix, user_index = _with_fresh_row(session, data, user)
+    matrix, user_index = with_fresh_row(session, data, user)
 
     marks = session.execute(
         select(SeenMark.movie_id, SeenMark.type).where(
@@ -200,9 +208,30 @@ def get_recommendations(
             significance=settings.significance,
         )
 
-    taste = data.taste if settings.taste_weight > 0 else None
+    taste = data.taste
+    row = matrix[user_index]
+    hidden: set[tuple[str, str]] = set()
+    if taste is not None:
+        shown = {
+            (kind, key)
+            for kind, key in session.execute(
+                select(UserCategoryPref.kind, UserCategoryPref.key).where(
+                    UserCategoryPref.user_id == user.id, UserCategoryPref.mode == "show"
+                )
+            )
+        }
+        thresholds = settings.category_thresholds
+        stats = category_stats(taste, row, thresholds.studio_max_movies)
+        hidden = triggered_categories(stats, thresholds) - shown
+    disliked_cols = disliked_columns(row)
+    penalty_on = (
+        settings.dislike_item_weight > 0
+        and bool(disliked_cols)
+        and row.nnz >= settings.dislike_item_min_ratings
+    )
+    rerank_on = taste is not None and (settings.taste_weight > 0 or penalty_on)
     # Over-fetch so that filtering excluded movies still leaves ``limit`` items.
-    wanted = max(limit, CANDIDATES) if taste is not None else limit
+    wanted = max(limit, CANDIDATES) if rerank_on or hidden else limit
     rec = recommend_with_strategy(
         matrix,
         user_index,
@@ -221,8 +250,7 @@ def get_recommendations(
     candidates = [(j, s) for j, s in rec.items if j not in excluded_cols][:wanted]
 
     profile = None
-    if taste is not None and rec.strategy == "collaborative" and candidates:
-        row = matrix[user_index]
+    if rerank_on and taste is not None and rec.strategy == "collaborative" and candidates:
         rated = set(row.indices.tolist())
         candidates, profile = rerank_candidates(
             taste,
@@ -237,6 +265,16 @@ def get_recommendations(
                 and data.movie_ids[j] == movie_id
                 and j not in rated
             ],
+            penalties=dislike_similarity(matrix, [j for j, _ in candidates], disliked_cols)
+            if penalty_on
+            else None,
+            penalty_weight=settings.dislike_item_weight,
+        )
+    if hidden and taste is not None:
+        studio_max = settings.hide_studio_max_movies
+        candidates = demote(
+            candidates,
+            lambda c: any(key in hidden for key in column_categories(taste, c[0], studio_max)),
         )
     picked = candidates[:limit]
 
@@ -258,7 +296,7 @@ def get_recommendations(
     movies = {m.id: m for m in session.scalars(select(Movie).where(Movie.id.in_(needed)))}
 
     reasons: dict[int, TasteReason] = {}
-    if profile is not None and taste is not None:
+    if profile is not None and taste is not None and settings.taste_weight > 0:
         genre_names = {
             g.id: (g.name_ru if language == "ru" else g.name_en)
             for g in session.scalars(select(Genre))

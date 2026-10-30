@@ -103,3 +103,21 @@ def test_store_caches_content_features_of_the_columns(factory):
     assert taste.groups[1] == ()  # movie 2 has no features
     assert taste.base[("genre", 14)] == pytest.approx(2 / 3)  # movie 1 holds 2 of 3 likes
     assert taste.primary_genre == [14, None]
+
+
+def test_store_caches_studios_and_their_sizes(factory):
+    from cinemate.db.models import Company, MovieCompany
+
+    _seed(factory, [(1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 1, 1)])
+    with factory() as s:
+        s.add_all([Company(id=1, name="Marvel Studios"), Company(id=2, name="Warner")])
+        s.flush()
+        s.add_all(
+            [MovieCompany(movie_id=m, company_id=2) for m in (1, 2, 3)]
+            + [MovieCompany(movie_id=1, company_id=1)]
+        )
+        s.commit()
+    taste = MatrixStore(factory).get().taste
+    assert taste is not None
+    assert taste.companies == [(1, 2), (2,), (2,)]
+    assert taste.company_sizes == {1: 1, 2: 3}

@@ -128,3 +128,42 @@ def test_taste_settings():
     assert (parsed.taste_weight, parsed.taste_interest_weight) == (0.0, 0.25)
     with pytest.raises(ValueError, match="REC_TASTE_WEIGHT"):
         RecommenderSettings.from_env({"REC_TASTE_WEIGHT": "-1"})
+
+
+def test_category_rule_and_dislike_item_settings():
+    s = RecommenderSettings()
+    assert (s.dislike_item_weight, s.dislike_item_min_ratings) == (0.5, 50)
+    assert s.category_thresholds.studio_max_movies == 150
+    assert (
+        s.category_thresholds.collection,
+        s.category_thresholds.studio,
+        s.category_thresholds.anime,
+        s.category_thresholds.genre,
+    ) == (3, 3, 3, 5)
+    parsed = RecommenderSettings.from_env(
+        {
+            "REC_DISLIKE_ITEM_WEIGHT": "0",
+            "REC_DISLIKE_ITEM_MIN_RATINGS": "30",
+            "REC_HIDE_STUDIO_MAX_MOVIES": "100",
+            "REC_HIDE_DISLIKES_COLLECTION": "4",
+            "REC_HIDE_DISLIKES_STUDIO": "5",
+            "REC_HIDE_DISLIKES_ANIME": "6",
+            "REC_HIDE_DISLIKES_GENRE": "7",
+        }
+    )
+    assert (parsed.dislike_item_weight, parsed.dislike_item_min_ratings) == (0.0, 30)
+    assert parsed.category_thresholds.studio_max_movies == 100
+    assert (
+        parsed.category_thresholds.collection,
+        parsed.category_thresholds.studio,
+        parsed.category_thresholds.anime,
+        parsed.category_thresholds.genre,
+    ) == (4, 5, 6, 7)
+
+
+@pytest.mark.parametrize(
+    "name", ["REC_DISLIKE_ITEM_WEIGHT", "REC_HIDE_STUDIO_MAX_MOVIES", "REC_HIDE_DISLIKES_GENRE"]
+)
+def test_category_rule_settings_invalid(name):
+    with pytest.raises(ValueError, match=name):
+        RecommenderSettings.from_env({name: "-1"})

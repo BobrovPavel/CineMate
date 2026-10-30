@@ -21,6 +21,15 @@ from cinemate.evaluation.metrics import (
     precision_at_k,
 )
 from cinemate.movielens import Rating
+from cinemate.recommender.categories import (
+    CategoryKey,
+    category_stats,
+    column_categories,
+    demote,
+    dislike_similarity,
+    disliked_columns,
+    triggered_categories,
+)
 from cinemate.recommender.hybrid import recommend_hybrid
 from cinemate.recommender.item_based import recommend_item_based
 from cinemate.recommender.matrix import build_matrix
@@ -366,7 +375,10 @@ def evaluate(
     With ``features`` (movie id -> :class:`MovieFeatures`) a ``cf+taste`` baseline is added: the
     same CF lists, but ``CANDIDATES`` candidates are re-ranked by the taste profile and
     diversified as on the site, with ``settings.taste_weight`` and
-    ``settings.taste_interest_weight``.
+    ``settings.taste_interest_weight``. ``cf+taste+rule`` adds the rule for categories the user
+    disliked entirely (moved below the 20th place) and the penalty for similarity to disliked
+    movies (users with ``settings.dislike_item_min_ratings`` ratings); MovieLens features have
+    only genres, so only the genre category can trigger there.
     """
     if new_user_ratings is not None and new_user_ratings < 1:
         raise ValueError("new_user_ratings must be at least 1")
@@ -487,7 +499,9 @@ def evaluate(
         else None
     )
 
-    def cf_taste(u: int, exclude: set[int]) -> list[int]:
+    def cf_taste(u: int, exclude: set[int], rule: bool = False) -> list[int]:
+        """CF + taste re-ranking; with ``rule`` also the hidden categories and the penalty for
+        similarity to disliked movies, as ``get_recommendations`` does."""
         assert taste_data is not None
         recs = recommend(
             matrix,
@@ -500,13 +514,39 @@ def evaluate(
             significance=significance,
         )
         candidates = [(m, s) for m, s in recs if m not in exclude][:CANDIDATES]
-        if settings.taste_weight > 0 and candidates:
+        row = matrix[u]
+        thresholds = settings.category_thresholds
+        hidden: set[CategoryKey] = set()
+        penalties = None
+        if rule:
+            hidden = triggered_categories(
+                category_stats(taste_data, row, thresholds.studio_max_movies), thresholds
+            )
+            disliked_cols = disliked_columns(row)
+            if (
+                settings.dislike_item_weight > 0
+                and disliked_cols
+                and row.nnz >= settings.dislike_item_min_ratings
+                and candidates
+            ):
+                penalties = dislike_similarity(matrix, [m for m, _ in candidates], disliked_cols)
+        if (settings.taste_weight > 0 or penalties is not None) and candidates:
             candidates, _ = rerank_candidates(
                 taste_data,
-                matrix[u],
+                row,
                 candidates,
                 settings.taste_weight,
                 settings.taste_interest_weight,
+                penalties=penalties,
+                penalty_weight=settings.dislike_item_weight,
+            )
+        if hidden:
+            candidates = demote(
+                candidates,
+                lambda c: any(
+                    key in hidden
+                    for key in column_categories(taste_data, c[0], thresholds.studio_max_movies)
+                ),
             )
         return [m for m, _ in candidates][:top_n]
 
@@ -523,7 +563,14 @@ def evaluate(
         "product": product,
         "item_based": item_based,
         **{f"hybrid(T={t:g})": hybrid(t) for t in blend_full_at},
-        **({"cf+taste": cf_taste} if taste_data is not None else {}),
+        **(
+            {
+                "cf+taste": cf_taste,
+                "cf+taste+rule": lambda u, exclude: cf_taste(u, exclude, rule=True),
+            }
+            if taste_data is not None
+            else {}
+        ),
     }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}

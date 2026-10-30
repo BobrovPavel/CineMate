@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { HiddenCategoriesSection } from "@/components/HiddenCategoriesSection";
 import {
   ApiError,
   fetchProfile,
@@ -137,6 +138,8 @@ export default function ProfilePage() {
           </div>
         )}
       </section>
+
+      <HiddenCategoriesSection />
 
       {message && (
         <div
