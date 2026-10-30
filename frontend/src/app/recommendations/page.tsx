@@ -249,6 +249,7 @@ export default function RecommendationsPage() {
                   gone ? "scale-95 opacity-0" : "opacity-100"
                 }`}
               >
+                <Link href={`/movies/${item.movie.id}`} aria-label={primary} tabIndex={-1} className="block">
                 <div className="aspect-[2/3] w-full overflow-hidden rounded-xl bg-gray-200">
                   {item.movie.poster_path ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -268,11 +269,12 @@ export default function RecommendationsPage() {
                     </div>
                   )}
                 </div>
+                </Link>
                 <h2
                   title={primary}
                   className="line-clamp-2 min-h-14 text-lg leading-7 font-semibold break-words"
                 >
-                  {primary}
+                  <Link href={`/movies/${item.movie.id}`}>{primary}</Link>
                 </h2>
                 <p
                   title={secondary ?? undefined}

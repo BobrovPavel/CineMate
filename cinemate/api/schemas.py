@@ -46,6 +46,58 @@ class MovieCard(BaseModel):
     runtime: int | None
 
 
+class PersonOut(BaseModel):
+    id: int
+    name: str
+
+
+class CastOut(BaseModel):
+    id: int
+    name: str
+    character: str | None
+    profile_path: str | None
+
+
+class RatingSourceOut(BaseModel):
+    source: str
+    label: str
+    value: float
+    scale: Literal["10", "%"]
+    votes: int | None
+    url: str | None
+
+
+class MovieDetail(MovieCard):
+    """The movie page: the card plus titles by language, credits, ratings and the user's reaction.
+
+    ``countries`` are ISO 3166-1 codes (the frontend names them); ``budget`` and ``revenue``
+    are set only for movies and only when above 0.
+    """
+
+    display_title: str
+    second_title: str | None
+    type: Literal["movie", "tv"]
+    number_of_seasons: int | None
+    number_of_episodes: int | None
+    tagline: str | None
+    certification: str | None
+    keywords: list[str]
+    studios: list[str]
+    countries: list[str]
+    collection: str | None
+    budget: int | None
+    revenue: int | None
+    directors: list[PersonOut]
+    writers: list[PersonOut]
+    producers: list[PersonOut]
+    composers: list[PersonOut]
+    creators: list[PersonOut]
+    cast: list[CastOut]
+    ratings: list[RatingSourceOut]
+    user_value: Literal[1, -1] | None
+    user_mark: Literal["not_seen", "watched", "not_interested"] | None
+
+
 class BecauseOf(BaseModel):
     movie_id: int
     title: str

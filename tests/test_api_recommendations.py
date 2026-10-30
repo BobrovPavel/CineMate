@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from cinemate.api.app import create_app
+from cinemate.api.schemas import MovieCard, MovieDetail
 from cinemate.config import RecommenderSettings
 from cinemate.db.models import Event, Movie, Rating, User
 
@@ -98,7 +99,11 @@ def test_movie_detail(client):
     assert body["title"] == "M3"
     assert body["title_ru"] is None
     assert body["year"] == 2003
-    assert set(body) == {
+    assert set(MovieCard.model_fields) <= set(body)
+    assert set(body) - set(MovieCard.model_fields) == set(MovieDetail.model_fields) - set(
+        MovieCard.model_fields
+    )
+    assert {
         "id",
         "title",
         "title_ru",
@@ -108,7 +113,7 @@ def test_movie_detail(client):
         "poster_path",
         "genres",
         "runtime",
-    }
+    } <= set(body)
 
 
 def test_movie_not_found(client):
