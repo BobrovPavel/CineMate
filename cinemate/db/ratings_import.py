@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.binarize import Binarizer
 from cinemate.db.catalog import CatalogConflict, find_movie, import_from_tmdb, link, merge_movies
+from cinemate.db.external_ratings import upsert_external_ratings
 from cinemate.db.features import has_genres, set_legacy_genres
 from cinemate.db.models import Movie, MovieExternalId, Rating, TmdbLookup, User
 from cinemate.db.popularity import update_popularity
@@ -76,7 +77,9 @@ def import_ratings_csv(
     are skipped. TMDB answers of those steps are cached in ``tmdb_lookups``.
     Users are created (``is_synthetic``, no names) when they get at least one rating. Ratings the
     binarizer discards, ratings of skipped movies and existing (user, movie) pairs are not
-    (re)added. With ``types`` only movies of those types (case-insensitive) are imported.
+    (re)added. ``kp_rating`` is stored in ``external_ratings`` (source ``kinopoisk``) for each
+    matched movie and refreshed on a repeated import. With ``types`` only movies of those types
+    (case-insensitive) are imported.
     """
     wanted = {t.strip().lower() for t in types} if types is not None else None
     movie_rows: dict[str, CsvRow] = {}
@@ -208,6 +211,15 @@ def import_ratings_csv(
         existing.add((user.id, movie_id))
         session.add(Rating(user_id=user.id, movie_id=movie_id, value=value))
         ratings_added += 1
+
+    kinopoisk: dict[int, tuple[float, int | None]] = {}
+    for key, row in movie_rows.items():
+        movie_id = movies.get(key)
+        while movie_id in redirect:
+            movie_id = redirect[movie_id]
+        if movie_id is not None and row.kp_rating is not None:
+            kinopoisk[movie_id] = (row.kp_rating, None)
+    upsert_external_ratings(session, "kinopoisk", kinopoisk)
 
     session.flush()
     popularity_updated = update_popularity(session)
@@ -440,6 +452,7 @@ def _fill_gaps(first: CsvRow, other: CsvRow) -> CsvRow:
         type=first.type or other.type,
         year=first.year if first.year is not None else other.year,
         genres=first.genres or other.genres,
+        kp_rating=first.kp_rating if first.kp_rating is not None else other.kp_rating,
     )
 
 

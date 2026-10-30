@@ -5,7 +5,7 @@ from cinemate.binarize import RelativeMeanBinarizer
 from cinemate.cli import main
 from cinemate.db.catalog import link
 from cinemate.db.features import genre_names_by_movie
-from cinemate.db.models import Movie, Rating, User
+from cinemate.db.models import ExternalRating, Movie, Rating, User
 from cinemate.db.ratings_import import import_ratings_csv, normalize_title
 from cinemate.db.session import create_all, make_engine
 from cinemate.ratings_csv import load_ratings
@@ -270,3 +270,32 @@ def test_cli_types_and_threshold(tmp_path, capsys):
     assert "no ratings" in capsys.readouterr().err
     assert main([*base, "--types", "Film", "--rel-threshold", "6"]) == 0
     assert "ratings added: 0" in capsys.readouterr().out
+
+
+def _kp_ratings(session):
+    return {
+        (r.movie_id, r.source): (r.value, r.votes) for r in session.scalars(select(ExternalRating))
+    }
+
+
+def test_kp_rating_is_stored_and_refreshed(tmp_path):
+    session = _session()
+    body = "9,77,Жара,Heat,Film,1995,,7.9,10\n" + _enough()
+    _run(session, _write(tmp_path, body))
+    heat = session.scalars(select(Movie).where(Movie.external_ratings_id == 77)).one()
+    assert _kp_ratings(session) == {(heat.id, "kinopoisk"): (7.9, None)}
+    _run(session, _write(tmp_path, body.replace(",7.9,", ",8.2,")))
+    assert _kp_ratings(session) == {(heat.id, "kinopoisk"): (8.2, None)}
+
+
+def test_kp_rating_of_merged_movie_goes_to_the_survivor(tmp_path):
+    session = _session()
+    movie = _movielens_movie(session)
+    _run(session, _write(tmp_path, "9,77,Жара,Heat,Film,1995,,7.9,10\n" + _enough()))
+    assert _kp_ratings(session) == {(movie.id, "kinopoisk"): (7.9, None)}
+
+
+def test_empty_kp_rating_stores_nothing(tmp_path):
+    session = _session()
+    _run(session, _write(tmp_path, _enough()))
+    assert _kp_ratings(session) == {}

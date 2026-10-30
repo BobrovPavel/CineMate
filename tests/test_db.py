@@ -44,6 +44,7 @@ def test_create_all_makes_tables():
         "user_category_prefs",
         "people",
         "movie_credits",
+        "external_ratings",
         "keywords",
         "movie_keywords",
     }

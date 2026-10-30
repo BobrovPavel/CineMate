@@ -201,6 +201,27 @@ cinemate evaluate --dataset ml-32m --min-user-ratings 50 --max-users 5000
 GroupLens (F. Maxwell Harper and Joseph A. Konstan, *The MovieLens Datasets: History and Context*,
 ACM TiiS 5(4), 2015).
 
+### `cinemate import-imdb-ratings`
+
+Сохраняет рейтинг IMDb (`averageRating`, `numVotes`) фильмов, у которых есть IMDb ID
+(`movie_external_ids`, источник `imdb`), в таблицу `external_ratings`.
+
+```
+cinemate import-imdb-ratings --database-url sqlite:///cinemate.db
+cinemate import-imdb-ratings --file title.ratings.tsv.gz   # свой файл, без загрузки
+```
+
+Без `--file` команда скачивает официальную выгрузку
+<https://datasets.imdbws.com/title.ratings.tsv.gz> (около 9 МБ, обновляется ежедневно) в
+`data/imdb/`; файл, скачанный сегодня, повторно не качается. Выгрузка читается потоком, записи
+идут пачками; повторный запуск не создаёт дублей и меняет только изменившиеся значения. Итог:
+`rows in dataset: N, matched: M, updated: K`. Рекомендация: раз в неделю вместе с `enrich-movies`.
+
+Рейтинг Кинопоиска из колонки `kp_rating` CSV сохраняет `import-ratings-csv` (источник
+`kinopoisk`, без числа голосов). Он **не показывается**, пока не задана переменная окружения
+`SHOW_KINOPOISK_RATING=1`: публичный показ рейтинга Кинопоиска ограничен его условиями,
+решение за владельцем.
+
 ### `cinemate enrich-movies`
 
 Обновляет данные фильмов и сериалов с парой TMDB (`tmdb_type`, `tmdb_id`): названия
@@ -306,6 +327,7 @@ cinemate import-ratings-csv --file data/ratings.csv [--types Film,TvSeries] [--r
 | Переменная     | Назначение                                                        |
 | -------------- | ----------------------------------------------------------------- |
 | `TMDB_API_KEY` | ключ TMDB API для `enrich-movies` и поиска в API (`serve`)        |
+| `SHOW_KINOPOISK_RATING` | `1` — показывать рейтинг Кинопоиска в карточке фильма (по умолчанию выключено) |
 | `DATABASE_URL` | URL БД для `import-movielens`, `import-ratings-csv`, `enrich-movies`, `metrics`, `serve` |
 
 URL базы данных выбирается так: аргумент `--database-url` → переменная `DATABASE_URL` →
@@ -846,6 +868,16 @@ pytest
   Официальный логотип TMDB (короткий вариант, без изменений) лежит в `frontend/public/tmdb-logo.svg`,
   скачан со страницы <https://www.themoviedb.org/about/logos-attribution> и показан в подвале сайта.
 
+- **IMDb** — рейтинги берутся только из официальных выгрузок
+  (<https://datasets.imdbws.com/>, <https://developer.imdb.com/non-commercial-datasets/>).
+  Условия ([Can I use IMDb data in my software?](https://help.imdb.com/article/imdb/general-information/can-i-use-imdb-data-in-my-software/G5JTRESSHJBBHTGX),
+  [IMDb Conditions of Use](https://www.imdb.com/conditions)): данные только для личного и
+  некоммерческого использования, нельзя изменять, перепубликовывать, перепродавать или
+  составлять из них собственную базу сведений о фильмах (кроме личного использования), нельзя
+  собирать данные с сайта IMDb. CineMate — некоммерческий проект и хранит из выгрузки только
+  рейтинг и число голосов; строка об источнике есть в подвале сайта.
+- **Кинопоиск** — колонка `kp_rating` из CSV владельца хранится, но не показывается без
+  `SHOW_KINOPOISK_RATING=1`; к сайту Кинопоиска проект не обращается.
 - **Wikidata** — соответствие идентификаторов Кинопоиска, TMDB и IMDb; данные под CC0, атрибуция не требуется.
 
 Открытые вопросы про лицензии данных — в [docs/VISION.md](docs/VISION.md).
