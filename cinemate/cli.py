@@ -53,7 +53,12 @@ from cinemate.evaluation.tune import format_tune_table, tune
 from cinemate.movielens import Rating, iter_ratings, parse_ratings
 from cinemate.ratings_csv import CSV_MIN_RATINGS, load_ratings
 from cinemate.recommender.taste import MovieFeatures
-from cinemate.services.metrics import good_session_rate, good_session_rate_by_strategy, retention_7d
+from cinemate.services.metrics import (
+    good_session_rate,
+    good_session_rate_by_strategy,
+    metrics_by_variant,
+    retention_7d,
+)
 from cinemate.tmdb import (
     BULK_CONSECUTIVE_429,
     DEFAULT_RPS,
@@ -628,6 +633,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="only count events at or after this ISO date/time, e.g. 2026-10-01 "
         "(UTC if no zone); affects good session rates, not retention",
     )
+    me.add_argument(
+        "--by-variant",
+        action="store_true",
+        help="also print metrics per A/B variant (REC_AB_VARIANTS): users, sessions, good "
+        "session rate, like/dislike ratio, 'not interested' share, 7-day retention",
+    )
     mg = sub.add_parser("migrate", help="apply database migrations (alembic upgrade head)")
     mg.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
     mg.add_argument(
@@ -723,10 +734,21 @@ def _run_metrics(args: argparse.Namespace) -> int:
         overall = good_session_rate(session, args.since)
         by_strategy = good_session_rate_by_strategy(session, args.since)
         retention = retention_7d(session)
+        variants = metrics_by_variant(session, args.since) if args.by_variant else {}
     print(f"good session rate: {overall.rate:.4f} ({overall.good}/{overall.total} sessions)")
     for strategy, rate in by_strategy.items():
         print(f"  {strategy}: {rate.rate:.4f} ({rate.good}/{rate.total})")
     print(f"7-day retention: {retention:.4f}")
+    if args.by_variant:
+        print("by variant:" if variants else "by variant: no sessions")
+    for name, m in variants.items():
+        ratio = "n/a" if m.like_dislike_ratio is None else f"{m.like_dislike_ratio:.2f}"
+        print(
+            f"  {name}: users {m.users}, sessions {m.sessions}, "
+            f"good session rate {m.good_session_rate:.4f} ({m.good_sessions}/{m.sessions}), "
+            f"likes/dislikes {ratio} ({m.likes}/{m.dislikes}), "
+            f"not interested {m.not_interested_share:.4f}, 7-day retention {m.retention_7d:.4f}"
+        )
     return 0
 
 

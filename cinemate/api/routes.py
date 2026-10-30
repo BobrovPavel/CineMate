@@ -37,6 +37,7 @@ from cinemate.db.catalog import import_from_tmdb
 from cinemate.db.features import genre_names_by_movie
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, User
+from cinemate.services.ab import assign_variant, settings_for_variant
 from cinemate.services.categories import get_category_prefs, set_category_pref
 from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
@@ -217,17 +218,21 @@ def recommendations(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> RecommendationsOut:
     """Recommendations with explanations; each call is a new session with logged impressions."""
+    settings = request.app.state.recommender_settings
+    variant = assign_variant(settings, user.id)
     result = get_recommendations(
         session,
         store,
         user,
         limit=limit,
-        settings=request.app.state.recommender_settings,
+        settings=settings_for_variant(settings, variant),
         language=language_from_request(request),
     )
     session_id = uuid.uuid4().hex
     genres = _genre_names(session, request, [i.movie.id for i in result.items])
-    log_impressions(session, user, session_id, [i.movie.id for i in result.items], result.strategy)
+    log_impressions(
+        session, user, session_id, [i.movie.id for i in result.items], result.strategy, variant
+    )
     return RecommendationsOut(
         strategy=result.strategy,
         session_id=session_id,

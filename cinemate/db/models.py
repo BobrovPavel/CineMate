@@ -221,6 +221,7 @@ class Event(Base):
     type: Mapped[str] = mapped_column(String(16))
     movie_id: Mapped[int | None] = mapped_column(ForeignKey("movies.id"))
     strategy: Mapped[str | None] = mapped_column(String(16))
+    variant: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

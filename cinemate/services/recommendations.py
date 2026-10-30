@@ -211,7 +211,7 @@ def get_recommendations(
     taste = data.taste
     row = matrix[user_index]
     hidden: set[tuple[str, str]] = set()
-    if taste is not None:
+    if taste is not None and settings.hide_categories:
         shown = {
             (kind, key)
             for kind, key in session.execute(

@@ -7,6 +7,9 @@ from dataclasses import dataclass
 
 from cinemate.recommender.categories import CategoryThresholds
 
+# Named settings sets of the A/B test: ``taste`` keeps the configured settings.
+AB_VARIANTS = ("control", "taste")
+
 
 @dataclass(frozen=True)
 class RecommenderSettings:
@@ -34,6 +37,8 @@ class RecommenderSettings:
     hide_dislikes_studio: int = 3
     hide_dislikes_anime: int = 3
     hide_dislikes_genre: int = 5
+    hide_categories: bool = True
+    ab_variants: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "RecommenderSettings":
@@ -44,7 +49,8 @@ class RecommenderSettings:
         ``REC_DISLIKE_ITEM_WEIGHT`` (``epsilon`` of the similarity-to-disliked penalty, 0 turns it
         off), ``REC_DISLIKE_ITEM_MIN_RATINGS``, ``REC_HIDE_STUDIO_MAX_MOVIES`` and
         ``REC_HIDE_DISLIKES_COLLECTION`` / ``_STUDIO`` / ``_ANIME`` / ``_GENRE`` (dislikes that
-        hide a category).
+        hide a category) and ``REC_AB_VARIANTS`` (comma-separated variant names, see
+        ``cinemate.services.ab``; empty turns the A/B test off).
 
         Empty or missing variables keep the defaults; invalid ones raise ``ValueError``
         naming the variable.
@@ -133,6 +139,7 @@ class RecommenderSettings:
                 lambda v: v >= 1,
                 ">= 1",
             ),
+            ab_variants=_read_variants(env),
             min_user_ratings=_read(
                 env, "REC_MIN_USER_RATINGS", int, default.min_user_ratings, lambda v: v >= 1, ">= 1"
             ),
@@ -155,6 +162,19 @@ class RecommenderSettings:
             genre=self.hide_dislikes_genre,
             studio_max_movies=self.hide_studio_max_movies,
         )
+
+
+def _read_variants(env: Mapping[str, str]) -> tuple[str, ...]:
+    raw = env.get("REC_AB_VARIANTS", "").strip()
+    if not raw:
+        return ()
+    names = tuple(part.strip() for part in raw.split(","))
+    unknown = [n for n in names if n not in AB_VARIANTS]
+    if unknown or len(set(names)) != len(names):
+        raise ValueError(
+            f"REC_AB_VARIANTS must be distinct names from {', '.join(AB_VARIANTS)}, got {raw!r}"
+        )
+    return names
 
 
 def _read[T: (int, float)](
