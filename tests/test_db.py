@@ -42,6 +42,10 @@ def test_create_all_makes_tables():
         "seen_marks",
         "events",
         "user_category_prefs",
+        "people",
+        "movie_credits",
+        "keywords",
+        "movie_keywords",
     }
 
 

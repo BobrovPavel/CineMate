@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import CatalogConflict, link
+from cinemate.db.details import apply_extended
 from cinemate.db.features import apply_features
 from cinemate.db.models import Movie, Rating
 from cinemate.tmdb import DEFAULT_WORKERS, TmdbClient, TmdbDetails, fetch_many
@@ -44,6 +45,18 @@ def apply_details(session: Session, movie: Movie, details: TmdbDetails) -> None:
             setattr(movie, field, value)
     movie.tmdb_fetched_at = datetime.now(UTC)
     apply_features(session, movie, details)
+    if details.extended:
+        apply_extended(session, movie, details)
+    else:
+        for field, value in (
+            ("budget", details.budget),
+            ("revenue", details.revenue),
+            ("tagline", details.tagline),
+            ("number_of_seasons", details.number_of_seasons),
+            ("number_of_episodes", details.number_of_episodes),
+        ):
+            if value:
+                setattr(movie, field, value)
     if details.imdb_id:
         try:
             with session.begin_nested():
@@ -60,6 +73,7 @@ def enrich_movies(
     stale_days: int = DEFAULT_STALE_DAYS,
     missing_features: bool = False,
     workers: int = DEFAULT_WORKERS,
+    extended: bool = False,
 ) -> EnrichStats:
     """Re-fetch TMDB details for movies with a TMDB pair whose data is stale.
 
@@ -71,25 +85,40 @@ def enrich_movies(
     empty TMDB value never erases a stored one, TMDB genres replace the old ones, the IMDb id is
     linked. With ``missing_features`` only movies that never got their features (no TMDB vote
     count) are requested, whatever their age: first those with ratings in any pool, then the rest.
+    With ``extended`` only movies with ratings in any pool whose extended data (credits,
+    keywords, age rating, budget...) is missing or stale are requested, with ``extended=True``;
+    it excludes ``refresh_titles`` and ``missing_features``. Without it, movies that already have
+    extended data are refreshed with it when it is stale; the others get the basic data only.
     A 404 leaves the movie untouched (``not_found``). ``skipped`` counts movies without a TMDB
     pair. ``limit`` caps the number of movies requested; progress is committed every
     ``COMMIT_EVERY`` movies and when a ``TmdbError`` propagates.
     """
     if not 1 <= stale_days <= MAX_STALE_DAYS:
         raise ValueError(f"stale_days must be between 1 and {MAX_STALE_DAYS}")
+    if extended and (refresh_titles or missing_features):
+        raise ValueError("extended cannot be combined with refresh_titles or missing_features")
     has_pair = Movie.tmdb_id.is_not(None) & Movie.tmdb_type.is_not(None)
     skipped = session.scalar(select(func.count()).select_from(Movie).where(~has_pair)) or 0
 
     query = select(Movie).where(has_pair)
-    if missing_features:
+    cutoff = datetime.now(UTC) - timedelta(days=stale_days)
+    if extended:
+        rated = select(Rating.id).where(Rating.movie_id == Movie.id).exists()
+        query = query.where(
+            rated, Movie.details_fetched_at.is_(None) | (Movie.details_fetched_at < cutoff)
+        ).order_by(Movie.details_fetched_at.is_not(None), Movie.details_fetched_at, Movie.id)
+    elif missing_features:
         rated = select(Rating.id).where(Rating.movie_id == Movie.id).exists()
         query = query.where(Movie.tmdb_vote_count.is_(None)).order_by(~rated, Movie.id)
     elif refresh_titles:
         query = query.where((Movie.title_ru.is_(None)) | (Movie.title_ru == ""))
         query = query.order_by(Movie.id)
     else:
-        cutoff = datetime.now(UTC) - timedelta(days=stale_days)
-        query = query.where(Movie.tmdb_fetched_at.is_(None) | (Movie.tmdb_fetched_at < cutoff))
+        query = query.where(
+            Movie.tmdb_fetched_at.is_(None)
+            | (Movie.tmdb_fetched_at < cutoff)
+            | (Movie.details_fetched_at < cutoff)
+        )
         query = query.order_by(Movie.tmdb_fetched_at.is_not(None), Movie.tmdb_fetched_at, Movie.id)
     if limit is not None:
         query = query.limit(limit)
@@ -98,7 +127,10 @@ def enrich_movies(
     enriched = not_found = 0
     try:
         by_pair = {(m.tmdb_type, m.tmdb_id): m for m in movies}
-        with contextlib.closing(fetch_many(client, by_pair, workers)) as fetched:
+        wants_extended = {
+            pair for pair, m in by_pair.items() if extended or m.details_fetched_at is not None
+        }
+        with contextlib.closing(fetch_many(client, by_pair, workers, wants_extended)) as fetched:
             for pair, details in fetched:
                 if details is None:
                     not_found += 1

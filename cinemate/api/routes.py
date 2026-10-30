@@ -34,6 +34,7 @@ from cinemate.api.schemas import (
     WriteOut,
 )
 from cinemate.db.catalog import import_from_tmdb
+from cinemate.db.details import ensure_extended
 from cinemate.db.features import genre_names_by_movie
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import Movie, User
@@ -52,7 +53,7 @@ from cinemate.services.users import (
     set_seen_mark,
     tmdb_language_for,
 )
-from cinemate.tmdb import TmdbClient, TmdbError
+from cinemate.tmdb import TmdbClient, TmdbError, certification_country_for
 
 COOKIE_MAX_AGE = 365 * 24 * 3600
 
@@ -373,4 +374,10 @@ def movie_detail(
     movie = session.get(Movie, movie_id)
     if movie is None:
         raise HTTPException(status_code=404, detail="movie not found")
+    ensure_extended(
+        session,
+        request.app.state.tmdb_client,
+        movie,
+        certification_country_for(language_from_request(request)),
+    )
     return _card(movie, _genre_names(session, request, [movie.id]).get(movie.id, []))

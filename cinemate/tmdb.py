@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Container, Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -53,6 +53,40 @@ class TmdbSearchItem:
     poster_path: str | None
 
 
+# Roles stored in ``movie_credits`` with the number of people kept for each (``None`` = all).
+CREDIT_LIMITS: dict[str, int | None] = {
+    "cast": 15,
+    "director": None,
+    "creator": None,
+    "writer": 3,
+    "producer": 3,
+    "composer": 1,
+}
+CREDIT_JOBS = {
+    "director": {"Director"},
+    "writer": {"Writer", "Screenplay"},
+    "producer": {"Producer"},
+    "composer": {"Original Music Composer"},
+}
+CERTIFICATION_COUNTRIES = {"ru": "RU"}  # language -> country; every other language uses US
+DEFAULT_CERTIFICATION_COUNTRY = "US"
+
+
+def certification_country_for(language: str | None) -> str:
+    """Country whose age rating is shown to a user of ``language`` (``RU`` for ``ru``, else US)."""
+    return CERTIFICATION_COUNTRIES.get((language or "").lower()[:2], DEFAULT_CERTIFICATION_COUNTRY)
+
+
+@dataclass(frozen=True)
+class TmdbCredit:
+    person_id: int
+    name: str
+    profile_path: str | None
+    role: str  # a key of CREDIT_LIMITS
+    character: str | None
+    order: int  # position within the role
+
+
 @dataclass(frozen=True)
 class TmdbDetails:
     tmdb_type: str
@@ -75,6 +109,16 @@ class TmdbDetails:
     original_language: str | None = None  # ISO 639-1
     vote_average: float | None = None
     vote_count: int | None = None
+    budget: int | None = None
+    revenue: int | None = None
+    tagline: str | None = None
+    number_of_seasons: int | None = None
+    number_of_episodes: int | None = None
+    # Filled only by ``fetch_details(extended=True)``; ``extended`` tells "asked" from "empty".
+    extended: bool = False
+    credits: list[TmdbCredit] = field(default_factory=list)
+    keywords: list[tuple[int, str]] = field(default_factory=list)  # id, name
+    certification: tuple[str, str] | None = None  # (country, rating)
 
 
 def _parse_retry_after(value: str | None) -> float:
@@ -346,22 +390,33 @@ class TmdbClient:
             poster_path=raw.get("poster_path") or None,
         )
 
-    def fetch_details(self, tmdb_type: str, tmdb_id: int) -> TmdbDetails | None:
+    def fetch_details(
+        self,
+        tmdb_type: str,
+        tmdb_id: int,
+        extended: bool = False,
+        certification_country: str = DEFAULT_CERTIFICATION_COUNTRY,
+    ) -> TmdbDetails | None:
         """English details plus the Russian translation of title and overview, if any.
 
         One request: ``/{movie|tv}/{id}?append_to_response=external_ids,translations``.
-        ``None`` if TMDB does not know the pair.
+        With ``extended`` the same request also asks for the credits (``aggregate_credits`` for
+        TV), keywords and age ratings (``release_dates`` / ``content_ratings``); they are parsed
+        into ``credits``, ``keywords`` and ``certification`` (``certification_country`` first,
+        then US). ``None`` if TMDB does not know the pair.
         """
         if tmdb_type not in MEDIA_TYPES:
             raise ValueError(f"unknown tmdb_type: {tmdb_type!r}")
+        tv = tmdb_type == "tv"
+        append = "external_ids,translations"
+        if extended:
+            append += ",aggregate_credits" if tv else ",credits"
+            append += ",keywords," + ("content_ratings" if tv else "release_dates")
         data = self._get_json(
-            f"/{tmdb_type}/{int(tmdb_id)}",
-            language="en-US",
-            append_to_response="external_ids,translations",
+            f"/{tmdb_type}/{int(tmdb_id)}", language="en-US", append_to_response=append
         )
         if data is None:
             return None
-        tv = tmdb_type == "tv"
         title = data.get("name" if tv else "title")
         if not title:
             raise TmdbError("TMDB returned an unexpected response")
@@ -408,7 +463,112 @@ class TmdbClient:
             if isinstance(avg := data.get("vote_average"), int | float)
             else None,
             vote_count=_int_or_none(data.get("vote_count")),
+            budget=_int_or_none(data.get("budget")) or None,
+            revenue=_int_or_none(data.get("revenue")) or None,
+            tagline=data.get("tagline") or None,
+            number_of_seasons=_int_or_none(data.get("number_of_seasons")),
+            number_of_episodes=_int_or_none(data.get("number_of_episodes")),
+            **(self._extended(data, tv, certification_country) if extended else {}),
         )
+
+    @classmethod
+    def _extended(cls, data: dict, tv: bool, country: str) -> dict:
+        return {
+            "extended": True,
+            "credits": cls._credits(data, tv),
+            "keywords": cls._keywords(data.get("keywords"), tv),
+            "certification": cls._certification(data, tv, country),
+        }
+
+    @staticmethod
+    def _keywords(raw: object, tv: bool) -> list[tuple[int, str]]:
+        """``keywords.results`` for TV, ``keywords.keywords`` for movies."""
+        items = raw.get("results" if tv else "keywords") if isinstance(raw, dict) else None
+        return [
+            (k["id"], k["name"])
+            for k in items or []
+            if isinstance(k, dict) and _int_or_none(k.get("id")) is not None and k.get("name")
+        ]
+
+    @staticmethod
+    def _certification(data: dict, tv: bool, country: str) -> tuple[str, str] | None:
+        """``(country, rating)``: the first non-empty rating of ``country``, else of US."""
+        block = data.get("content_ratings" if tv else "release_dates")
+        results = block.get("results") if isinstance(block, dict) else None
+        found: dict[str, str] = {}
+        for entry in results or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("iso_3166_1"), str):
+                continue
+            if tv:
+                values = [entry.get("rating")]
+            else:
+                values = [
+                    r.get("certification")
+                    for r in entry.get("release_dates") or []
+                    if isinstance(r, dict)
+                ]
+            rating = next((v for v in values if isinstance(v, str) and v.strip()), None)
+            if rating:
+                found.setdefault(entry["iso_3166_1"], rating.strip())
+        for code in (country, DEFAULT_CERTIFICATION_COUNTRY):
+            if code in found:
+                return code, found[code]
+        return None
+
+    @staticmethod
+    def _credits(data: dict, tv: bool) -> list[TmdbCredit]:
+        """People of the movie, limited per role (see ``CREDIT_LIMITS``).
+
+        Movies: ``credits`` (cast by ``order``, crew by ``job``). TV: ``created_by`` of the base
+        answer are the creators and ``aggregate_credits`` give the cast and crew (``roles`` /
+        ``jobs`` lists); TV directors are not kept, there are too many of them.
+        """
+        block = data.get("aggregate_credits" if tv else "credits")
+        block = block if isinstance(block, dict) else {}
+
+        def person(raw: object) -> tuple[int, str, str | None] | None:
+            if not isinstance(raw, dict) or _int_or_none(raw.get("id")) is None:
+                return None
+            if not raw.get("name"):
+                return None
+            return raw["id"], raw["name"], raw.get("profile_path") or None
+
+        by_role: dict[str, list[tuple[tuple[int, str, str | None], str | None]]] = {}
+
+        def add(role: str, raw: object, character: str | None = None) -> None:
+            info = person(raw)
+            entries = by_role.setdefault(role, [])
+            if info is not None and all(e[0][0] != info[0] for e in entries):
+                entries.append((info, character))
+
+        for raw in data.get("created_by") or []:
+            add("creator", raw)
+        cast = [c for c in block.get("cast") or [] if isinstance(c, dict)]
+        cast.sort(key=lambda c: c["order"] if _int_or_none(c.get("order")) is not None else 10**9)
+        for raw in cast:
+            if tv:
+                roles = [r for r in raw.get("roles") or [] if isinstance(r, dict)]
+                character = next((r["character"] for r in roles if r.get("character")), None)
+            else:
+                character = raw.get("character")
+            add("cast", raw, character or None)
+        for raw in block.get("crew") or []:
+            if not isinstance(raw, dict):
+                continue
+            if tv:
+                jobs = {j.get("job") for j in raw.get("jobs") or [] if isinstance(j, dict)}
+            else:
+                jobs = {raw.get("job")}
+            for role, names in CREDIT_JOBS.items():
+                if jobs & names and not (tv and role == "director"):
+                    add(role, raw)
+        credits = []
+        for role, limit in CREDIT_LIMITS.items():
+            for order, ((person_id, name, profile), character) in enumerate(
+                by_role.get(role, [])[:limit]
+            ):
+                credits.append(TmdbCredit(person_id, name, profile, role, character, order))
+        return credits
 
     def changes(self, tmdb_type: str, start: date, end: date) -> Iterator[int]:
         """Ids of records of ``tmdb_type`` created or changed in ``start..end`` (inclusive).
@@ -483,9 +643,14 @@ class TmdbClient:
 
 
 def fetch_many(
-    client: TmdbClient, items: Iterable[tuple[str, int]], workers: int = DEFAULT_WORKERS
+    client: TmdbClient,
+    items: Iterable[tuple[str, int]],
+    workers: int = DEFAULT_WORKERS,
+    extended: Container[tuple[str, int]] = (),
 ) -> Iterator[tuple[tuple[str, int], TmdbDetails | None]]:
     """``client.fetch_details`` for each ``(tmdb_type, tmdb_id)``, ``workers`` at a time.
+
+    Pairs in ``extended`` are requested with ``extended=True``.
 
     Yields ``((tmdb_type, tmdb_id), details)`` in completion order, in the calling thread (so the
     caller may use a database session there); ``details`` is ``None`` for a 404. At most
@@ -496,9 +661,15 @@ def fetch_many(
     """
     if workers < 1:
         raise ValueError("workers must be >= 1")
+
+    def fetch(pair: tuple[str, int]) -> TmdbDetails | None:
+        if pair in extended:
+            return client.fetch_details(*pair, extended=True)
+        return client.fetch_details(*pair)
+
     if workers == 1:
         for pair in items:
-            yield pair, client.fetch_details(*pair)
+            yield pair, fetch(pair)
         return
     iterator = iter(items)
     pending: dict[Future, tuple[str, int]] = {}
@@ -510,7 +681,7 @@ def fetch_many(
                 pair = next(iterator, None)
                 if pair is None:
                     break
-                pending[executor.submit(client.fetch_details, *pair)] = pair
+                pending[executor.submit(fetch, pair)] = pair
             if not pending:
                 break
             try:
