@@ -554,6 +554,11 @@ def build_parser() -> argparse.ArgumentParser:
         "countries/vote yet, rated movies first",
     )
     en.add_argument(
+        "--extended",
+        action="store_true",
+        help="fetch credits, keywords, age rating, budget and revenue for rated movies",
+    )
+    en.add_argument(
         "--stale-days",
         type=_stale_days,
         default=DEFAULT_STALE_DAYS,
@@ -878,7 +883,11 @@ def _run_enrich(args: argparse.Namespace) -> int:
                 missing_features=args.missing_features,
                 stale_days=args.stale_days,
                 workers=args.workers,
+                extended=args.extended,
             )
+        except ValueError as exc:
+            print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)
+            return 2
         except TmdbError as exc:
             print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)
             return 1

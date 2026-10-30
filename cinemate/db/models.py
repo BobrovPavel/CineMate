@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
     DateTime,
     Float,
@@ -61,6 +62,15 @@ class Movie(Base):
     tmdb_vote_average: Mapped[float | None] = mapped_column(Float)
     # NULL = the movie features were never fetched from TMDB (see ``enrich-movies``)
     tmdb_vote_count: Mapped[int | None] = mapped_column(Integer)
+    certification: Mapped[str | None] = mapped_column(String(16))  # age rating, e.g. "PG-13"
+    certification_country: Mapped[str | None] = mapped_column(String(2))  # ISO 3166-1
+    budget: Mapped[int | None] = mapped_column(Integer)
+    revenue: Mapped[int | None] = mapped_column(BigInteger)
+    tagline: Mapped[str | None] = mapped_column(String(512))
+    number_of_seasons: Mapped[int | None] = mapped_column(Integer)
+    number_of_episodes: Mapped[int | None] = mapped_column(Integer)
+    # NULL = credits, keywords and age rating were never fetched (see ``enrich-movies --extended``)
+    details_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Genre(Base):
@@ -106,6 +116,52 @@ class MovieCompany(Base):
 
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"), primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), primary_key=True)
+
+
+class Person(Base):
+    """A TMDB person (cast or crew); ``id`` is the TMDB person id."""
+
+    __tablename__ = "people"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(256))
+    profile_path: Mapped[str | None] = mapped_column(String(512))
+
+
+class MovieCredit(Base):
+    """``role``: cast, director, writer, producer, composer or creator; ``ord`` orders a role."""
+
+    __tablename__ = "movie_credits"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('cast', 'director', 'writer', 'producer', 'composer', 'creator')",
+            name="ck_movie_credits_role",
+        ),
+        Index("ix_movie_credits_person_id", "person_id"),
+    )
+
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"), primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("people.id"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), primary_key=True)
+    character: Mapped[str | None] = mapped_column(String(512))
+    ord: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Keyword(Base):
+    """A TMDB keyword (English only); ``id`` is the TMDB keyword id."""
+
+    __tablename__ = "keywords"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(256))
+
+
+class MovieKeyword(Base):
+    __tablename__ = "movie_keywords"
+    __table_args__ = (Index("ix_movie_keywords_keyword_id", "keyword_id"),)
+
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"), primary_key=True)
+    keyword_id: Mapped[int] = mapped_column(ForeignKey("keywords.id"), primary_key=True)
 
 
 class MovieExternalId(Base):

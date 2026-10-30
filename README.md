@@ -750,6 +750,40 @@ cinemate enrich-movies --missing-features [--limit N]
 
 Признаки считаются отсутствующими, пока `movies.tmdb_vote_count` пуст.
 
+## Данные карточки фильма
+
+Для страницы фильма из TMDB хранятся (таблицы `people`, `movie_credits`, `keywords`,
+`movie_keywords` и поля `movies`):
+
+- **люди** (`movie_credits`, роль `role`): первые 15 актёров по `order` (`cast`, с именем
+  персонажа), все режиссёры (`director`), до 3 сценаристов (`writer`: Writer, Screenplay), до 3
+  продюсеров (`producer`: Producer), композитор (`composer`: Original Music Composer). У сериалов
+  создатели (`creator`) берутся из `created_by`, состав из `aggregate_credits`, режиссёры сериалов
+  не хранятся (их сотни у одного сериала). Имена как отдаёт TMDB, обычно латиницей;
+- **ключевые слова** (`keywords`) только на английском;
+- **возрастной рейтинг** `movies.certification` и страна `movies.certification_country`: страна
+  `RU` для русского интерфейса, иначе `US`; если у выбранной страны рейтинга нет, берётся `US`;
+- `budget`, `revenue`, `tagline`, у сериалов `number_of_seasons` и `number_of_episodes` (эти поля
+  есть в обычном ответе, их пишет и обычный `enrich-movies`).
+
+Расширенные данные приходят в том же запросе деталей (`append_to_response`), но ответ заметно
+больше, поэтому `sync-catalog` их не запрашивает. Время получения: `movies.details_fetched_at`.
+Состав и ключевые слова при повторном получении заменяются целиком. Запрашиваются:
+
+- **при открытии карточки** (`GET /api/movies/{id}`): если у фильма есть пара TMDB, а данных нет
+  или они старше 30 дней, один синхронный запрос. Без ключа TMDB или при ошибке TMDB карточка
+  отдаётся с тем, что есть;
+- **`cinemate enrich-movies --extended`**: фильмы с оценками в любом пуле, у которых данных нет
+  или они устарели (`--stale-days`); нельзя сочетать с `--missing-features` и `--refresh-titles`.
+  Для ~90 тысяч фильмов с оценками это порядка 1,5 часа;
+- обычный `enrich-movies` обновляет расширенные данные только у тех, у кого они уже есть и
+  устарели.
+
+```
+export TMDB_API_KEY=...
+cinemate enrich-movies --extended --workers 8
+```
+
 ## Docker
 
 Весь продукт (PostgreSQL, API и фронтенд) поднимается одной командой. Драйвер PostgreSQL ставится
