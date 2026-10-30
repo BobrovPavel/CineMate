@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from cinemate.db.features import apply_features, has_genres, set_movie_genres
 from cinemate.db.models import (
     Event,
+    ExternalRating,
     Movie,
     MovieCompany,
     MovieExternalId,
@@ -165,7 +166,24 @@ def merge_movies(session: Session, keep_id: int, drop_id: int) -> None:
     ).all():
         if company_id not in kept_companies:
             session.add(MovieCompany(movie_id=keep_id, company_id=company_id))
+    kept_sources = set(
+        session.scalars(select(ExternalRating.source).where(ExternalRating.movie_id == keep_id))
+    )
+    for external in session.scalars(
+        select(ExternalRating).where(ExternalRating.movie_id == drop_id)
+    ).all():
+        if external.source not in kept_sources:
+            session.add(
+                ExternalRating(
+                    movie_id=keep_id,
+                    source=external.source,
+                    value=external.value,
+                    votes=external.votes,
+                    updated_at=external.updated_at,
+                )
+            )
     session.flush()
+    session.execute(delete(ExternalRating).where(ExternalRating.movie_id == drop_id))
     session.execute(delete(MovieGenre).where(MovieGenre.movie_id == drop_id))
     session.execute(delete(MovieCompany).where(MovieCompany.movie_id == drop_id))
     if keep.tmdb_id is None and drop.tmdb_id is not None:

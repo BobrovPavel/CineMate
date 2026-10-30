@@ -46,6 +46,18 @@ export default async function RootLayout({
             </a>{" "}
             API but is not endorsed or certified by TMDB.
           </p>
+          <p className="mx-auto mt-2 max-w-2xl">
+            {t("footer.imdb")}{" "}
+            <a
+              className="underline"
+              href="https://www.imdb.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              IMDb
+            </a>
+            .
+          </p>
           <a
             className="mx-auto mt-3 block max-w-2xl"
             href="https://www.themoviedb.org/"

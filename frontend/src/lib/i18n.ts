@@ -13,6 +13,7 @@ const ru = {
 
   "footer.data": "Данные о фильмах и оценках —",
   "footer.tmdbIntro": "Уведомление TMDB:",
+  "footer.imdb": "Информация об оценках IMDb предоставлена IMDb (для личного и некоммерческого использования):",
 
   "home.lead":
     "Ответим на вопрос, что посмотреть сегодня: пара минут онбординга — и список из 10–20 фильмов с объяснением.",
@@ -112,6 +113,7 @@ const en: Record<MessageKey, string> = {
 
   "footer.data": "Movie data and ratings —",
   "footer.tmdbIntro": "TMDB notice:",
+  "footer.imdb": "IMDb ratings: information courtesy of IMDb, for personal and non-commercial use:",
 
   "home.lead":
     "We answer what to watch today: a couple of minutes of onboarding, then a list of 10–20 movies with explanations.",

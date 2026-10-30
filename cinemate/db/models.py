@@ -175,6 +175,21 @@ class MovieExternalId(Base):
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"))
 
 
+class ExternalRating(Base):
+    """A movie's rating on another platform: ``value`` on the source's own 10-point scale."""
+
+    __tablename__ = "external_ratings"
+    __table_args__ = (
+        CheckConstraint("source IN ('imdb', 'kinopoisk')", name="ck_external_ratings_source"),
+    )
+
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), primary_key=True)
+    value: Mapped[float] = mapped_column(Float)
+    votes: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class TmdbLookup(Base):
     """Cache of TMDB lookups (``find`` by IMDb id, title search); ``tmdb_id`` NULL = no match."""
 

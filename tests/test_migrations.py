@@ -125,14 +125,14 @@ def test_migrate_uses_database_url_env(monkeypatch, db_url):
 def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     scripts = tmp_path / "migrations"
     shutil.copytree(DEFAULT_MIGRATIONS_DIR, scripts, ignore=shutil.ignore_patterns("__pycache__"))
-    (scripts / "versions" / "0015_add_note.py").write_text(
+    (scripts / "versions" / "0016_add_note.py").write_text(
         textwrap.dedent(
             """
             import sqlalchemy as sa
             from alembic import op
 
-            revision = "0015"
-            down_revision = "0014"
+            revision = "0016"
+            down_revision = "0015"
             branch_labels = None
             depends_on = None
 
@@ -151,7 +151,7 @@ def test_migration_adding_nullable_column_keeps_rows(tmp_path, db_url):
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO movies (title, genres) VALUES ('Alien', '[]')"))
     upgrade_head(engine, scripts)
-    assert current_revision(engine) == head_revision(scripts) == "0015"
+    assert current_revision(engine) == head_revision(scripts) == "0016"
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT title, note FROM movies")).all()
     assert [tuple(r) for r in rows] == [("Alien", None)]

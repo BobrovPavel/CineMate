@@ -23,6 +23,11 @@ from cinemate.datasets import (
     ensure_movielens,
 )
 from cinemate.db.enrich import DEFAULT_STALE_DAYS, MAX_STALE_DAYS, enrich_movies
+from cinemate.db.external_ratings import (
+    DEFAULT_IMDB_DIR,
+    ensure_imdb_ratings,
+    import_imdb_ratings,
+)
 from cinemate.db.importer import import_movielens
 from cinemate.db.migrations import (
     SchemaNotMigratedError,
@@ -533,6 +538,18 @@ def build_parser() -> argparse.ArgumentParser:
     fw.add_argument(
         "--out", type=Path, default=WIKIDATA_PATH, help="output CSV (default: %(default)s)"
     )
+    ii = sub.add_parser(
+        "import-imdb-ratings",
+        help="store IMDb ratings from the official non-commercial dataset for movies with an "
+        "IMDb id",
+    )
+    ii.add_argument("--database-url", default=None, help=_DATABASE_URL_HELP)
+    ii.add_argument(
+        "--file",
+        type=Path,
+        default=None,
+        help=f"a local title.ratings.tsv.gz (default: download to {DEFAULT_IMDB_DIR}, once a day)",
+    )
     en = sub.add_parser("enrich-movies", help="fetch movie metadata from TMDB into the database")
     en.add_argument(
         "--database-url",
@@ -862,6 +879,34 @@ def _run_sync_changes(args: argparse.Namespace, engine, api_key: str, types: tup
         f"not found: {stats.not_found}, below min popularity: {stats.skipped_low_popularity}, "
         f"already fresh: {stats.up_to_date}, remaining: {stats.remaining}"
     )
+    return 0
+
+
+def _run_import_imdb_ratings(args: argparse.Namespace) -> int:
+    path = args.file
+    if path is None:
+        try:
+            path = ensure_imdb_ratings()
+        except (OSError, urllib.error.URLError) as exc:
+            print(f"cinemate import-imdb-ratings: error: download failed: {exc}", file=sys.stderr)
+            return 1
+    engine = _open_engine(args)
+    if engine is None:
+        return 2
+    with Session(engine) as session:
+        try:
+            stats = import_imdb_ratings(session, path)
+        except OSError as exc:
+            print(
+                f"cinemate import-imdb-ratings: error: cannot read {path}: {exc.strerror or exc}",
+                file=sys.stderr,
+            )
+            return 2
+        except (ValueError, EOFError) as exc:
+            print(f"cinemate import-imdb-ratings: error: {path}: {exc}", file=sys.stderr)
+            return 2
+        session.commit()
+    print(f"rows in dataset: {stats.rows}, matched: {stats.matched}, updated: {stats.updated}")
     return 0
 
 
@@ -1300,6 +1345,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_import(args)
     if args.command == "import-ratings-csv":
         return _run_import_ratings_csv(args)
+    if args.command == "import-imdb-ratings":
+        return _run_import_imdb_ratings(args)
     if args.command == "fetch-wikidata-kinopoisk":
         return _run_fetch_wikidata(args)
     if args.command == "metrics":
