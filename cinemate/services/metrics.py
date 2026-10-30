@@ -6,6 +6,8 @@ Definitions:
   Events of a ``session_id`` without any impression (e.g. a stray ``like``) do not
   create a session.
 * A session is **good** if it also contains at least one ``like`` event.
+* A session's **variant** is the A/B variant recorded on its first impression;
+  sessions without one are grouped under ``"none"``.
 * A session's **strategy** is the strategy recorded on its impressions (the first one
   by id); sessions without a recorded strategy are grouped under ``"unknown"``.
 """
@@ -20,6 +22,8 @@ from cinemate.db.models import Event
 
 RETENTION_WINDOW = timedelta(days=7)
 UNKNOWN_STRATEGY = "unknown"
+NO_VARIANT = "none"
+FEED_REACTIONS = ("like", "dislike", "watched", "not_interested")
 
 
 @dataclass(frozen=True)
@@ -75,18 +79,21 @@ def good_session_rate_by_strategy(
     return {s: _rate(total, good) for s, (total, good) in sorted(totals.items())}
 
 
-def retention_7d(session: Session, now: datetime | None = None) -> float:
+def retention_7d(
+    session: Session, now: datetime | None = None, user_ids: set[int] | None = None
+) -> float:
     """Share of users who had another event within 7 days after their first event.
 
     Only users whose first event is at least 7 days old at ``now`` are counted;
-    returns 0.0 when there are no such users.
+    returns 0.0 when there are no such users. ``user_ids`` limits the users considered.
     """
     now = _aware(now) if now is not None else datetime.now(UTC)
     times: dict[int, list[datetime]] = {}
     for user_id, created_at in session.execute(
         select(Event.user_id, Event.created_at).order_by(Event.created_at)
     ):
-        times.setdefault(user_id, []).append(_aware(created_at))
+        if user_ids is None or user_id in user_ids:
+            times.setdefault(user_id, []).append(_aware(created_at))
     eligible = retained = 0
     for stamps in times.values():
         first = stamps[0]
@@ -96,3 +103,80 @@ def retention_7d(session: Session, now: datetime | None = None) -> float:
         if any(first < t <= first + RETENTION_WINDOW for t in stamps[1:]):
             retained += 1
     return retained / eligible if eligible else 0.0
+
+
+@dataclass(frozen=True)
+class VariantMetrics:
+    """Metrics of one A/B variant.
+
+    ``like_dislike_ratio`` is ``None`` without dislikes; ``not_interested_share`` is the share
+    of ``not_interested`` among the feed reactions (like, dislike, watched, not_interested).
+    """
+
+    users: int
+    sessions: int
+    good_sessions: int
+    good_session_rate: float
+    likes: int
+    dislikes: int
+    like_dislike_ratio: float | None
+    not_interested_share: float
+    retention_7d: float
+
+
+def metrics_by_variant(
+    session: Session, since: datetime | None = None, now: datetime | None = None
+) -> dict[str, VariantMetrics]:
+    """Metrics per A/B variant, sorted by variant name (``"none"`` for no variant).
+
+    Sessions, users and reactions are attributed through the session's first impression.
+    Reactions of a ``session_id`` without an impression are ignored. ``since`` filters events
+    as in :func:`good_session_rate`; retention counts a user's whole log, like
+    :func:`retention_7d`, over the users with an impression of that variant.
+    """
+    stmt = select(Event.session_id, Event.user_id, Event.type, Event.variant).order_by(Event.id)
+    if since is not None:
+        stmt = stmt.where(Event.created_at >= since)
+    variants: dict[str, str] = {}
+    session_users: dict[str, int] = {}
+    reactions: list[tuple[str, str]] = []
+    for session_id, user_id, type_, variant in session.execute(stmt):
+        if type_ == "impression":
+            if session_id not in variants:
+                variants[session_id] = variant or NO_VARIANT
+                session_users[session_id] = user_id
+        elif type_ in FEED_REACTIONS:
+            reactions.append((session_id, type_))
+
+    sessions: dict[str, set[str]] = {}
+    users: dict[str, set[int]] = {}
+    for session_id, variant in variants.items():
+        sessions.setdefault(variant, set()).add(session_id)
+        users.setdefault(variant, set()).add(session_users[session_id])
+    counts: dict[str, dict[str, int]] = {v: dict.fromkeys(FEED_REACTIONS, 0) for v in sessions}
+    good: dict[str, set[str]] = {v: set() for v in sessions}
+    for session_id, type_ in reactions:
+        variant = variants.get(session_id)
+        if variant is None:
+            continue
+        counts[variant][type_] += 1
+        if type_ == "like":
+            good[variant].add(session_id)
+
+    result: dict[str, VariantMetrics] = {}
+    for variant in sorted(sessions):
+        c = counts[variant]
+        total = len(sessions[variant])
+        reacted = sum(c.values())
+        result[variant] = VariantMetrics(
+            users=len(users[variant]),
+            sessions=total,
+            good_sessions=len(good[variant]),
+            good_session_rate=len(good[variant]) / total,
+            likes=c["like"],
+            dislikes=c["dislike"],
+            like_dislike_ratio=c["like"] / c["dislike"] if c["dislike"] else None,
+            not_interested_share=c["not_interested"] / reacted if reacted else 0.0,
+            retention_7d=retention_7d(session, now, users[variant]),
+        )
+    return result

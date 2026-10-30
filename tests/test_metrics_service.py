@@ -9,6 +9,7 @@ from cinemate.db.session import create_all, make_engine
 from cinemate.services.metrics import (
     good_session_rate,
     good_session_rate_by_strategy,
+    metrics_by_variant,
     retention_7d,
 )
 
@@ -26,7 +27,7 @@ def session():
         yield s
 
 
-def ev(session, sid, type_, strategy=None, user_id=1, at=T0):
+def ev(session, sid, type_, strategy=None, user_id=1, at=T0, variant=None):
     session.add(
         Event(
             user_id=user_id,
@@ -34,6 +35,7 @@ def ev(session, sid, type_, strategy=None, user_id=1, at=T0):
             type=type_,
             movie_id=1,
             strategy=strategy,
+            variant=variant,
             created_at=at,
         )
     )
@@ -152,3 +154,69 @@ def test_cli_metrics_invalid_since_message(capsys):
     with pytest.raises(SystemExit):
         main(["metrics", "--since", "nonsense"])
     assert "invalid ISO date/time" in capsys.readouterr().err
+
+
+def _variant_log(session):
+    # user 1 -> control, user 2 -> taste
+    ev(session, "a", "impression", "collaborative", 1, variant="control")
+    ev(session, "a", "like", user_id=1, variant="control")
+    ev(session, "a", "dislike", user_id=1, variant="control")
+    ev(session, "a", "not_interested", user_id=1, variant="control")
+    ev(session, "b", "impression", "collaborative", 1, variant="control")
+    ev(session, "c", "impression", "collaborative", 2, variant="taste")
+    ev(session, "c", "like", user_id=2, variant="taste")
+    ev(session, "c", "like", user_id=2, variant="taste")
+    ev(session, "d", "impression", "fallback", 2)
+    ev(session, "stray", "like", user_id=2)
+
+
+def test_metrics_by_variant(session):
+    _variant_log(session)
+    result = metrics_by_variant(session, now=T0 + timedelta(days=1))
+    assert list(result) == ["control", "none", "taste"]
+    control = result["control"]
+    assert (control.users, control.sessions, control.good_sessions) == (1, 2, 1)
+    assert control.good_session_rate == pytest.approx(0.5)
+    assert (control.likes, control.dislikes, control.like_dislike_ratio) == (1, 1, 1.0)
+    assert control.not_interested_share == pytest.approx(1 / 3)
+    taste = result["taste"]
+    assert (taste.users, taste.sessions, taste.good_session_rate) == (1, 1, 1.0)
+    assert (taste.likes, taste.dislikes, taste.like_dislike_ratio) == (2, 0, None)
+    assert taste.not_interested_share == 0.0
+    none = result["none"]
+    assert (none.users, none.sessions, none.good_session_rate) == (1, 1, 0.0)
+
+
+def test_metrics_by_variant_retention_and_since(session):
+    ev(session, "a", "impression", None, 1, variant="control")
+    ev(session, "a", "like", user_id=1, at=T0 + timedelta(days=3), variant="control")
+    ev(session, "b", "impression", None, 2, at=T0, variant="taste")
+    now = T0 + timedelta(days=10)
+    result = metrics_by_variant(session, now=now)
+    assert result["control"].retention_7d == 1.0
+    assert result["taste"].retention_7d == 0.0
+    later = metrics_by_variant(session, since=T0 + timedelta(days=1), now=now)
+    assert later == {}
+
+
+def test_metrics_by_variant_empty(session):
+    assert metrics_by_variant(session) == {}
+
+
+def test_cli_metrics_by_variant(tmp_path, capsys):
+    url = f"sqlite:///{tmp_path / 'v.db'}"
+    engine = make_engine(url)
+    create_all(engine)
+    with sessionmaker(engine)() as s:
+        s.add(Movie(id=1, title="a"))
+        s.add_all([User(), User()])
+        s.flush()
+        _variant_log(s)
+        s.commit()
+    assert main(["metrics", "--database-url", url]) == 0
+    assert "by variant" not in capsys.readouterr().out
+    assert main(["metrics", "--database-url", url, "--by-variant"]) == 0
+    out = capsys.readouterr().out
+    assert "control: users 1, sessions 2" in out
+    assert "likes/dislikes 1.00 (1/1)" in out
+    assert "likes/dislikes n/a (2/0)" in out
