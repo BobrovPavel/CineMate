@@ -204,7 +204,12 @@ export default function ProfilePage() {
                 key={item.movie_id}
                 className="flex min-w-0 items-center gap-3"
               >
-                <div className="h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-200">
+                <Link
+                  href={`/movies/${item.movie_id}`}
+                  aria-label={primary}
+                  tabIndex={-1}
+                  className="block h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-200"
+                >
                   {item.poster_path ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -222,9 +227,11 @@ export default function ProfilePage() {
                       {t("poster.none")}
                     </div>
                   )}
-                </div>
+                </Link>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <h2 className="font-semibold break-words">{primary}</h2>
+                  <h2 className="font-semibold break-words">
+                    <Link href={`/movies/${item.movie_id}`}>{primary}</Link>
+                  </h2>
                   {secondary && (
                     <p className="text-sm break-words text-gray-600">
                       ({secondary})

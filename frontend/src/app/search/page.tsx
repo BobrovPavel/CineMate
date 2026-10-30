@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -69,6 +70,33 @@ export default function SearchPage() {
       controller.abort();
     };
   }, [query, router]);
+
+  /** Open the movie page; a result not yet in our catalog is added first. */
+  async function open(event: React.MouseEvent, item: SearchResult) {
+    if (item.movie_id !== null) return;
+    event.preventDefault();
+    const key = resultKey(item);
+    if (pending.has(key)) return;
+    setMessage(null);
+    setPending((s) => new Set(s).add(key));
+    try {
+      const id = (await resolveMovie(item.tmdb_type, item.tmdb_id)).id;
+      setResults((prev) => updateResult(prev, key, { movie_id: id }));
+      router.push(`/movies/${id}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        router.replace("/onboarding");
+        return;
+      }
+      setMessage(t("search.saveError"));
+    } finally {
+      setPending((s) => {
+        const copy = new Set(s);
+        copy.delete(key);
+        return copy;
+      });
+    }
+  }
 
   async function act(item: SearchResult, action: Action) {
     const key = resultKey(item);
@@ -168,7 +196,13 @@ export default function SearchPage() {
                 : secondary;
             return (
               <li key={key} className="flex min-w-0 gap-3">
-                <div className="h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-200">
+                <Link
+                  href={item.movie_id === null ? "#" : `/movies/${item.movie_id}`}
+                  onClick={(e) => void open(e, item)}
+                  aria-label={primary}
+                  tabIndex={-1}
+                  className="block h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-200"
+                >
                   {item.poster_path ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -186,9 +220,16 @@ export default function SearchPage() {
                       {t("poster.none")}
                     </div>
                   )}
-                </div>
+                </Link>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <h2 className="font-semibold break-words">{primary}</h2>
+                  <h2 className="font-semibold break-words">
+                    <Link
+                      href={item.movie_id === null ? "#" : `/movies/${item.movie_id}`}
+                  onClick={(e) => void open(e, item)}
+                    >
+                      {primary}
+                    </Link>
+                  </h2>
                   {original && (
                     <p className="text-sm break-words text-gray-600">
                       ({original})

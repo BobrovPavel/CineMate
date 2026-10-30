@@ -210,3 +210,59 @@ export function postCategoryPref(
     body: JSON.stringify({ kind, key, show }),
   });
 }
+
+export type RatingSource = {
+  source: string;
+  label: string;
+  value: number;
+  scale: "10" | "%";
+  votes: number | null;
+  url: string | null;
+};
+
+export type CastMember = {
+  id: number;
+  name: string;
+  character: string | null;
+  profile_path: string | null;
+};
+
+export type MovieDetail = {
+  id: number;
+  title: string;
+  title_ru: string | null;
+  original_title: string | null;
+  year: number | null;
+  overview: string | null;
+  poster_path: string | null;
+  genres: string[];
+  runtime: number | null;
+  display_title: string;
+  second_title: string | null;
+  type: "movie" | "tv";
+  number_of_seasons: number | null;
+  number_of_episodes: number | null;
+  tagline: string | null;
+  certification: string | null;
+  keywords: string[];
+  studios: string[];
+  countries: string[];
+  collection: string | null;
+  budget: number | null;
+  revenue: number | null;
+  directors: { id: number; name: string }[];
+  writers: { id: number; name: string }[];
+  producers: { id: number; name: string }[];
+  composers: { id: number; name: string }[];
+  creators: { id: number; name: string }[];
+  cast: CastMember[];
+  ratings: RatingSource[];
+  user_value: 1 | -1 | null;
+  user_mark: SeenType | null;
+};
+
+export const TMDB_PROFILE_BASE = "https://image.tmdb.org/t/p/w185";
+
+export function fetchMovie(id: number): Promise<MovieDetail> {
+  return apiFetch(`/api/movies/${id}`);
+}

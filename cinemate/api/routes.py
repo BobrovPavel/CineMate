@@ -4,6 +4,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cinemate.api.deps import (
@@ -18,13 +19,17 @@ from cinemate.api.deps import (
 from cinemate.api.schemas import (
     BecauseOf,
     BecauseTaste,
+    CastOut,
     CategoryPrefIn,
     CategoryPrefOut,
     MeOut,
     MovieCard,
+    MovieDetail,
     OnboardingCard,
+    PersonOut,
     ProfileItem,
     RatingIn,
+    RatingSourceOut,
     RecommendationItem,
     RecommendationsOut,
     ResolveIn,
@@ -37,11 +42,24 @@ from cinemate.db.catalog import import_from_tmdb
 from cinemate.db.details import ensure_extended
 from cinemate.db.features import genre_names_by_movie
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.models import Movie, User
+from cinemate.db.models import (
+    Collection,
+    Company,
+    Keyword,
+    Movie,
+    MovieCompany,
+    MovieCredit,
+    MovieKeyword,
+    Person,
+    Rating,
+    SeenMark,
+    User,
+)
 from cinemate.services.ab import assign_variant, settings_for_variant
 from cinemate.services.categories import get_category_prefs, set_category_pref
 from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
+from cinemate.services.ratings import movie_ratings
 from cinemate.services.recommendations import get_recommendations
 from cinemate.services.search import search_local, search_movies
 from cinemate.services.users import (
@@ -363,21 +381,113 @@ def resolve_movie(
     return _card(movie, _genre_names(session, request, [movie.id]).get(movie.id, []))
 
 
-@router.get("/movies/{movie_id}", response_model=MovieCard)
+MAX_KEYWORDS = 30
+MAX_CAST = 15
+CREDIT_FIELDS = {
+    "director": "directors",
+    "writer": "writers",
+    "producer": "producers",
+    "composer": "composers",
+    "creator": "creators",
+}
+
+
+def _titles(movie: Movie, language: str) -> tuple[str, str | None]:
+    """Main and second title: the Russian title first for ``ru``, the original below it."""
+    if language == "ru" and movie.title_ru:
+        primary = movie.title_ru
+        second = movie.original_title or movie.title
+    else:
+        primary = movie.title
+        second = movie.original_title
+    return primary, (second if second and second != primary else None)
+
+
+def _credits(session: Session, movie_id: int) -> dict:
+    rows = session.execute(
+        select(MovieCredit, Person)
+        .join(Person, Person.id == MovieCredit.person_id)
+        .where(MovieCredit.movie_id == movie_id)
+        .order_by(MovieCredit.ord, MovieCredit.person_id)
+    ).all()
+    result: dict = {field: [] for field in CREDIT_FIELDS.values()}
+    result["cast"] = []
+    for credit, person in rows:
+        if credit.role == "cast":
+            if len(result["cast"]) < MAX_CAST:
+                result["cast"].append(
+                    CastOut(
+                        id=person.id,
+                        name=person.name,
+                        character=credit.character,
+                        profile_path=person.profile_path,
+                    )
+                )
+        elif credit.role in CREDIT_FIELDS:
+            result[CREDIT_FIELDS[credit.role]].append(PersonOut(id=person.id, name=person.name))
+    return result
+
+
+@router.get("/movies/{movie_id}", response_model=MovieDetail)
 def movie_detail(
     request: Request,
     movie_id: int,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db_session)],
-) -> MovieCard:
-    """Full movie card; ``404`` for an unknown id."""
+) -> MovieDetail:
+    """Full movie page data; ``404`` for an unknown id."""
     movie = session.get(Movie, movie_id)
     if movie is None:
         raise HTTPException(status_code=404, detail="movie not found")
+    language = language_from_request(request)
     ensure_extended(
         session,
         request.app.state.tmdb_client,
         movie,
-        certification_country_for(language_from_request(request)),
+        certification_country_for(language),
     )
-    return _card(movie, _genre_names(session, request, [movie.id]).get(movie.id, []))
+    card = _card(movie, _genre_names(session, request, [movie.id]).get(movie.id, []))
+    primary, second = _titles(movie, language)
+    is_tv = movie.tmdb_type == "tv"
+    keywords = session.scalars(
+        select(Keyword.name)
+        .join(MovieKeyword, MovieKeyword.keyword_id == Keyword.id)
+        .where(MovieKeyword.movie_id == movie.id)
+        .order_by(Keyword.name)
+        .limit(MAX_KEYWORDS)
+    ).all()
+    studios = session.scalars(
+        select(Company.name)
+        .join(MovieCompany, MovieCompany.company_id == Company.id)
+        .where(MovieCompany.movie_id == movie.id)
+        .order_by(Company.name)
+    ).all()
+    collection = session.get(Collection, movie.collection_id) if movie.collection_id else None
+    value = session.scalar(
+        select(Rating.value).where(Rating.user_id == user.id, Rating.movie_id == movie.id)
+    )
+    mark = session.scalar(
+        select(SeenMark.type).where(SeenMark.user_id == user.id, SeenMark.movie_id == movie.id)
+    )
+    return MovieDetail(
+        **card.model_dump(),
+        display_title=primary,
+        second_title=second,
+        type="tv" if is_tv else "movie",
+        number_of_seasons=movie.number_of_seasons or None,
+        number_of_episodes=movie.number_of_episodes or None,
+        tagline=movie.tagline or None,
+        certification=movie.certification or None,
+        keywords=list(keywords),
+        studios=list(studios),
+        countries=list(movie.countries or []),
+        collection=collection.name if collection else None,
+        budget=(movie.budget or None) if not is_tv else None,
+        revenue=(movie.revenue or None) if not is_tv else None,
+        ratings=[
+            RatingSourceOut(**vars(r)) for r in movie_ratings(session, movie, user.pool, language)
+        ],
+        user_value=value if value in (1, -1) else None,
+        user_mark=mark,
+        **_credits(session, movie.id),
+    )
