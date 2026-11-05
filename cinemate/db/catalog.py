@@ -22,6 +22,7 @@ from cinemate.db.models import (
     Rating,
     SeenMark,
 )
+from cinemate.db.text import fit
 from cinemate.tmdb import TmdbClient, TmdbDetails
 
 SOURCE_ORDER = ("imdb", "movielens", "kinopoisk", "ratings_csv")
@@ -230,12 +231,12 @@ def movie_from_details(session: Session, details: TmdbDetails) -> Movie:
     movie = Movie(
         tmdb_type=tmdb_type,
         tmdb_id=tmdb_id,
-        title=details.title,
-        original_title=details.original_title,
-        title_ru=details.title_ru,
+        title=fit(Movie.title, details.title),
+        original_title=fit(Movie.original_title, details.original_title),
+        title_ru=fit(Movie.title_ru, details.title_ru),
         year=details.year,
         overview=details.overview_ru or details.overview,
-        poster_path=details.poster_path,
+        poster_path=fit(Movie.poster_path, details.poster_path),
         runtime=details.runtime,
         popularity_score=0.0,
         tmdb_fetched_at=datetime.now(UTC),

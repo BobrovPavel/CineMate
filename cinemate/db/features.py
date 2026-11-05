@@ -9,7 +9,8 @@ from collections.abc import Iterable, Sequence
 from sqlalchemy import Engine, delete, insert, select
 from sqlalchemy.orm import Session
 
-from cinemate.db.models import Collection, Company, Genre, MovieCompany, MovieGenre
+from cinemate.db.models import Collection, Company, Genre, Movie, MovieCompany, MovieGenre
+from cinemate.db.text import fit
 from cinemate.genres import GENRES, legacy_genre_ids, tmdb_genre_ids
 from cinemate.tmdb import TmdbDetails
 
@@ -98,9 +99,9 @@ def apply_features(session: Session, movie, details: TmdbDetails) -> None:
         collection_id, name = details.collection
         collection = session.get(Collection, collection_id)
         if collection is None:
-            session.add(Collection(id=collection_id, name=name))
+            session.add(Collection(id=collection_id, name=fit(Collection.name, name)))
         else:
-            collection.name = name
+            collection.name = fit(Collection.name, name)
         movie.collection_id = collection_id
     else:
         movie.collection_id = None
@@ -109,10 +110,16 @@ def apply_features(session: Session, movie, details: TmdbDetails) -> None:
     for company_id, (name, logo_path) in wanted.items():
         company = session.get(Company, company_id)
         if company is None:
-            session.add(Company(id=company_id, name=name, logo_path=logo_path))
+            session.add(
+                Company(
+                    id=company_id,
+                    name=fit(Company.name, name),
+                    logo_path=fit(Company.logo_path, logo_path),
+                )
+            )
         else:
-            company.name = name
-            company.logo_path = logo_path or company.logo_path
+            company.name = fit(Company.name, name)
+            company.logo_path = fit(Company.logo_path, logo_path) or company.logo_path
     session.flush()
     session.execute(delete(MovieCompany).where(MovieCompany.movie_id == movie.id))
     if wanted:
@@ -122,7 +129,7 @@ def apply_features(session: Session, movie, details: TmdbDetails) -> None:
 
     movie.countries = list(details.countries)
     if details.original_language:
-        movie.original_language = details.original_language
+        movie.original_language = fit(Movie.original_language, details.original_language)
     if details.vote_average is not None:
         movie.tmdb_vote_average = details.vote_average
     if details.vote_count is not None:

@@ -862,6 +862,7 @@ def _run_sync_changes(args: argparse.Namespace, engine, api_key: str, types: tup
                 limit=args.limit,
                 workers=args.workers,
                 progress=progress,
+                report=lambda line: print(line, flush=True),
             )
         except ChangesPeriodTooLong as exc:
             print(
@@ -877,7 +878,8 @@ def _run_sync_changes(args: argparse.Namespace, engine, api_key: str, types: tup
         f"period: {stats.start:%Y-%m-%d %H:%M} .. {stats.end:%Y-%m-%d %H:%M} UTC, "
         f"changed records: {stats.changed}, updated: {stats.updated}, added: {stats.added}, "
         f"not found: {stats.not_found}, below min popularity: {stats.skipped_low_popularity}, "
-        f"already fresh: {stats.up_to_date}, remaining: {stats.remaining}"
+        f"already fresh: {stats.up_to_date}, remaining: {stats.remaining}, "
+        f"failed: {stats.failed}"
     )
     return 0
 
@@ -929,6 +931,7 @@ def _run_enrich(args: argparse.Namespace) -> int:
                 stale_days=args.stale_days,
                 workers=args.workers,
                 extended=args.extended,
+                report=lambda line: print(line, flush=True),
             )
         except ValueError as exc:
             print(f"cinemate enrich-movies: error: {exc}", file=sys.stderr)
@@ -938,7 +941,7 @@ def _run_enrich(args: argparse.Namespace) -> int:
             return 1
     print(
         f"movies enriched: {stats.enriched}, not found: {stats.not_found}, "
-        f"skipped (no TMDB pair): {stats.skipped}"
+        f"skipped (no TMDB pair): {stats.skipped}, failed: {stats.failed}"
     )
     return 0
 
