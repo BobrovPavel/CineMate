@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from cinemate.recommender.taste import ANIMATION, GENRE, FeatureKey, TasteData
+from cinemate.recommender.taste import ANIMATION, ANIMATION_GENRE_ID, GENRE, FeatureKey, TasteData
 
 COLLECTION_KIND, STUDIO_KIND, GENRE_KIND, ANIME_KIND = "collection", "studio", "genre", "anime"
 KINDS = (COLLECTION_KIND, STUDIO_KIND, GENRE_KIND, ANIME_KIND)
@@ -109,6 +109,8 @@ def demote[T](items: Sequence[T], is_hidden: Callable[[T], bool], keep: int = KE
     keeps its position, so a hidden item that stood lower stays where it was. With fewer
     non-hidden items than ``keep`` the hidden ones fill the rest. Nothing is dropped.
     """
+    if keep <= 0:
+        return [*(i for i in items if is_hidden(i)), *(i for i in items if not is_hidden(i))]
     top: list[T] = []
     moved: list[T] = []
     end = 0
@@ -146,12 +148,15 @@ def dislike_similarity(
 def shown_taste_features(shown: Iterable[CategoryKey]) -> frozenset[FeatureKey]:
     """Taste-profile features of the categories the user chose to show: a genre and anime.
 
+    Showing the animation genre also frees the "animation" feature that every cartoon carries.
     Collections and studios are not used by the taste profile.
     """
     features: set[FeatureKey] = set()
     for kind, key in shown:
         if kind == GENRE_KIND and key.isdigit():
             features.add((GENRE, int(key)))
+            if int(key) == ANIMATION_GENRE_ID:
+                features.add((ANIMATION, "animation"))
         elif kind == ANIME_KIND:
             features.add((ANIMATION, ANIME_KEY))
     return frozenset(features)

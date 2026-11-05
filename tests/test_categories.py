@@ -168,4 +168,12 @@ def test_shown_taste_features_maps_genre_and_anime_only():
     from cinemate.recommender.categories import shown_taste_features
 
     shown = [("genre", "16"), ("anime", "anime"), ("studio", "1"), ("collection", "2")]
-    assert shown_taste_features(shown) == {("genre", 16), ("animation", "anime")}
+    assert shown_taste_features(shown) == {
+        ("genre", 16),
+        ("animation", "animation"),
+        ("animation", "anime"),
+    }
+
+
+def test_demote_with_zero_keep_puts_hidden_first():
+    assert demote([1, 2, 3, 4], lambda i: i in (3, 4), keep=0) == [3, 4, 1, 2]

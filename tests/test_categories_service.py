@@ -207,3 +207,21 @@ def test_similarity_penalty_pushes_down_movies_like_the_disliked(factory):
 
 def test_similarity_penalty_off_with_zero_weight(factory):
     assert penalty_feed(factory, dislike_item_min_ratings=3, dislike_item_weight=0.0) == [10, 11]
+
+
+def test_rule_never_lifts_and_show_is_not_lower_than_rule_with_taste(factory):
+    build(factory, dislikes=5, target_likes=OTHER[:2])
+    kw = dict(taste_weight=1.0)
+    natural = feed(factory, hide_categories=False, **kw)
+    with_rule = feed(factory, **kw)
+    cands = MARVEL_CANDIDATES
+    for m in cands:
+        assert with_rule.index(m) >= natural.index(m)
+
+    with factory() as s:
+        for kind, key in (("studio", "1"), ("genre", "28")):
+            set_category_pref(s, s.get(User, 1), kind, key, True)
+        s.commit()
+    shown = feed(factory, **kw)
+    for m in cands:
+        assert shown.index(m) <= with_rule.index(m)
