@@ -2,8 +2,8 @@
 
 A category is a franchise (TMDB collection), a recognisable studio, a genre or anime. It is
 *triggered* for a user with no likes in it and at least ``min_dislikes`` dislikes; the movies of
-a triggered category are then moved below the first ``KEEP_TOP`` positions of the feed, in
-their order, not removed (:func:`demote`).
+a triggered category that stands within the first ``KEEP_TOP`` positions of the feed is moved
+right after them, in its order, not removed; lower ones stay put (:func:`demote`).
 """
 
 from collections import Counter
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from cinemate.recommender.taste import ANIMATION, GENRE, TasteData
+from cinemate.recommender.taste import ANIMATION, GENRE, FeatureKey, TasteData
 
 COLLECTION_KIND, STUDIO_KIND, GENRE_KIND, ANIME_KIND = "collection", "studio", "genre", "anime"
 KINDS = (COLLECTION_KIND, STUDIO_KIND, GENRE_KIND, ANIME_KIND)
@@ -102,15 +102,25 @@ def triggered_categories(
 
 
 def demote[T](items: Sequence[T], is_hidden: Callable[[T], bool], keep: int = KEEP_TOP) -> list[T]:
-    """Move hidden items below position ``keep``, right after the ``keep``-th item.
+    """Move hidden items out of the first ``keep`` positions; never move anything up.
 
-    The first ``keep`` positions are the first non-hidden items; the hidden ones follow in
-    their order, then the remaining non-hidden items. With fewer non-hidden items than ``keep``
-    the hidden ones fill the rest. Nothing is dropped.
+    The top is the first ``keep`` non-hidden items. Hidden items that stood before the end of
+    the top go right after it (position ``keep + 1``), in their order; everything after the top
+    keeps its position, so a hidden item that stood lower stays where it was. With fewer
+    non-hidden items than ``keep`` the hidden ones fill the rest. Nothing is dropped.
     """
-    visible = [item for item in items if not is_hidden(item)]
-    hidden = [item for item in items if is_hidden(item)]
-    return visible[:keep] + hidden + visible[keep:]
+    top: list[T] = []
+    moved: list[T] = []
+    end = 0
+    for position, item in enumerate(items):
+        end = position + 1
+        if is_hidden(item):
+            moved.append(item)
+        else:
+            top.append(item)
+            if len(top) == keep:
+                break
+    return top + moved + list(items[end:])
 
 
 def dislike_similarity(
@@ -131,6 +141,20 @@ def dislike_similarity(
     denom = np.outer(cand_norm, dis_norm)
     sims = np.divide(dots, denom, out=np.zeros_like(dots), where=denom > 0)
     return sims.max(axis=1).astype(np.float64)
+
+
+def shown_taste_features(shown: Iterable[CategoryKey]) -> frozenset[FeatureKey]:
+    """Taste-profile features of the categories the user chose to show: a genre and anime.
+
+    Collections and studios are not used by the taste profile.
+    """
+    features: set[FeatureKey] = set()
+    for kind, key in shown:
+        if kind == GENRE_KIND and key.isdigit():
+            features.add((GENRE, int(key)))
+        elif kind == ANIME_KIND:
+            features.add((ANIMATION, ANIME_KEY))
+    return frozenset(features)
 
 
 def disliked_columns(row: csr_matrix, exclude: Iterable[int] = ()) -> list[int]:

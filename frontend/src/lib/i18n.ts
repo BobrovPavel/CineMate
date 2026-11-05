@@ -80,6 +80,7 @@ const ru = {
   "categories.title": "Скрытые категории",
   "categories.hint":
     "Если вы дизлайкнули категорию целиком, её фильмы опускаются ниже в ленте. Вы можете вернуть их.",
+  "categories.willShow": "Будем показывать, если подойдёт по оценкам похожих зрителей",
   "categories.empty": "Пока ничего не скрыто.",
   "categories.shown": "показываем",
   "categories.hidden": "опущена ниже",
@@ -218,6 +219,7 @@ const en: Record<MessageKey, string> = {
   "categories.title": "Hidden categories",
   "categories.hint":
     "If you disliked a whole category, its movies are moved lower in the feed. You can bring them back.",
+  "categories.willShow": "We'll show it when similar viewers' ratings suggest it",
   "categories.empty": "Nothing is hidden yet.",
   "categories.shown": "shown",
   "categories.hidden": "moved down",

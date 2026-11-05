@@ -81,7 +81,8 @@ def get_category_prefs(
         matrix, index = with_fresh_row(session, data, user)
         thresholds = settings.category_thresholds
         stats = category_stats(data.taste, matrix[index], thresholds.studio_max_movies)
-        hidden = triggered_categories(stats, thresholds) - shown
+        if settings.hide_categories:
+            hidden = triggered_categories(stats, thresholds) - shown
     keys = hidden | shown
     names = _names(session, keys, language)
     views = []

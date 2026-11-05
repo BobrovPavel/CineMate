@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import type { CategoryPref } from "@/lib/api";
 import {
   categoryCount,
@@ -19,7 +21,14 @@ export function HiddenCategoriesBanner({ prefs, busy, onShow }: Props) {
   const locale = useLocale();
   const t = useT();
   const hidden = hiddenCategories(prefs);
-  if (hidden.length === 0) return null;
+  const [justShown, setJustShown] = useState(false);
+  if (hidden.length === 0) {
+    return justShown ? (
+      <div className="mb-4 rounded-xl bg-gray-100 p-3 text-sm">
+        {t("categories.willShow")}
+      </div>
+    ) : null;
+  }
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-gray-100 p-3 text-sm">
@@ -33,7 +42,10 @@ export function HiddenCategoriesBanner({ prefs, busy, onShow }: Props) {
             type="button"
             disabled={busy}
             aria-label={t("categories.showLabel", { name: c.name })}
-            onClick={() => onShow(c)}
+            onClick={() => {
+              setJustShown(true);
+              onShow(c);
+            }}
             className="min-h-11 min-w-11 rounded-xl bg-gray-200 px-3 font-semibold text-gray-900 disabled:opacity-50"
           >
             {t("categories.show")}

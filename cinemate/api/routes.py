@@ -286,12 +286,15 @@ def category_prefs(
     session: Annotated[Session, Depends(get_db_session)],
     store: Annotated[MatrixStore, Depends(get_matrix_store)],
 ) -> list[CategoryPrefOut]:
-    """Categories lowered in the feed by the rule and those the user chose to show."""
+    """Categories lowered in the feed by the rule and those the user chose to show.
+
+    Settings are those of the user's A/B variant, as in ``GET /api/recommendations``."""
+    settings = request.app.state.recommender_settings
     views = get_category_prefs(
         session,
         store,
         user,
-        settings=request.app.state.recommender_settings,
+        settings=settings_for_variant(settings, assign_variant(settings, user.id)),
         language=language_from_request(request),
     )
     return [CategoryPrefOut(**vars(view)) for view in views]
