@@ -93,3 +93,12 @@ def test_rejects_unknown_kind_and_empty_key(client):
         {"kind": "studio", "key": "1"},
     ):
         assert client.post("/api/category-prefs", json=body).status_code == 422
+
+
+def test_control_variant_sees_no_triggered_categories_but_keeps_overrides(client, app):
+    assert client.get("/api/category-prefs").json()  # rule on: categories triggered
+    body = {"kind": "studio", "key": "1", "show": True}
+    client.post("/api/category-prefs", json=body)
+    app.state.recommender_settings = RecommenderSettings(**CF, ab_variants=("control",))
+    views = client.get("/api/category-prefs").json()
+    assert [(v["kind"], v["key"], v["show"]) for v in views] == [("studio", "1", True)]

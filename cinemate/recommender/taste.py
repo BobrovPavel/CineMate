@@ -125,6 +125,7 @@ class TasteProfile:
     base: dict[FeatureKey, float] = field(repr=False)
     prior: float = DEFAULT_PRIOR
     interest_weight: float = DEFAULT_INTEREST_WEIGHT
+    non_negative: frozenset[FeatureKey] = frozenset()  # contribution of these is at least 0
 
     def contribution(self, key: FeatureKey) -> float:
         """``q_f + interest_weight * i_f``; a feature the user never met has ``q = 0``."""
@@ -133,7 +134,8 @@ class TasteProfile:
         quality = (liked - disliked) / (liked + disliked + self.prior)
         expected = self.n_likes * self.base.get(key, 0.0)
         interest = math.log((liked + 1) / (expected + 1))
-        return quality + self.interest_weight * interest
+        value = quality + self.interest_weight * interest
+        return max(value, 0.0) if key in self.non_negative else value
 
 
 def build_profile(
@@ -143,8 +145,12 @@ def build_profile(
     not_interested: Iterable[int] = (),
     prior: float = DEFAULT_PRIOR,
     interest_weight: float = DEFAULT_INTEREST_WEIGHT,
+    non_negative: Iterable[FeatureKey] = (),
 ) -> TasteProfile:
-    """Profile from column indices; ``not_interested`` columns count as dislikes of weight 0.5."""
+    """Profile from column indices; ``not_interested`` columns count as dislikes of weight 0.5.
+
+    ``non_negative`` features never contribute below zero (a category the user chose to show).
+    """
     likes: Counter[FeatureKey] = Counter()
     dislikes: Counter[FeatureKey] = Counter()
     n_likes = 0
@@ -166,6 +172,7 @@ def build_profile(
         base=data.base,
         prior=prior,
         interest_weight=interest_weight,
+        non_negative=frozenset(non_negative),
     )
 
 
@@ -268,13 +275,15 @@ def rerank_candidates(
     not_interested: Iterable[int] = (),
     penalties: Sequence[float] | None = None,
     penalty_weight: float = 0.0,
+    non_negative: Iterable[FeatureKey] = (),
 ) -> tuple[list[tuple[int, float]], TasteProfile]:
     """Re-rank CF ``(column, score)`` candidates for the user whose matrix row is ``row``.
 
     The profile is built from the row's likes and dislikes (``+1`` / ``-1``) and the
     ``not_interested`` columns; the order is :func:`rerank` followed by :func:`diversify`.
     ``penalties[i]`` (e.g. the similarity to disliked movies) of candidate ``i`` is subtracted
-    as ``penalty_weight * z(penalty)``. Returns the new order (scores unchanged) and the profile.
+    as ``penalty_weight * z(penalty)``. ``non_negative`` features are floored at 0 in the
+    profile. Returns the new order (scores unchanged) and the profile.
     """
     profile = build_profile(
         data,
@@ -282,6 +291,7 @@ def rerank_candidates(
         disliked=row.indices[row.data < 0].tolist(),
         not_interested=not_interested,
         interest_weight=interest_weight,
+        non_negative=non_negative,
     )
     tastes = [taste_score(profile, data.groups[j]) for j, _ in candidates]
     order = rerank([score for _, score in candidates], tastes, weight, penalties, penalty_weight)

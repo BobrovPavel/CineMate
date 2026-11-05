@@ -22,6 +22,7 @@ from cinemate.recommender.categories import (
     demote,
     dislike_similarity,
     disliked_columns,
+    shown_taste_features,
     triggered_categories,
 )
 from cinemate.recommender.explain import explain
@@ -211,15 +212,15 @@ def get_recommendations(
     taste = data.taste
     row = matrix[user_index]
     hidden: set[tuple[str, str]] = set()
-    if taste is not None and settings.hide_categories:
-        shown = {
-            (kind, key)
-            for kind, key in session.execute(
-                select(UserCategoryPref.kind, UserCategoryPref.key).where(
-                    UserCategoryPref.user_id == user.id, UserCategoryPref.mode == "show"
-                )
+    shown = {
+        (kind, key)
+        for kind, key in session.execute(
+            select(UserCategoryPref.kind, UserCategoryPref.key).where(
+                UserCategoryPref.user_id == user.id, UserCategoryPref.mode == "show"
             )
-        }
+        )
+    }
+    if taste is not None and settings.hide_categories:
         thresholds = settings.category_thresholds
         stats = category_stats(taste, row, thresholds.studio_max_movies)
         hidden = triggered_categories(stats, thresholds) - shown
@@ -269,6 +270,7 @@ def get_recommendations(
             if penalty_on
             else None,
             penalty_weight=settings.dislike_item_weight,
+            non_negative=shown_taste_features(shown),
         )
     if hidden and taste is not None:
         studio_max = settings.hide_studio_max_movies

@@ -19,12 +19,29 @@ def data_for(features):
     return build_taste_data(features, np.ones(len(features)))
 
 
-def test_demote_puts_hidden_right_after_the_twentieth_in_order():
+def test_demote_moves_a_hidden_item_from_the_top_to_position_21():
+    items = list(range(200))
+    out = demote(items, lambda i: i == 4)
+    assert out.index(4) == 20
+    assert out[:4] == [0, 1, 2, 3] and out[4:20] == list(range(5, 21))
+    assert sorted(out) == items
+
+
+def test_demote_never_moves_a_lower_hidden_item_up():
+    items = list(range(200))
+    out = demote(items, lambda i: i in (4, 149))
+    assert out.index(4) == 20 and out.index(149) == 149
+    assert [i for i in out if i not in (4, 149)] == [i for i in items if i not in (4, 149)]
+    assert sorted(out) == items
+
+
+def test_demote_keeps_hidden_order_and_never_lifts_any_item():
     items = list(range(30))
     hidden = {1, 5, 25}
     out = demote(items, lambda i: i in hidden)
-    visible = [i for i in items if i not in hidden]
-    assert out == visible[:20] + [1, 5, 25] + visible[20:]
+    assert out[20:23] == [1, 5, 22]  # the top ends at item 21
+    assert all(out.index(i) >= i for i in hidden)
+    assert out.index(25) == 25
     assert sorted(out) == items
 
 
@@ -123,3 +140,40 @@ def test_rerank_penalty_lowers_similar_candidates():
         1,
         2,
     ]
+
+
+def test_non_negative_features_never_contribute_below_zero():
+    from cinemate.recommender.taste import build_profile
+
+    data = data_for([MovieFeatures(genres=(ANIMATION,)) for _ in range(6)])
+    key = ("genre", ANIMATION)
+    plain = build_profile(data, liked=[], disliked=range(6))
+    floored = build_profile(data, liked=[], disliked=range(6), non_negative=[key])
+    assert plain.contribution(key) < 0
+    assert floored.contribution(key) == 0.0
+
+
+def test_non_negative_keeps_positive_contribution():
+    from cinemate.recommender.taste import build_profile
+
+    data = data_for([MovieFeatures(genres=(ANIMATION,)) for _ in range(6)])
+    key = ("genre", ANIMATION)
+    plain = build_profile(data, liked=range(6))
+    floored = build_profile(data, liked=range(6), non_negative=[key])
+    assert plain.contribution(key) > 0
+    assert floored.contribution(key) == plain.contribution(key)
+
+
+def test_shown_taste_features_maps_genre_and_anime_only():
+    from cinemate.recommender.categories import shown_taste_features
+
+    shown = [("genre", "16"), ("anime", "anime"), ("studio", "1"), ("collection", "2")]
+    assert shown_taste_features(shown) == {
+        ("genre", 16),
+        ("animation", "animation"),
+        ("animation", "anime"),
+    }
+
+
+def test_demote_with_zero_keep_puts_hidden_first():
+    assert demote([1, 2, 3, 4], lambda i: i in (3, 4), keep=0) == [3, 4, 1, 2]
