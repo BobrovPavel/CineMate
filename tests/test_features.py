@@ -129,8 +129,9 @@ def test_enrich_overwrites_old_genres_with_tmdb_ones():
     session.flush()
     session.execute(MovieGenre.__table__.insert(), [{"movie_id": movie.id, "genre_id": 18}])
     session.commit()
-    enrich_movies(session, _client(MOVIE_PAYLOAD))
-    assert _names(session, movie) == ["Action", "Science Fiction"]
+    movie_id = movie.id
+    enrich_movies(session, _client(MOVIE_PAYLOAD))  # clears the session: reload by id
+    assert _names(session, session.get(Movie, movie_id)) == ["Action", "Science Fiction"]
 
 
 def test_missing_features_rated_movies_first():

@@ -215,14 +215,14 @@ def test_tmdb_error_commits_progress():
 
 
 def test_commits_in_batches(monkeypatch):
-    monkeypatch.setattr("cinemate.db.enrich.COMMIT_EVERY", 2)
+    monkeypatch.setattr("cinemate.db.enrich.BATCH_SIZE", 2)
     session = _session([Movie(title=str(i), tmdb_type="movie", tmdb_id=i) for i in range(1, 4)])
     commits = []
     real = session.commit
     session.commit = lambda: (commits.append(1), real())[1]
     client = FakeClient({("movie", i): _details("movie", i, title=f"t{i}") for i in range(1, 4)})
     enrich_movies(session, client)
-    assert len(commits) == 2  # after the 2nd movie and the final one
+    assert len(commits) == 3  # one per batch (2 + 1) and the final one
 
 
 def test_refresh_titles_only_without_title_ru_and_ignores_age():

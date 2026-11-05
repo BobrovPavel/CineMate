@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from cinemate.db.catalog import find_movie, movie_from_details
-from cinemate.db.enrich import apply_details
+from cinemate.db.enrich import SAVEPOINT_ERRORS, FailureReporter, apply_details
 from cinemate.db.models import CatalogSync, Movie
 from cinemate.tmdb import DEFAULT_WORKERS, TmdbClient, fetch_many
 
@@ -39,6 +39,7 @@ class ChangesStats:
     skipped_low_popularity: int = 0
     up_to_date: int = 0
     remaining: int = 0
+    failed: int = 0
 
 
 def _aware(value: datetime) -> datetime:
@@ -56,6 +57,7 @@ def sync_changes(
     workers: int = DEFAULT_WORKERS,
     now: datetime | None = None,
     progress: Callable[[str, int, int], None] | None = None,
+    report: Callable[[str], None] | None = None,
 ) -> ChangesStats:
     """Apply the TMDB changes of every type in ``types`` since its last sync.
 
@@ -65,6 +67,8 @@ def sync_changes(
     cuts a type short, that type's ``changes_synced_until`` stays put. Details are fetched by
     ``workers`` threads, the database is written by the calling one. Progress is committed
     every ``COMMIT_EVERY`` records and when the run ends, also with ``TmdbError``.
+    A database error (``DataError``, ``IntegrityError``) on one record rolls back its savepoint
+    and counts it as ``failed`` (listed through ``report``, at most 20 lines); the run goes on.
     Raises ``ChangesPeriodTooLong`` before any request if a period exceeds 90 days.
     """
     end = _aware(now) if now else datetime.now(UTC)
@@ -84,6 +88,7 @@ def sync_changes(
     counts = dict.fromkeys(
         ("changed", "updated", "added", "not_found", "low", "fresh", "remaining"), 0
     )
+    failures = FailureReporter(report)
     budget = limit
     try:
         for tmdb_type in types:
@@ -115,16 +120,23 @@ def sync_changes(
                     movie = todo[tmdb_id]
                     if details is None:
                         counts["not_found"] += 1
-                    elif movie is not None:
-                        apply_details(session, movie, details)
-                        if details.popularity is not None:
-                            movie.tmdb_popularity = details.popularity
-                        counts["updated"] += 1
-                    elif details.popularity is not None and details.popularity < min_popularity:
+                    elif movie is None and (
+                        details.popularity is not None and details.popularity < min_popularity
+                    ):
                         counts["low"] += 1
                     else:
-                        movie_from_details(session, details)
-                        counts["added"] += 1
+                        try:
+                            with session.begin_nested():
+                                if movie is not None:
+                                    apply_details(session, movie, details)
+                                    if details.popularity is not None:
+                                        movie.tmdb_popularity = details.popularity
+                                else:
+                                    movie_from_details(session, details)
+                        except SAVEPOINT_ERRORS as exc:
+                            failures(None if movie is None else movie.id, (tmdb_type, tmdb_id), exc)
+                        else:
+                            counts["updated" if movie is not None else "added"] += 1
                     if done % COMMIT_EVERY == 0:
                         session.commit()
                         if progress is not None:
@@ -149,4 +161,5 @@ def sync_changes(
         counts["low"],
         counts["fresh"],
         counts["remaining"],
+        failures.count,
     )
