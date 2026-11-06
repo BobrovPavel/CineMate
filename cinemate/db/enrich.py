@@ -18,9 +18,12 @@ from cinemate.db.text import fit
 from cinemate.tmdb import DEFAULT_WORKERS, TmdbClient, TmdbDetails, fetch_many
 
 DEFAULT_STALE_DAYS = 30
+DEFAULT_CATALOG_STALE_DAYS = 150
 MAX_STALE_DAYS = 180  # TMDB terms: stored data must not be kept longer than 6 months
 BATCH_SIZE = 1000  # movies loaded, requested, written and committed at a time
 PROGRESS_EVERY = 1000  # records between two progress lines
+RATED_GROUP = "фильмы с оценками"
+REST_GROUP = "остальной каталог"
 MAX_FAILURE_LINES = 20
 # errors of writing one movie: the savepoint is rolled back and the movie counts as failed
 SAVEPOINT_ERRORS = (DataError, IntegrityError)
@@ -97,10 +100,12 @@ class _Pass:
 
     where: ColumnElement[bool]
     key: InstrumentedAttribute | None = None
+    group: str | None = None  # name of the pass shown in the progress lines
 
 
 def _passes(
     cutoff: datetime,
+    catalog_cutoff: datetime,
     extended: bool,
     missing_features: bool,
     refresh_titles: bool,
@@ -117,12 +122,23 @@ def _passes(
         return [_Pass(todo & rated), _Pass(todo & ~rated)]
     if refresh_titles:
         return [_Pass((Movie.title_ru.is_(None)) | (Movie.title_ru == ""))]
+    fetched = Movie.tmdb_fetched_at
     return [
-        _Pass(Movie.tmdb_fetched_at.is_(None)),
+        _Pass(rated & fetched.is_(None), None, RATED_GROUP),
         _Pass(
-            Movie.tmdb_fetched_at.is_not(None)
-            & ((Movie.tmdb_fetched_at < cutoff) | (Movie.details_fetched_at < cutoff)),
-            Movie.tmdb_fetched_at,
+            rated
+            & fetched.is_not(None)
+            & ((fetched < cutoff) | (Movie.details_fetched_at < cutoff)),
+            fetched,
+            RATED_GROUP,
+        ),
+        _Pass(~rated & fetched.is_(None), None, REST_GROUP),
+        _Pass(
+            ~rated
+            & fetched.is_not(None)
+            & ((fetched < catalog_cutoff) | (Movie.details_fetched_at < catalog_cutoff)),
+            fetched,
+            REST_GROUP,
         ),
     ]
 
@@ -153,6 +169,7 @@ def enrich_movies(
     limit: int | None = None,
     refresh_titles: bool = False,
     stale_days: int = DEFAULT_STALE_DAYS,
+    catalog_stale_days: int = DEFAULT_CATALOG_STALE_DAYS,
     missing_features: bool = False,
     workers: int = DEFAULT_WORKERS,
     extended: bool = False,
@@ -161,9 +178,12 @@ def enrich_movies(
 ) -> EnrichStats:
     """Re-fetch TMDB details for movies with a TMDB pair whose data is stale.
 
-    Stale means ``tmdb_fetched_at`` is ``NULL`` or older than ``stale_days`` (1..180); the
-    ``NULL`` ones go first, then the oldest. With ``refresh_titles`` only movies without
-    ``title_ru`` are requested, whatever their age. Details come from
+    Stale means ``tmdb_fetched_at`` is ``NULL`` or older than ``stale_days`` (1..180) for movies
+    with ratings in any pool, and older than ``catalog_stale_days`` (1..180) for the rest of the
+    catalog; extended data (``details_fetched_at``) is refreshed by the same term. Two passes, the
+    rated movies first, in each the ``NULL`` ones go first, then the oldest. With
+    ``refresh_titles`` only movies without ``title_ru`` are requested, whatever their age.
+    Details come from
     ``client.fetch_details(tmdb_type, tmdb_id)``, ``workers`` requests at a time (the database is
     written by the calling thread only); fields are overwritten with TMDB values but an
     empty TMDB value never erases a stored one, TMDB genres replace the old ones, the IMDb id is
@@ -187,13 +207,16 @@ def enrich_movies(
     """
     if not 1 <= stale_days <= MAX_STALE_DAYS:
         raise ValueError(f"stale_days must be between 1 and {MAX_STALE_DAYS}")
+    if not 1 <= catalog_stale_days <= MAX_STALE_DAYS:
+        raise ValueError(f"catalog_stale_days must be between 1 and {MAX_STALE_DAYS}")
     if extended and (refresh_titles or missing_features):
         raise ValueError("extended cannot be combined with refresh_titles or missing_features")
     has_pair = Movie.tmdb_id.is_not(None) & Movie.tmdb_type.is_not(None)
     skipped = session.scalar(select(func.count()).select_from(Movie).where(~has_pair)) or 0
 
     cutoff = datetime.now(UTC) - timedelta(days=stale_days)
-    passes = _passes(cutoff, extended, missing_features, refresh_titles)
+    catalog_cutoff = datetime.now(UTC) - timedelta(days=catalog_stale_days)
+    passes = _passes(cutoff, catalog_cutoff, extended, missing_features, refresh_titles)
     budget = limit
     counts: list[int] = []
     for selection in passes:
@@ -210,6 +233,10 @@ def enrich_movies(
     say(f"к обработке: {total}")
     if missing_features:
         say(f"из них с оценками: {counts[0]}")
+    if passes[0].group is not None:
+        for group in dict.fromkeys(p.group for p in passes):
+            n = sum(c for p, c in zip(passes, counts, strict=True) if p.group == group)
+            say(f"проход «{group}»: {n}")
 
     enriched = not_found = 0
     failures = FailureReporter(report)
