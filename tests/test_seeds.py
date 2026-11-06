@@ -115,7 +115,7 @@ def test_tables_show_mean_and_std_only_with_several_seeds():
     lines = format_table(multi).splitlines()
     assert lines[1].split() == ["collaborative", "0.1997±0.0042", "0.2000±0.0100",
                                 "0.8000±0.0200", "0.5000", "0.3000", "0.0000±0.0000",
-                                "0.0000±0.0000", "(n=0)"]  # fmt: skip
+                                "0.0000±0.0000", "(n=0)", "0.00"]  # fmt: skip
     assert lines[-1] == "seeds: 0,1,2"
     tuned = format_tune_table(TuneResult([TuneRow(3, 1.0, 1, m)], {"popular": m}, 5, seeds=(0, 1)))
     assert "0.1997±0.0042" in tuned and tuned.splitlines()[-1] == "seeds: 0,1"

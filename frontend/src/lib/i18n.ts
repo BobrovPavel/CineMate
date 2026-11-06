@@ -59,6 +59,9 @@ const ru = {
   "explain.taste": "Вы часто лайкаете {name}",
   "explain.twin":
     "Понравилось зрителю, у которого совпало {common} из {of} ваших лайков",
+  "explain.nextPart.one": "Следующая часть: вы оценили часть {parts}",
+  "explain.nextPart.many": "Следующая часть: вы оценили части {parts}",
+  "collection.line": "Серия «{name}» · {n} {films}",
 
   "profile.title": "Мои оценки",
   "profile.saveError": "Не удалось изменить оценку. Попробуйте ещё раз.",
@@ -199,6 +202,9 @@ const en: Record<MessageKey, string> = {
   "explain.and": "and",
   "explain.taste": "You often like {name}",
   "explain.twin": "Liked by a viewer who shares {common} of your {of} likes",
+  "explain.nextPart.one": "Next part: you rated part {parts}",
+  "explain.nextPart.many": "Next part: you rated parts {parts}",
+  "collection.line": "{name} Collection · {n} {films}",
 
   "profile.title": "My ratings",
   "profile.saveError": "Could not change the rating. Please try again.",
@@ -290,6 +296,10 @@ export const PLURALS = {
   movie: {
     ru: { one: "фильм", few: "фильма", many: "фильмов", other: "фильма" },
     en: { one: "movie", other: "movies" },
+  },
+  film: {
+    ru: { one: "фильм", few: "фильма", many: "фильмов", other: "фильма" },
+    en: { one: "film", other: "films" },
   },
   people: {
     ru: { one: "человеку", other: "людям" },

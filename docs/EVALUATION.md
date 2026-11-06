@@ -794,3 +794,29 @@ new users: 40 ratings each
   - перебор: `cinemate tune --seeds 0,1,2 --k 150 --lambda 40 --min-overlap 1 --pop-penalty 0.75`
   - ml-32m: те же команды с `--source movielens --dataset ml-32m`, CSV владельца: с `--source csv` (см. `cinemate evaluate --help`).
 - Ограничение: гибрид (`blend_full_at > 0`) использует те же `sim_power`/`shrink`/`mass_lambda`; на нём прогон не делался.
+
+## Прогон 10: одна карточка на франшизу (#236)
+
+- Изменение: в `get_recommendations` после скоринга, переранжирования и правила скрытых категорий части одной коллекции TMDB (`movies.collection_id`) сворачиваются в одну (`cinemate/recommender/franchise.py::collapse_franchises`), затем применяется ограничение разнообразия (`diversify`). Представитель встаёт на место лучшей по оценке части. Части упорядочены по (год, `id`). Какая часть: после лайкнутой — первая не оценённая и не отмеченная часть следом за последней лайкнутой (иначе лучшая по оценке); франшиза, которой пользователь не видел, — её первая часть (если она есть среди рекомендуемых фильмов, иначе лучшая по оценке); если не осталось неоценённых частей — франшиза не показывается. Рекомендовать можно только фильмы, которые есть в матрице оценок.
+- В `evaluate` добавлен вариант `cf+collapse` (при заданных `features`) и метрика `distinct_collections@10` — среднее число разных коллекций среди фильмов с коллекцией в топ-10 (для всех методов).
+- Тест офлайн-оценки — на синтетике (`tests/test_runner.py::test_cf_collapse_keeps_one_part_and_reports_distinct_collections`): CF 2 части франшизы в топ-2, `cf+collapse` — одна, precision@2 падает с 1.0 до 0.5.
+- **Размер падения точности на реальных данных не измерен.** MovieLens не содержит коллекций TMDB (признаки `movielens_features` — только жанры и год), поэтому `cinemate evaluate` на нём даёт `distinct_collections = 0` и `cf+collapse` = CF. Команда `cinemate evaluate` не умеет брать признаки из базы владельца.
+- Для владельца (база с коллекциями, заполненными `enrich-movies`): собрать `features` из БД и вызвать `evaluate` из Python, например:
+
+```python
+from sqlalchemy import select
+from cinemate.db.models import Movie
+from cinemate.db.session import make_engine
+from cinemate.evaluation.runner import evaluate
+from cinemate.recommender.taste import MovieFeatures
+from sqlalchemy.orm import Session
+
+with Session(make_engine("sqlite:///cinemate.db")) as s:
+    features = {
+        m.id: MovieFeatures(year=m.year, collection_id=m.collection_id)
+        for m in s.scalars(select(Movie))
+    }
+# train, test, binarizer — как в `cinemate evaluate` для вашего источника оценок
+result = evaluate(train, test, binarizer, features=features)
+print(result.cf, result.baselines["cf+collapse"])
+```

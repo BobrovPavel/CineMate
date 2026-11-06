@@ -15,6 +15,7 @@ from cinemate.config import RecommenderSettings
 from cinemate.evaluation.metrics import (
     coverage,
     dislike_at_k,
+    distinct_collections_at_k,
     hit_rate_at_k,
     like_share_judged,
     mean_popularity,
@@ -30,6 +31,7 @@ from cinemate.recommender.categories import (
     disliked_columns,
     triggered_categories,
 )
+from cinemate.recommender.franchise import collapse_franchises
 from cinemate.recommender.hybrid import recommend_hybrid
 from cinemate.recommender.item_based import recommend_item_based
 from cinemate.recommender.matrix import build_matrix
@@ -62,6 +64,8 @@ class MethodMetrics:
     part (lower is better). ``like_share_judged`` is the mean share of likes among recommended
     movies rated in the test part (higher is better), averaged over the ``judged_users`` users
     who have at least one such movie (the mean over seeds when aggregated).
+    ``distinct_collections`` is the mean number of different collections among the top-``top_n``
+    movies that have one (``0.0`` without movie features; lower means more collapsed lists).
     """
 
     precision_at_k: float
@@ -77,6 +81,7 @@ class MethodMetrics:
     judged_users: int = 0
     dislike_std: float = 0.0
     like_share_std: float = 0.0
+    distinct_collections: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -142,6 +147,7 @@ def aggregate_metrics(runs: Sequence[MethodMetrics]) -> MethodMetrics:
         judged_users=round(mean("judged_users")),
         dislike_std=std("dislike_at_k"),
         like_share_std=std("like_share_judged"),
+        distinct_collections=mean("distinct_collections"),
     )
 
 
@@ -155,6 +161,7 @@ def metric_headers(top_n: int) -> list[str]:
         "mean popularity",
         f"dislike@{top_n}",
         "like_share_judged",
+        f"distinct_collections@{top_n}",
     ]
 
 
@@ -176,6 +183,7 @@ def format_metric_cells(m: MethodMetrics, with_std: bool) -> list[str]:
         f"{m.mean_popularity:.4f}",
         cell(m.dislike_at_k, m.dislike_std),
         f"{cell(m.like_share_judged, m.like_share_std)} (n={m.judged_users})",
+        f"{m.distinct_collections:.2f}",
     ]
 
 
@@ -505,6 +513,50 @@ def evaluate(
         )
         return [m for m, _ in recs if m not in exclude][:top_n]
 
+    collection_by_column: list[int | None] = (
+        [features[m].collection_id if m in features else None for m in built.movie_ids]
+        if features is not None
+        else []
+    )
+    parts_by_collection: dict[int, list[int]] = defaultdict(list)
+    for column, coll in enumerate(collection_by_column):
+        if coll is not None:
+            parts_by_collection[coll].append(column)
+    for columns in parts_by_collection.values():
+        columns.sort(
+            key=lambda c: (
+                features[built.movie_ids[c]].year is None,  # type: ignore[index]
+                features[built.movie_ids[c]].year or 0,  # type: ignore[index]
+                built.movie_ids[c],
+            )
+        )
+
+    def cf_collapse(u: int, exclude: set[int]) -> list[int]:
+        """CF with one part per collection, as ``get_recommendations`` does after scoring."""
+        recs = recommend(
+            matrix,
+            u,
+            n=CANDIDATES + len(exclude),
+            k=k,
+            min_overlap=min_overlap,
+            lam=lam,
+            pop_penalty=pop_penalty,
+            significance=significance,
+            sim_power=sim_power,
+            shrink=shrink,
+            mass_lambda=mass_lambda,
+        )
+        candidates = [(m, s) for m, s in recs if m not in exclude][:CANDIDATES]
+        row = matrix[u]
+        collapsed = collapse_franchises(
+            candidates,
+            lambda m: collection_by_column[m],
+            lambda c: parts_by_collection[c],
+            exclude | {int(m) for m in row.indices},
+            {int(m) for m, v in zip(row.indices, row.data, strict=True) if v > 0},
+        )
+        return [m for m, _, _ in collapsed][:top_n]
+
     taste_data = (
         build_taste_data([features.get(m, MovieFeatures()) for m in built.movie_ids], like_counts)
         if features is not None
@@ -586,6 +638,7 @@ def evaluate(
             if taste_data is not None
             else {}
         ),
+        **({"cf+collapse": cf_collapse} if features is not None else {}),
     }
     lists: dict[str, list[list[int]]] = {name: [] for name in methods}
     precisions: dict[str, list[float]] = {name: [] for name in methods}
@@ -594,6 +647,7 @@ def evaluate(
     pops: dict[str, list[float]] = {name: [] for name in methods}
     dislikes: dict[str, list[float]] = {name: [] for name in methods}
     like_shares: dict[str, list[float]] = {name: [] for name in methods}
+    distinct: dict[str, list[float]] = {name: [] for name in methods}
 
     n_users = 0
     for user_id in sorted(test_likes):
@@ -615,6 +669,13 @@ def evaluate(
             hit_rates[name].append(hit_rate_at_k(recs, relevant, top_n))
             pops[name].append(mean_popularity(recs, popularity))
             dislikes[name].append(dislike_at_k(recs, disliked, top_n))
+            distinct[name].append(
+                distinct_collections_at_k(
+                    recs,
+                    lambda m: collection_by_column[m] if collection_by_column else None,
+                    top_n,
+                )
+            )
             share = like_share_judged(recs, relevant, disliked, top_n)
             if share is not None:
                 like_shares[name].append(share)
@@ -633,6 +694,7 @@ def evaluate(
                 sum(like_shares[name]) / len(like_shares[name]) if like_shares[name] else 0.0
             ),
             judged_users=len(like_shares[name]),
+            distinct_collections=sum(distinct[name]) / n_users,
         )
 
     return EvaluationResult(

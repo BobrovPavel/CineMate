@@ -596,3 +596,30 @@ def test_cf_taste_rule_penalty_applies_from_the_ratings_threshold():
     assert top(on, 5) == (1.0, 0.0)  # similar to the disliked movie: pushed below movie 6
     assert top(on, 6) == (0.0, 1.0)
     assert top(too_few_ratings, 5) == (1.0, 1.0)  # fewer than 50 ratings: no penalty
+
+
+def test_cf_collapse_keeps_one_part_and_reports_distinct_collections():
+    assert "cf+collapse" not in run(likes(1, 6, 7)).baselines
+    # movies 6 and 7 are two parts of collection 1; both are liked in the test part
+    features = {m: MovieFeatures(collection_id=1 if m in (6, 7) else None) for m in range(1, 11)}
+    features[6] = MovieFeatures(collection_id=1, year=2000)
+    features[7] = MovieFeatures(collection_id=1, year=2001)
+    result = run(likes(1, 6, 7), features=features)
+    assert result.cf.precision_at_k == 1.0
+    assert result.cf.distinct_collections == 1.0
+    collapse = result.baselines["cf+collapse"]
+    assert collapse.distinct_collections == 1.0
+    assert collapse.precision_at_k == 0.5  # one part of the franchise instead of both
+    # without collections the variant is the same as plain CF
+    plain = run(likes(1, 6, 7), features={m: MovieFeatures() for m in range(1, 11)})
+    assert plain.baselines["cf+collapse"].precision_at_k == plain.cf.precision_at_k
+    assert plain.cf.distinct_collections == 0.0
+
+
+def test_distinct_collections_at_k():
+    from cinemate.evaluation.metrics import distinct_collections_at_k
+
+    coll = {1: 7, 2: 7, 3: 8}.get
+    assert distinct_collections_at_k([1, 2, 3, 4], coll, 4) == 2.0
+    assert distinct_collections_at_k([1, 2, 3, 4], coll, 1) == 1.0
+    assert distinct_collections_at_k([4, 5], coll, 2) == 0.0

@@ -55,7 +55,7 @@ def test_format_table_rows_and_values():
     assert headers.index("hit_rate@10") == headers.index("recall@10") + 1
     assert lines[1].split() == [
         "collaborative", "0.1234", "0.2000", "0.9000", "0.3000", "0.0500",
-        "0.0000", "0.0000", "(n=0)",
+        "0.0000", "0.0000", "(n=0)", "0.00",
     ]  # fmt: skip
     assert lines[2].split()[:6] == ["popular", "0.0500", "0.1000", "0.0000", "0.0100", "0.4000"]
     assert [line.split()[0] for line in lines[3:6]] == [

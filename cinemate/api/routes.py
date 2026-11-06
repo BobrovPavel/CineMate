@@ -22,6 +22,7 @@ from cinemate.api.schemas import (
     CastOut,
     CategoryPrefIn,
     CategoryPrefOut,
+    CollectionOut,
     MeOut,
     MovieCard,
     MovieDetail,
@@ -275,6 +276,18 @@ def recommendations(
                     else None
                 ),
                 twin=Twin(common=item.twin.common, of=item.twin.of) if item.twin else None,
+                collection=(
+                    CollectionOut(
+                        id=item.collection.id,
+                        name=item.collection.name,
+                        parts=item.collection.parts,
+                        unseen=item.collection.unseen,
+                        mode=item.collection.mode,  # type: ignore[arg-type]
+                        rated_parts=list(item.collection.rated_parts),
+                    )
+                    if item.collection
+                    else None
+                ),
             )
             for item in result.items
         ],

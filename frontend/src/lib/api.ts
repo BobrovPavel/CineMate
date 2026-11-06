@@ -86,6 +86,14 @@ export type RecommendationItem = {
   because_of: { movie_id: number; title: string; title_ru: string | null }[];
   because_taste: { kind: string; id: string; name: string } | null;
   twin: { common: number; of: number } | null;
+  collection: {
+    id: number;
+    name: string;
+    parts: number;
+    unseen: number;
+    mode: "first" | "next" | "best";
+    rated_parts: number[];
+  } | null;
 };
 
 export type RecommendationsResponse = {
