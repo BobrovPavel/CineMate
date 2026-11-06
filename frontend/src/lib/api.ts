@@ -220,6 +220,25 @@ export function postCategoryPref(
   });
 }
 
+/** A movie the user rated inside a category (titles in both languages, see `displayTitle`). */
+export type CategoryMovie = {
+  movie_id: number;
+  title: string;
+  title_ru: string | null;
+  year: number | null;
+  poster_path: string | null;
+  value: 1 | -1;
+};
+
+export function fetchCategoryMovies(
+  kind: CategoryKind,
+  key: string,
+): Promise<CategoryMovie[]> {
+  return apiFetch(
+    `/api/category-prefs/${kind}/${encodeURIComponent(key)}/movies`,
+  );
+}
+
 export type RatingSource = {
   source: string;
   label: string;

@@ -199,3 +199,14 @@ class CategoryPrefOut(BaseModel):
     disliked: int
     rated: int
     show: bool
+
+
+class CategoryMovieOut(BaseModel):
+    """A movie the user rated inside a category; titles as in ``ProfileItem``."""
+
+    movie_id: int
+    title: str
+    title_ru: str | None
+    year: int | None
+    poster_path: str | None
+    value: int

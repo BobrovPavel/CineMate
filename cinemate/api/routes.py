@@ -20,6 +20,7 @@ from cinemate.api.schemas import (
     BecauseOf,
     BecauseTaste,
     CastOut,
+    CategoryMovieOut,
     CategoryPrefIn,
     CategoryPrefOut,
     CollectionOut,
@@ -58,7 +59,11 @@ from cinemate.db.models import (
     User,
 )
 from cinemate.services.ab import assign_variant, settings_for_variant
-from cinemate.services.categories import get_category_prefs, set_category_pref
+from cinemate.services.categories import (
+    get_category_movies,
+    get_category_prefs,
+    set_category_pref,
+)
 from cinemate.services.events import log_impressions, log_reaction
 from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.ratings import movie_ratings
@@ -313,6 +318,42 @@ def category_prefs(
         language=language_from_request(request),
     )
     return [CategoryPrefOut(**vars(view)) for view in views]
+
+
+@router.get("/category-prefs/{kind}/{key}/movies", response_model=list[CategoryMovieOut])
+def category_movies(
+    kind: str,
+    key: str,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    store: Annotated[MatrixStore, Depends(get_matrix_store)],
+) -> list[CategoryMovieOut]:
+    """Up to 50 movies of the category the user rated: dislikes first, then likes, newest first.
+
+    Titles come in both languages; the client picks by language like in ``GET /api/profile``."""
+    settings = request.app.state.recommender_settings
+    items = get_category_movies(
+        session,
+        store,
+        user,
+        kind,
+        key,
+        settings=settings_for_variant(settings, assign_variant(settings, user.id)),
+    )
+    if items is None:
+        raise HTTPException(status_code=404, detail="Unknown category")
+    return [
+        CategoryMovieOut(
+            movie_id=i.movie.id,
+            title=i.movie.title,
+            title_ru=i.movie.title_ru,
+            year=i.movie.year,
+            poster_path=i.movie.poster_path,
+            value=i.value,
+        )
+        for i in items
+    ]
 
 
 @router.post("/category-prefs", response_model=WriteOut)

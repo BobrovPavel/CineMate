@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { CategoryPref } from "./api";
+import type { CategoryMovie, CategoryPref } from "./api";
 import {
-  bannerText,
   categoryCount,
   categoryId,
-  hiddenCategories,
+  categoryState,
+  shouldLoadMovies,
+  toggleOpen,
+  withMovieValue,
+  withRatingChange,
   withShow,
 } from "./categories";
 
@@ -27,37 +30,9 @@ const animation: CategoryPref = {
 };
 const shown: CategoryPref = { ...animation, key: "35", show: true };
 
-describe("bannerText", () => {
-  it("перечисляет скрытые категории с числами «N из N»", () => {
-    expect(bannerText("ru", [marvel, animation])).toBe(
-      "Опустили ниже: Marvel Studios — вы дизлайкнули 5 из 5 · Анимация — вы дизлайкнули 6 из 6",
-    );
-  });
-
-  it("на английском", () => {
-    expect(bannerText("en", [marvel])).toBe(
-      "Moved down: Marvel Studios — you disliked 5 of 5",
-    );
-  });
-
-  it("не показывает категории, которые пользователь вернул", () => {
-    expect(bannerText("ru", [shown])).toBeNull();
-    expect(bannerText("ru", [shown, marvel])).toContain("Marvel Studios");
-    expect(bannerText("ru", [shown, marvel])).not.toContain("Анимация");
-  });
-
-  it("без категорий плашки нет", () => {
-    expect(bannerText("ru", [])).toBeNull();
-  });
-});
-
 describe("categories helpers", () => {
   it("categoryCount", () => {
     expect(categoryCount("ru", marvel)).toBe("вы дизлайкнули 5 из 5");
-  });
-
-  it("hiddenCategories оставляет только скрытые", () => {
-    expect(hiddenCategories([marvel, shown])).toEqual([marvel]);
   });
 
   it("categoryId различает вид и ключ", () => {
@@ -71,5 +46,66 @@ describe("categories helpers", () => {
     expect(next.map((c) => c.show)).toEqual([true, false]);
     expect(list[0].show).toBe(false);
     expect(withShow(next, marvel, false)).toEqual(list);
+  });
+});
+
+describe("раскрытие категории", () => {
+  it("список грузится только при первом раскрытии", () => {
+    expect(shouldLoadMovies(false, false, false)).toBe(false);
+    expect(shouldLoadMovies(true, false, false)).toBe(true);
+    expect(shouldLoadMovies(true, true, false)).toBe(false);
+    expect(shouldLoadMovies(true, false, true)).toBe(false);
+  });
+
+  it("toggleOpen открывает и закрывает, не мутируя набор", () => {
+    const open = new Set<string>();
+    const opened = toggleOpen(open, "studio:420");
+    expect([...opened]).toEqual(["studio:420"]);
+    expect(open.size).toBe(0);
+    expect(toggleOpen(opened, "studio:420").size).toBe(0);
+  });
+});
+
+describe("смена оценки в категории", () => {
+  const movie = (id: number, value: 1 | -1): CategoryMovie => ({
+    movie_id: id,
+    title: `m${id}`,
+    title_ru: null,
+    year: null,
+    poster_path: null,
+    value,
+  });
+
+  it("withMovieValue меняет только выбранный фильм", () => {
+    const list = [movie(1, -1), movie(2, -1)];
+    const next = withMovieValue(list, 2, 1);
+    expect(next.map((m) => m.value)).toEqual([-1, 1]);
+    expect(list[1].value).toBe(-1);
+  });
+
+  it("лайк уменьшает число дизлайков, «N из N» становится «N-1 из N»", () => {
+    const next = withRatingChange([marvel, animation], marvel, -1, 1);
+    expect(next[0]).toMatchObject({ disliked: 4, rated: 5 });
+    expect(next[1]).toEqual(animation);
+  });
+
+  it("возврат дизлайка восстанавливает числа", () => {
+    const liked = withRatingChange([marvel], marvel, -1, 1);
+    expect(withRatingChange(liked, marvel, 1, -1)).toEqual([marvel]);
+  });
+
+  it("та же оценка ничего не меняет, числа не выходят за границы", () => {
+    const list = [marvel];
+    expect(withRatingChange(list, marvel, -1, -1)).toBe(list);
+    const zero = { ...marvel, disliked: 0, rated: 0 };
+    expect(withRatingChange([zero], zero, 1, -1)[0].disliked).toBe(0);
+  });
+
+  it("лайк в категории снимает правило: состояние lifted", () => {
+    expect(categoryState(marvel)).toBe("hidden");
+    const [after] = withRatingChange([marvel], marvel, -1, 1);
+    expect(categoryState(after)).toBe("lifted");
+    expect(categoryState({ ...after, show: true })).toBe("shown");
+    expect(categoryState(withShow([marvel], marvel, true)[0])).toBe("shown");
   });
 });
