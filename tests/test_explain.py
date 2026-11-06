@@ -89,3 +89,14 @@ def test_no_twin_when_many_neighbours_share_the_credit():
     m = likes_rows(11, list(range(10)), [*range(8), 10], *([[0, 10]] * 6))
     neighbors = [(1, 0.8)] + [(i, 0.7) for i in range(2, 8)]
     assert explain(m, 0, 10, neighbors, sim_power=1.0).twin is None
+
+
+def test_shared_liked_cache_gives_the_same_explanations():
+    m = make([[1, 1, 0, 0], [1, 1, 1, 0], [1, 0, 1, 0], [1, 1, 0, 1]])
+    cache: dict[int, set[int]] = {}
+    for movie in (2, 3):
+        assert explain(m, 0, movie, nb(1, 2, 3), liked_cache=cache) == explain(
+            m, 0, movie, nb(1, 2, 3)
+        )
+    assert set(cache) == {0, 1, 2, 3}
+    assert cache[0] == {0, 1}  # the user's own likes are not modified by discarding the movie

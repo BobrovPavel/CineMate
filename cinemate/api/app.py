@@ -16,6 +16,7 @@ from cinemate.db.matrix_store import DEFAULT_REBUILD_SECONDS, MatrixStore
 from cinemate.db.migrations import ensure_schema
 from cinemate.db.models import POOLS
 from cinemate.db.session import make_engine
+from cinemate.services.feed_cache import FeedCache
 from cinemate.services.search import (
     LOCAL_CATALOG_MIN_SIZE,
     SearchCache,
@@ -145,6 +146,7 @@ def create_app(
     api_key = os.environ.get("TMDB_API_KEY", "").strip()
     # without a key the search endpoints answer 503
     app.state.tmdb_client = tmdb_client or (TmdbClient(api_key) if api_key else None)
+    app.state.feed_cache = FeedCache()
     app.state.search_cache = SearchCache()
     app.state.search_selector = SearchSelector(
         source, session_factory, threshold=search_local_threshold

@@ -392,8 +392,10 @@ def get_recommendations(
             min_overlap=settings.min_overlap,
             significance=settings.significance,
         )
+    liked_cache: dict[int, set[int]] = {}
     explanations = {
-        j: explain(matrix, user_index, j, neighbors, settings.sim_power) for j, _ in picked
+        j: explain(matrix, user_index, j, neighbors, settings.sim_power, liked_cache)
+        for j, _ in picked
     }
 
     needed = {data.movie_ids[j] for j, _ in picked}

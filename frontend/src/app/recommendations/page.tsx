@@ -22,14 +22,24 @@ import {
   explainNextPart,
   explainTwin,
 } from "@/lib/explain";
+import {
+  canRequestPage,
+  clearFeed,
+  loadFeed,
+  mergePage,
+  needsRefill,
+  saveFeed,
+} from "@/lib/feed";
 import type { MessageKey } from "@/lib/i18n";
 import { displayTitle } from "@/lib/titles";
 import { useLocale, useT } from "@/lib/LocaleProvider";
 
 const LIMIT = 20;
 const LEAVE_MS = 250;
+const PRELOAD_MARGIN = "600px 0px";
 
 type Status = "loading" | "ready" | "error";
+type MoreState = "idle" | "loading" | "error";
 type Reaction = "like" | "dislike" | "watched" | "not_interested";
 type Shown = RecommendationItem & { sessionId: string };
 
@@ -67,50 +77,144 @@ export default function RecommendationsPage() {
   const [items, setItems] = useState<Shown[]>([]);
   const [leaving, setLeaving] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
+  const [more, setMore] = useState<MoreState>("idle");
+  const [hasMore, setHasMore] = useState(true);
   const started = useRef(false);
-  // Movies reacted to in this page lifetime; never re-added by a refetch.
+  const inflight = useRef(false);
+  const sessionId = useRef<string | null>(null);
+  const offset = useRef(0);
+  const sentinel = useRef<HTMLDivElement | null>(null);
+  // Movies reacted to in this page lifetime; never re-added by a later page.
   const reacted = useRef<Set<number>>(new Set());
+  const latest = useRef({ items, hasMore, strategy, ready: false });
+  latest.current = { items, hasMore, strategy, ready: status === "ready" };
 
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      const data = await fetchRecommendations(LIMIT);
-      setStrategy(data.strategy);
-      setItems(data.items.map((it) => ({ ...it, sessionId: data.session_id })));
-      setStatus("ready");
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        router.replace("/onboarding");
-        return;
+  // One request at a time. ``reset`` starts a new feed session.
+  const fetchPage = useCallback(
+    async (reset: boolean) => {
+      if (inflight.current) return;
+      inflight.current = true;
+      const first = reset || sessionId.current === null;
+      if (reset) {
+        clearFeed(window.sessionStorage);
+        sessionId.current = null;
+        offset.current = 0;
+        reacted.current = new Set();
+        setItems([]);
+        setHasMore(true);
       }
-      setStatus("error");
-    }
-  }, [router]);
+      if (first) setStatus("loading");
+      else setMore("loading");
+      try {
+        const page =
+          first || sessionId.current === null
+            ? undefined
+            : { sessionId: sessionId.current, offset: offset.current };
+        const data = await fetchRecommendations(LIMIT, page);
+        const sid = data.session_id;
+        sessionId.current = sid;
+        offset.current = data.next_offset;
+        setStrategy(data.strategy);
+        setHasMore(data.has_more);
+        setItems((prev) =>
+          mergePage(
+            first ? [] : prev,
+            data.items.map((it) => ({ ...it, sessionId: sid })),
+            reacted.current,
+          ),
+        );
+        setStatus("ready");
+        setMore("idle");
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          router.replace("/onboarding");
+          return;
+        }
+        if (first) setStatus("error");
+        else setMore("error");
+      } finally {
+        inflight.current = false;
+      }
+    },
+    [router],
+  );
 
+  const loadMore = useCallback(() => {
+    void fetchPage(false);
+  }, [fetchPage]);
+
+  // First load: restore the saved feed (back from a movie page) or start a new one.
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void load();
-  }, [load]);
-
-  // Refetch after a reaction: keep shown cards untouched, only append new ones.
-  const refill = useCallback(async () => {
-    try {
-      const data = await fetchRecommendations(LIMIT);
-      setItems((prev) => {
-        const known = new Set(prev.map((p) => p.movie.id));
-        const fresh = data.items
-          .filter(
-            (it) =>
-              !known.has(it.movie.id) && !reacted.current.has(it.movie.id),
-          )
-          .map((it) => ({ ...it, sessionId: data.session_id }));
-        return fresh.length > 0 ? [...prev, ...fresh] : prev;
-      });
-    } catch {
-      // Silent: the current grid stays usable.
+    const saved = loadFeed<Shown>(window.sessionStorage);
+    if (saved) {
+      sessionId.current = saved.sessionId;
+      offset.current = saved.offset;
+      setStrategy(saved.strategy);
+      setItems(saved.items);
+      setHasMore(saved.hasMore);
+      setStatus("ready");
+      window.requestAnimationFrame(() => window.scrollTo(0, saved.scrollY));
+      return;
     }
-  }, []);
+    void fetchPage(true);
+  }, [fetchPage]);
+
+  // Keep the feed state in sessionStorage (cards, offset and scroll position).
+  useEffect(() => {
+    function save() {
+      const cur = latest.current;
+      if (!cur.ready || sessionId.current === null) return;
+      saveFeed<Shown>(window.sessionStorage, {
+        sessionId: sessionId.current,
+        items: cur.items,
+        offset: offset.current,
+        hasMore: cur.hasMore,
+        strategy: cur.strategy,
+        scrollY: window.scrollY,
+      });
+    }
+    let timer: number | undefined;
+    function onScroll() {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(save, 150);
+    }
+    save();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("pagehide", save);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pagehide", save);
+      save();
+    };
+  }, [items, hasMore, status, strategy]);
+
+  const canLoad = canRequestPage({
+    loading: status !== "ready" || more === "loading",
+    hasMore,
+    failed: more === "error",
+  });
+
+  // Next page when the sentinel (~600 px before the end of the list) scrolls into view.
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !canLoad || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore();
+      },
+      { rootMargin: PRELOAD_MARGIN },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [canLoad, loadMore, items.length]);
+
+  // Too few cards left after reactions: load the next page.
+  useEffect(() => {
+    if (canLoad && needsRefill(items.length)) loadMore();
+  }, [canLoad, items.length, loadMore]);
 
   async function react(item: Shown, reaction: Reaction) {
     const id = item.movie.id;
@@ -149,7 +253,6 @@ export default function RecommendationsPage() {
         return next;
       });
     }, LEAVE_MS);
-    void refill();
   }
 
   return (
@@ -192,7 +295,7 @@ export default function RecommendationsPage() {
           <p>{t("recommendations.loadError")}</p>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void fetchPage(true)}
             className="min-h-12 rounded-xl bg-black px-6 text-white"
           >
             {t("common.retry")}
@@ -200,7 +303,7 @@ export default function RecommendationsPage() {
         </div>
       )}
 
-      {status === "ready" && items.length === 0 && (
+      {status === "ready" && items.length === 0 && !hasMore && (
         <p className="py-10 text-center">{t("recommendations.empty")}</p>
       )}
 
@@ -333,6 +436,45 @@ export default function RecommendationsPage() {
             );
           })}
         </ul>
+      )}
+
+      {status === "ready" && more === "loading" && (
+        <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <CardSkeleton key={i} />
+          ))}
+        </div>
+      )}
+
+      {status === "ready" && more === "error" && (
+        <div
+          role="alert"
+          className="flex flex-col items-center gap-4 py-10 text-center"
+        >
+          <p>{t("recommendations.moreError")}</p>
+          <button
+            type="button"
+            onClick={loadMore}
+            className="min-h-12 rounded-xl bg-black px-6 text-white"
+          >
+            {t("common.retry")}
+          </button>
+        </div>
+      )}
+
+      {status === "ready" && hasMore && <div ref={sentinel} aria-hidden="true" />}
+
+      {status === "ready" && !hasMore && items.length > 0 && (
+        <div className="flex flex-col items-center gap-4 py-10 text-center">
+          <p>{t("recommendations.end")}</p>
+          <button
+            type="button"
+            onClick={() => void fetchPage(true)}
+            className="min-h-12 rounded-xl bg-black px-6 text-white"
+          >
+            {t("recommendations.refresh")}
+          </button>
+        </div>
       )}
     </main>
   );

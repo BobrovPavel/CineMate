@@ -48,6 +48,7 @@ def explain(
     movie_index: int,
     neighbors: list[tuple[int, float]],
     sim_power: float = 1.0,
+    liked_cache: dict[int, set[int]] | None = None,
 ) -> Explanation:
     """Explain recommending ``movie_index`` to ``user_index`` via ``neighbors``.
 
@@ -59,8 +60,21 @@ def explain(
     with the user and at least 60 % of the user's likes, and (b) its weight ``sim ** sim_power``
     is at least half of the total weight of the neighbours who liked the movie, i.e. the
     recommendation is mainly its doing.
+
+    ``liked_cache`` (row index -> liked columns) may be shared between calls for the same
+    ``matrix`` to avoid reading the same rows again when many movies are explained; it is
+    filled in by this function and its sets are never modified.
     """
-    user_likes = _liked_columns(matrix, user_index)
+    if liked_cache is None:
+        liked_cache = {}
+
+    def likes_of(row: int) -> set[int]:
+        found = liked_cache.get(row)
+        if found is None:
+            found = liked_cache[row] = _liked_columns(matrix, row)
+        return found
+
+    user_likes = set(likes_of(user_index))
     user_likes.discard(movie_index)
 
     liked_by = 0
@@ -68,7 +82,7 @@ def explain(
     mass = 0.0
     best: tuple[float, int] | None = None  # (similarity, shared likes) of the closest liker
     for row_index, sim in neighbors:
-        liked = _liked_columns(matrix, row_index)
+        liked = likes_of(row_index)
         if movie_index not in liked:
             continue
         liked_by += 1
