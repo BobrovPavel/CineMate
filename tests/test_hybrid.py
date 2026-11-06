@@ -130,3 +130,11 @@ def test_recommend_unchanged_by_refactor():
     scores = dict(recommend(m, 0, min_overlap=3, lam=0.0, pop_penalty=0.0))
     assert scores[3] == pytest.approx(1.0)
     assert scores[4] == pytest.approx(-1.0)
+
+
+def test_hybrid_mass_shrink_is_scaled_by_the_peak():
+    mass = recommend_hybrid(
+        POP_MATRIX, 0, blend_full_at=1.0, shrink="mass", sim_power=2.0, mass_lambda=0.5
+    )
+    assert max(s for _, s in mass) == pytest.approx(1.0)
+    assert {m for m, s in mass if s > 0} == {3, 4}  # only what the neighbour liked

@@ -110,12 +110,18 @@ class BecauseTaste(BaseModel):
     name: str
 
 
+class Twin(BaseModel):
+    common: int
+    of: int
+
+
 class RecommendationItem(BaseModel):
     movie: MovieCard
     score: float
     liked_by: int
     because_of: list[BecauseOf]
     because_taste: BecauseTaste | None = None
+    twin: Twin | None = None
 
 
 class RecommendationsOut(BaseModel):

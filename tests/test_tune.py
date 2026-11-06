@@ -89,7 +89,23 @@ def test_tune_command_offline(monkeypatch, tmp_path, capsys):
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
     monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
-    code = main(["tune", "--k", "3,5", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"])
+    code = main(
+        [
+            "tune",
+            "--k",
+            "3,5",
+            "--lambda",
+            "1",
+            "--min-overlap",
+            "1",
+            "--top-n",
+            "3",
+            "--sim-power",
+            "1",
+            "--shrink",
+            "count",
+        ]
+    )
     out = capsys.readouterr().out
     assert code == 0
     assert "popular" in out and "precision@3" in out
@@ -134,7 +150,10 @@ def test_tune_command_significance(monkeypatch, tmp_path, capsys):
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
     monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
-    argv = ["tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
+    argv = [
+        "tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3",
+        "--sim-power", "1", "--shrink", "count",
+    ]  # fmt: skip
     assert main([*argv, "--significance", "0,5"]) == 0
     out = capsys.readouterr().out
     assert "signif" in out
@@ -154,7 +173,10 @@ def test_tune_command_pop_penalty(monkeypatch, tmp_path, capsys):
     ratings = [Rating(u, m, 5.0 if (u + m) % 2 else 1.0) for u in range(1, 21) for m in range(10)]
     monkeypatch.setattr(cli, "ensure_movielens", lambda dest, name="ml-latest-small": tmp_path)
     monkeypatch.setattr(cli, "parse_ratings", lambda path: iter(ratings))
-    argv = ["tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3"]
+    argv = [
+        "tune", "--k", "3", "--lambda", "1", "--min-overlap", "1", "--top-n", "3",
+        "--sim-power", "1", "--shrink", "count",
+    ]  # fmt: skip
     assert main([*argv, "--pop-penalty", "0,0.5,1"]) == 0
     out = capsys.readouterr().out
     assert "pop_penalty" in out
@@ -330,3 +352,30 @@ def test_tune_taste_grid():
     table = format_tune_table(result, top_n=2)
     assert "cf+taste" in table and "gamma" in table
     assert tune(make_train(), likes(1, 6, 7), B, GRID, top_n=2).taste_rows == ()
+
+
+def test_tune_scoring_dimensions():
+    grid = {
+        **GRID,
+        "sim_power": [1.0, 2.5],
+        "shrink": ["count", "mass"],
+        "mass_lambda": [0.25, 1.0],
+    }
+    result = tune(make_train(), likes(1, 6, 7), B, grid, top_n=2)
+    # count rows do not repeat for every mass_lambda: 8 * 2 * (1 + 2)
+    assert len(result.rows) == 8 * 2 * 3
+    assert {(r.shrink, r.sim_power) for r in result.rows} == {
+        (s, p) for s in ("count", "mass") for p in (1.0, 2.5)
+    }
+    assert {r.mass_lambda for r in result.rows if r.shrink == "mass"} == {0.25, 1.0}
+    table = format_tune_table(result, 2)
+    assert "sim_power" in table and "lambda_s" in table
+
+
+def test_tune_command_rejects_bad_scoring_values(capsys):
+    assert main(["tune", "--sim-power", "0"]) == 2
+    assert main(["tune", "--shrink", "sum"]) == 2
+    assert main(["tune", "--mass-lambda", "-1"]) == 2
+    assert main(["evaluate", "--sim-power", "0"]) == 2
+    assert main(["evaluate", "--mass-lambda", "-1"]) == 2
+    assert capsys.readouterr().err.count("error") == 5

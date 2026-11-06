@@ -1,6 +1,6 @@
 from scipy.sparse import csr_matrix
 
-from cinemate.recommender.explain import Explanation, explain
+from cinemate.recommender.explain import Explanation, Twin, explain
 
 
 def make(rows: list[list[int]]) -> csr_matrix:
@@ -61,3 +61,31 @@ def test_only_given_neighbors_counted():
 def test_empty_neighbors():
     m = make([[1, 0], [1, 1]])
     assert explain(m, 0, 1, []) == Explanation(liked_by=0, because_of=[])
+
+
+def likes_rows(n_cols: int, *liked: list[int]) -> csr_matrix:
+    return make([[1 if j in movies else 0 for j in range(n_cols)] for movies in liked])
+
+
+def test_twin_when_one_close_neighbour_gives_the_movie():
+    # user likes 0..9; twin shares 0..7 and likes 10; a weak neighbour likes 0 and 10 too
+    m = likes_rows(11, list(range(10)), [*range(8), 10], [0, 10])
+    result = explain(m, 0, 10, [(1, 0.8), (2, 0.1)], sim_power=2.5)
+    assert result.liked_by == 2
+    assert result.twin == Twin(common=8, of=10)
+
+
+def test_no_twin_with_fewer_than_five_common_likes():
+    m = likes_rows(8, [0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 7])
+    assert explain(m, 0, 7, [(1, 0.9)]).twin is None
+
+
+def test_no_twin_with_less_than_sixty_percent_of_likes():
+    m = likes_rows(12, list(range(10)), [*range(5), 11])  # 5 of 10 likes
+    assert explain(m, 0, 11, [(1, 0.9)]).twin is None
+
+
+def test_no_twin_when_many_neighbours_share_the_credit():
+    m = likes_rows(11, list(range(10)), [*range(8), 10], *([[0, 10]] * 6))
+    neighbors = [(1, 0.8)] + [(i, 0.7) for i in range(2, 8)]
+    assert explain(m, 0, 10, neighbors, sim_power=1.0).twin is None

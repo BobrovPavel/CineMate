@@ -77,6 +77,7 @@ def test_collaborative_with_neighbors(app, client):
     item = body["items"][0]
     assert item["liked_by"] > 0
     assert item["because_of"]
+    assert item["twin"] is None or set(item["twin"]) == {"common", "of"}
     assert item["movie"]["original_title"] == "O7"
     assert item["movie"]["title_ru"] == "Ру7"
     assert all(b["title_ru"] is None for b in item["because_of"])

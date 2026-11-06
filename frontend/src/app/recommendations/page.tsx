@@ -19,7 +19,11 @@ import {
   type RecommendationItem,
   type SeenType,
 } from "@/lib/api";
-import { explainCollaborative, explainTaste } from "@/lib/explain";
+import {
+  explainCollaborative,
+  explainTaste,
+  explainTwin,
+} from "@/lib/explain";
 import type { MessageKey } from "@/lib/i18n";
 import { displayTitle } from "@/lib/titles";
 import { useLocale, useT } from "@/lib/LocaleProvider";
@@ -288,7 +292,12 @@ export default function RecommendationsPage() {
                 >
                   {meta}
                 </p>
-                {strategy === "collaborative" && (
+                {strategy === "collaborative" && item.twin && (
+                  <ClampedText
+                    text={explainTwin(locale, item.twin.common, item.twin.of)}
+                  />
+                )}
+                {strategy === "collaborative" && !item.twin && (
                   <ClampedText
                     text={explainCollaborative(
                       locale,

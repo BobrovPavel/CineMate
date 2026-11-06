@@ -57,6 +57,8 @@ const ru = {
   "explain.also": "; они же высоко оценили {titles}",
   "explain.and": "и",
   "explain.taste": "Вы часто лайкаете {name}",
+  "explain.twin":
+    "Понравилось зрителю, у которого совпало {common} из {of} ваших лайков",
 
   "profile.title": "Мои оценки",
   "profile.saveError": "Не удалось изменить оценку. Попробуйте ещё раз.",
@@ -196,6 +198,7 @@ const en: Record<MessageKey, string> = {
   "explain.also": "; they also rated {titles} highly",
   "explain.and": "and",
   "explain.taste": "You often like {name}",
+  "explain.twin": "Liked by a viewer who shares {common} of your {of} likes",
 
   "profile.title": "My ratings",
   "profile.saveError": "Could not change the rating. Please try again.",

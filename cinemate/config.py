@@ -4,6 +4,7 @@ import math
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Literal
 
 from cinemate.recommender.categories import CategoryThresholds
 
@@ -27,6 +28,9 @@ class RecommenderSettings:
     min_user_ratings: int = 5
     fallback_pool_factor: int = 1
     significance: int = 0
+    sim_power: float = 2.5
+    shrink: Literal["count", "mass"] = "mass"
+    mass_lambda: float = 0.5
     blend_full_at: float = 0.0
     taste_weight: float = 0.5
     taste_interest_weight: float = 0.5
@@ -43,6 +47,8 @@ class RecommenderSettings:
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "RecommenderSettings":
         """Read ``REC_K``, ``REC_LAMBDA``, ``REC_MIN_OVERLAP``, ``REC_POP_PENALTY``,
+        ``REC_SIM_POWER`` (``rho``, > 0), ``REC_SHRINK`` (``count`` | ``mass``),
+        ``REC_MASS_LAMBDA`` (``lambda_s`` of the ``mass`` smoothing),
         ``REC_SIGNIFICANCE``, ``REC_BLEND_FULL_AT`` (0 turns the hybrid off),
         ``REC_MIN_USER_RATINGS``, ``REC_FALLBACK_POOL_FACTOR``, ``REC_TASTE_WEIGHT`` (``gamma``
         of the taste re-ranking, 0 turns it off), ``REC_TASTE_INTEREST_WEIGHT`` (``w_i``),
@@ -65,6 +71,11 @@ class RecommenderSettings:
             ),
             pop_penalty=_read(
                 env, "REC_POP_PENALTY", float, default.pop_penalty, lambda v: v >= 0, ">= 0"
+            ),
+            sim_power=_read(env, "REC_SIM_POWER", float, default.sim_power, lambda v: v > 0, "> 0"),
+            shrink=_read_shrink(env, default.shrink),
+            mass_lambda=_read(
+                env, "REC_MASS_LAMBDA", float, default.mass_lambda, lambda v: v >= 0, ">= 0"
             ),
             significance=_read(
                 env, "REC_SIGNIFICANCE", int, default.significance, lambda v: v >= 0, ">= 0"
@@ -162,6 +173,17 @@ class RecommenderSettings:
             genre=self.hide_dislikes_genre,
             studio_max_movies=self.hide_studio_max_movies,
         )
+
+
+def _read_shrink(
+    env: Mapping[str, str], default: Literal["count", "mass"]
+) -> Literal["count", "mass"]:
+    raw = env.get("REC_SHRINK", "").strip().lower()
+    if not raw:
+        return default
+    if raw not in ("count", "mass"):
+        raise ValueError(f"REC_SHRINK must be count or mass, got {raw!r}")
+    return raw
 
 
 def _read_variants(env: Mapping[str, str]) -> tuple[str, ...]:

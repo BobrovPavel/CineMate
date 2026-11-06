@@ -12,7 +12,16 @@ ACTION, DRAMA = 28, 18
 MARVEL = [30, 31, 32, 33, 34]
 MARVEL_CANDIDATES = [40, 41, 42]
 OTHER = list(range(50, 70))
-CF = dict(k=150, lam=1.0, min_overlap=1, pop_penalty=0.0, min_user_ratings=2, taste_weight=0.0)
+CF = dict(
+    k=150,
+    lam=1.0,
+    min_overlap=1,
+    pop_penalty=0.0,
+    min_user_ratings=2,
+    taste_weight=0.0,
+    sim_power=1.0,
+    shrink="count",
+)
 
 
 def seed(session, dislikes=5, company=True, collection=False, target_likes=()):

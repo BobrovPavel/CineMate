@@ -8,7 +8,7 @@ from scipy.sparse import csr_matrix
 
 from cinemate.recommender.fallback import DEFAULT_POOL_FACTOR, popular
 from cinemate.recommender.hybrid import recommend_hybrid_detailed
-from cinemate.recommender.scoring import recommend
+from cinemate.recommender.scoring import Shrink, recommend
 
 MIN_USER_RATINGS = 5
 
@@ -35,6 +35,9 @@ def recommend_with_strategy(
     rng: random.Random | None = None,
     blend_full_at: float = 0.0,
     neighbors: list[tuple[int, float]] | None = None,
+    sim_power: float = 1.0,
+    shrink: Shrink = "count",
+    mass_lambda: float = 0.5,
 ) -> Recommendation:
     """Recommend collaboratively, falling back to popular movies when data is too thin.
 
@@ -56,6 +59,9 @@ def recommend_with_strategy(
             lam=lam,
             blend_full_at=blend_full_at,
             significance=significance,
+            sim_power=sim_power,
+            shrink=shrink,
+            mass_lambda=mass_lambda,
         )
         collaborative = hybrid.beta >= 0.5 and hybrid.has_neighbors
         return Recommendation(
@@ -74,6 +80,9 @@ def recommend_with_strategy(
             pop_penalty=pop_penalty,
             significance=significance,
             neighbors=neighbors,
+            sim_power=sim_power,
+            shrink=shrink,
+            mass_lambda=mass_lambda,
         )
         if items:
             return Recommendation(items=items, strategy="collaborative")

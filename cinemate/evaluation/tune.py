@@ -1,4 +1,5 @@
-"""Grid search over CF parameters (K, LAMBDA, MIN_OVERLAP, POP_PENALTY) using ``evaluate``."""
+"""Grid search over CF parameters (K, LAMBDA, MIN_OVERLAP, POP_PENALTY, SIM_POWER, SHRINK, ...)
+using ``evaluate``."""
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -20,8 +21,24 @@ from cinemate.evaluation.runner import (
 from cinemate.movielens import Rating
 from cinemate.recommender.taste import MovieFeatures
 
-GRID_KEYS = ("k", "lam", "min_overlap", "pop_penalty", "significance")
-DEFAULT_GRID = {"pop_penalty": [1.0], "significance": [0]}
+GRID_KEYS = (
+    "k",
+    "lam",
+    "min_overlap",
+    "pop_penalty",
+    "significance",
+    "sim_power",
+    "shrink",
+    "mass_lambda",
+)
+# Optional keys keep the original scoring (``count`` smoothing, similarity power 1).
+DEFAULT_GRID = {
+    "pop_penalty": [1.0],
+    "significance": [0],
+    "sim_power": [1.0],
+    "shrink": ["count"],
+    "mass_lambda": [0.5],
+}
 DEFAULT_TASTE_GRID = {"taste_weight": [0.0, 0.25, 0.5, 1.0], "taste_interest_weight": [0.0, 0.5]}
 
 
@@ -35,6 +52,9 @@ class TuneRow:
     metrics: MethodMetrics
     pop_penalty: float = 1.0
     significance: int = 0
+    sim_power: float = 1.0
+    shrink: str = "count"
+    mass_lambda: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -113,12 +133,30 @@ def tune(
     baselines = {"popular": MethodMetrics(0.0, 0.0, 0.0, 0.0)}
     n_users = 0
     established: tuple[int, int] | None = None
-    for i, (k, lam, min_overlap, pop_penalty, significance) in enumerate(
-        product(*(grid[key] for key in GRID_KEYS))
-    ):
+    combos = []
+    seen_count: set[tuple] = set()
+    for combo in product(*(grid[key] for key in GRID_KEYS)):
+        if combo[6] == "count":
+            # ``mass_lambda`` does not affect the ``count`` mode: evaluate it once
+            key = combo[:7]
+            if key in seen_count:
+                continue
+            seen_count.add(key)
+        combos.append(combo)
+    for i, (
+        k,
+        lam,
+        min_overlap,
+        pop_penalty,
+        significance,
+        sim_power,
+        shrink,
+        mass_lambda,
+    ) in enumerate(combos):
         result = evaluate_seeds(
             splits, binarizer, k=int(k), lam=float(lam), min_overlap=int(min_overlap),
             top_n=top_n, pop_penalty=float(pop_penalty), significance=int(significance),
+            sim_power=float(sim_power), shrink=str(shrink), mass_lambda=float(mass_lambda),
             new_user_ratings=new_user_ratings, settings=settings,
             new_user_pick=new_user_pick, new_user_seen=new_user_seen,
             blend_full_at=blend_full_at, user_fraction=user_fraction,
@@ -129,7 +167,7 @@ def tune(
         rows.append(
             TuneRow(
                 int(k), float(lam), int(min_overlap), result.cf, float(pop_penalty),
-                int(significance),
+                int(significance), float(sim_power), str(shrink), float(mass_lambda),
             )
         )  # fmt: skip
     rows.sort(key=lambda r: -r.metrics.precision_at_k)
@@ -143,6 +181,7 @@ def tune(
             result = evaluate_seeds(
                 splits, binarizer, k=best.k, lam=best.lam, min_overlap=best.min_overlap,
                 top_n=top_n, pop_penalty=best.pop_penalty, significance=best.significance,
+                sim_power=best.sim_power, shrink=best.shrink, mass_lambda=best.mass_lambda,
                 new_user_ratings=new_user_ratings,
                 settings=replace(
                     settings or RecommenderSettings(),
@@ -175,6 +214,9 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
         "min_overlap",
         "pop_penalty",
         "signif",
+        "sim_power",
+        "shrink",
+        "lambda_s",
         *metric_headers(top_n),
     ]
 
@@ -190,11 +232,14 @@ def format_tune_table(result: TuneResult, top_n: int = 10) -> str:
             str(r.min_overlap),
             f"{r.pop_penalty:g}",
             str(r.significance),
+            f"{r.sim_power:g}",
+            r.shrink,
+            f"{r.mass_lambda:g}" if r.shrink == "mass" else "-",
             *metric_cells(r.metrics),
         ]
         for r in result.rows
     ]
-    table += [[name, "-", "-", "-", "-", *metric_cells(m)] for name, m in result.baselines.items()]
+    table += [[name, *["-"] * 7, *metric_cells(m)] for name, m in result.baselines.items()]
     widths = [max(len(row[i]) for row in [headers, *table]) for i in range(len(headers))]
     lines = ["  ".join(h.rjust(w) for h, w in zip(headers, widths, strict=True))]
     lines += ["  ".join(c.rjust(w) for c, w in zip(row, widths, strict=True)) for row in table]
