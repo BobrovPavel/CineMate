@@ -185,7 +185,7 @@ export function MovieView({ movieId }: { movieId: number }) {
                     <li key={r.source} className="min-w-32 rounded-xl bg-gray-100 p-3">
                       <p className="text-sm text-gray-600">{r.label}</p>
                       <p className="text-xl font-semibold">
-                        {r.scale === "%" ? `${Math.round(r.value)}%` : r.value.toFixed(1)}
+                        {r.scale === "%" ? `${Math.round(r.value)}%` : r.value.toLocaleString(lang, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                         {r.scale === "10" && (
                           <span className="text-sm font-normal text-gray-600"> / 10</span>
                         )}

@@ -103,7 +103,7 @@ def test_movie_detail_full(client):
     assert body["cast"] == [
         {"id": 2, "name": "Actor", "character": "Hero", "profile_path": "/a.jpg"}
     ]
-    assert [r["source"] for r in body["ratings"]] == ["tmdb", "imdb"]
+    assert [r["source"] for r in body["ratings"]] == ["imdb", "tmdb"]
     assert body["user_value"] is None
     assert body["user_mark"] is None
 
