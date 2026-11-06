@@ -22,7 +22,12 @@ from cinemate.datasets import (
     ChecksumError,
     ensure_movielens,
 )
-from cinemate.db.enrich import DEFAULT_STALE_DAYS, MAX_STALE_DAYS, enrich_movies
+from cinemate.db.enrich import (
+    DEFAULT_CATALOG_STALE_DAYS,
+    DEFAULT_STALE_DAYS,
+    MAX_STALE_DAYS,
+    enrich_movies,
+)
 from cinemate.db.external_ratings import (
     DEFAULT_IMDB_DIR,
     ensure_imdb_ratings,
@@ -579,8 +584,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--stale-days",
         type=_stale_days,
         default=DEFAULT_STALE_DAYS,
-        help=f"refresh movies fetched from TMDB more than this many days ago (1..{MAX_STALE_DAYS},"
+        help="refresh movies with ratings fetched from TMDB more than this many days ago "
+        f"(1..{MAX_STALE_DAYS},"
         f" default {DEFAULT_STALE_DAYS})",
+    )
+    en.add_argument(
+        "--catalog-stale-days",
+        type=_stale_days,
+        default=DEFAULT_CATALOG_STALE_DAYS,
+        help="refresh the rest of the catalog (movies without ratings) fetched more than this "
+        f"many days ago (1..{MAX_STALE_DAYS}, default {DEFAULT_CATALOG_STALE_DAYS})",
     )
     _add_tmdb_load_args(en)
     sc = sub.add_parser(
@@ -929,6 +942,7 @@ def _run_enrich(args: argparse.Namespace) -> int:
                 refresh_titles=args.refresh_titles,
                 missing_features=args.missing_features,
                 stale_days=args.stale_days,
+                catalog_stale_days=args.catalog_stale_days,
                 workers=args.workers,
                 extended=args.extended,
                 report=lambda line: print(line, flush=True),

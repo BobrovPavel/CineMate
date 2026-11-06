@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from cinemate.cli import main
 from cinemate.db.catalog import import_from_tmdb
 from cinemate.db.enrich import EnrichStats, enrich_movies
-from cinemate.db.models import Movie, MovieExternalId
+from cinemate.db.models import Movie, MovieExternalId, Rating, User
 from cinemate.db.session import create_all, make_engine
 from cinemate.tmdb import TmdbClient, TmdbDetails, TmdbError
 
@@ -30,7 +30,7 @@ class FakeClient(TmdbClient):
         self.known = known
         self.requested = []
 
-    def fetch_details(self, tmdb_type, tmdb_id):
+    def fetch_details(self, tmdb_type, tmdb_id, extended=False):
         self.requested.append((tmdb_type, tmdb_id))
         return self.known.get((tmdb_type, tmdb_id))
 
@@ -137,10 +137,10 @@ def test_stale_boundaries():
         ]
     )
     client = FakeClient({})
-    enrich_movies(session, client, stale_days=days)
+    enrich_movies(session, client, stale_days=days, catalog_stale_days=days)
     assert client.requested == [("movie", 1)]
     client = FakeClient({})
-    enrich_movies(session, client, stale_days=1)
+    enrich_movies(session, client, stale_days=1, catalog_stale_days=1)
     assert sorted(client.requested) == [("movie", 1), ("movie", 2)]
 
 
@@ -157,7 +157,7 @@ def test_null_first_then_oldest():
         ]
     )
     client = FakeClient({})
-    enrich_movies(session, client, workers=1)
+    enrich_movies(session, client, workers=1, catalog_stale_days=30)
     assert client.requested == [("movie", 3), ("movie", 2), ("movie", 1)]
     client = FakeClient({})
     enrich_movies(session, client, limit=1)
@@ -168,6 +168,85 @@ def test_null_first_then_oldest():
 def test_stale_days_out_of_range(days):
     with pytest.raises(ValueError):
         enrich_movies(_session(), FakeClient({}), stale_days=days)
+    with pytest.raises(ValueError):
+        enrich_movies(_session(), FakeClient({}), catalog_stale_days=days)
+
+
+def _rated_session(movies, rated_ids):
+    session = _session(movies)
+    session.add(User(id=1))
+    session.flush()
+    ids = {m.tmdb_id: m.id for m in session.scalars(select(Movie))}
+    session.add_all(Rating(user_id=1, movie_id=ids[i], value=1) for i in rated_ids)
+    session.commit()
+    return session
+
+
+def _aged(tmdb_id, days, **kw):
+    return Movie(
+        title=f"m{tmdb_id}",
+        tmdb_type="movie",
+        tmdb_id=tmdb_id,
+        tmdb_fetched_at=NOW - timedelta(days=days),
+        **kw,
+    )
+
+
+def test_rated_use_stale_days_unrated_use_catalog_days():
+    session = _rated_session(
+        [_aged(1, 31), _aged(2, 31), _aged(3, 151), _aged(4, 149), _aged(5, 29)], rated_ids=[1, 5]
+    )
+    client = FakeClient({})
+    enrich_movies(session, client, workers=1)
+    assert client.requested == [("movie", 1), ("movie", 3)]
+
+
+def test_default_boundaries_of_both_terms():
+    session = _rated_session(
+        [_aged(1, 29), _aged(2, 31), _aged(3, 149), _aged(4, 151)], rated_ids=[1, 2]
+    )
+    client = FakeClient({})
+    enrich_movies(session, client, workers=1, stale_days=30, catalog_stale_days=150)
+    assert client.requested == [("movie", 2), ("movie", 4)]
+    client = FakeClient({})
+    enrich_movies(session, client, workers=1, stale_days=1, catalog_stale_days=1)
+    assert len(client.requested) == 4
+
+
+def test_passes_rated_first_each_new_then_oldest():
+    session = _rated_session(
+        [
+            _aged(1, 200),
+            Movie(title="n", tmdb_type="movie", tmdb_id=2),
+            _aged(3, 100),
+            Movie(title="rn", tmdb_type="movie", tmdb_id=4),
+            _aged(5, 400),
+            _aged(6, 60),
+        ],
+        rated_ids=[3, 4, 6],
+    )
+    client = FakeClient({})
+    lines = []
+    enrich_movies(session, client, workers=1, report=lines.append)
+    # rated: never fetched (4), then oldest (3, 6); rest: never fetched (2), then oldest (5, 1)
+    assert [i for _, i in client.requested] == [4, 3, 6, 2, 5, 1]
+    assert "проход «фильмы с оценками»: 3" in lines
+    assert "проход «остальной каталог»: 3" in lines
+
+
+def test_unrated_extended_data_refreshed_by_catalog_term():
+    old_ext = NOW - timedelta(days=100)
+    session = _rated_session(
+        [
+            _aged(1, 1, details_fetched_at=old_ext),
+            _aged(2, 1, details_fetched_at=NOW - timedelta(days=151)),
+            _aged(3, 1, details_fetched_at=old_ext),
+        ],
+        rated_ids=[3],
+    )
+    client = FakeClient({})
+    enrich_movies(session, client, workers=1)
+    assert client.requested == [("movie", 3), ("movie", 2)]
 
 
 def test_not_found_leaves_movie_untouched():
@@ -175,7 +254,7 @@ def test_not_found_leaves_movie_untouched():
     session = _session(
         [Movie(title="A", tmdb_type="movie", tmdb_id=1, overview="old", tmdb_fetched_at=old)]
     )
-    assert enrich_movies(session, FakeClient({})) == EnrichStats(0, 1, 0)
+    assert enrich_movies(session, FakeClient({}), catalog_stale_days=30) == EnrichStats(0, 1, 0)
     movie = _movie(session, "A")
     assert movie.overview == "old"
     assert _aware(movie.tmdb_fetched_at) == old
@@ -203,7 +282,7 @@ def test_tmdb_error_commits_progress():
     )
 
     class Failing(FakeClient):
-        def fetch_details(self, tmdb_type, tmdb_id):
+        def fetch_details(self, tmdb_type, tmdb_id, extended=False):
             if tmdb_id == 2:
                 raise TmdbError("HTTP 500")
             return _details(title="A2")
@@ -285,6 +364,13 @@ def test_cli_stale_days_range(monkeypatch, days):
         main(["enrich-movies", "--stale-days", days])
 
 
+@pytest.mark.parametrize("days", ["0", "181", "x"])
+def test_cli_catalog_stale_days_range(monkeypatch, days):
+    monkeypatch.setenv("TMDB_API_KEY", "k")
+    with pytest.raises(SystemExit):
+        main(["enrich-movies", "--catalog-stale-days", days])
+
+
 def test_cli_tmdb_error_exit_code(monkeypatch, capsys):
     def fail(session, client, **kwargs):
         raise TmdbError("TMDB returned HTTP 500")
@@ -310,3 +396,4 @@ def test_cli_passes_flags(monkeypatch):
     assert main([*argv, "sqlite:///:memory:"]) == 0
     assert seen["refresh_titles"] is True
     assert seen["stale_days"] == 7
+    assert seen["catalog_stale_days"] == 150

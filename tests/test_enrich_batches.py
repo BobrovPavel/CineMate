@@ -231,7 +231,7 @@ def test_default_order_new_first_then_oldest(monkeypatch):
         ]
     )
     client = FakeClient()
-    enrich_movies(session, client, workers=1)
+    enrich_movies(session, client, workers=1, catalog_stale_days=30)
     assert [i for _, i in client.requested] == [3, 6, 2, 5, 1]
     client = FakeClient()
     session.execute(Movie.__table__.update().values(tmdb_fetched_at=None))
