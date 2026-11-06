@@ -13,7 +13,8 @@ const ru = {
 
   "footer.data": "Данные о фильмах и оценках —",
   "footer.tmdbIntro": "Уведомление TMDB:",
-  "footer.imdb": "Информация об оценках IMDb предоставлена IMDb (для личного и некоммерческого использования):",
+  "footer.imdb":
+    "Информация об оценках IMDb предоставлена IMDb (для личного и некоммерческого использования):",
 
   "home.lead":
     "Ответим на вопрос, что посмотреть сегодня: пара минут онбординга — и список из 10–20 фильмов с объяснением.",
@@ -71,12 +72,10 @@ const ru = {
   "profile.rate": "Оценить фильмы",
   "profile.changeTo": "Изменить оценку фильма «{title}» на «{value}»",
   "profile.restart": "Начать заново",
-  "profile.restartConfirm":
-    "Ваши оценки на этом устройстве будут потеряны.",
+  "profile.restartConfirm": "Ваши оценки на этом устройстве будут потеряны.",
   "profile.restartCancel": "Отмена",
   "profile.restartError": "Не удалось начать заново. Попробуйте ещё раз.",
 
-  "categories.banner": "Опустили ниже:",
   "categories.count": "вы дизлайкнули {n} из {total}",
   "categories.show": "Показывать",
   "categories.hide": "Скрывать",
@@ -85,12 +84,17 @@ const ru = {
   "categories.title": "Скрытые категории",
   "categories.hint":
     "Если вы дизлайкнули категорию целиком, её фильмы опускаются ниже в ленте. Вы можете вернуть их.",
-  "categories.willShow": "Будем показывать, если подойдёт по оценкам похожих зрителей",
   "categories.empty": "Пока ничего не скрыто.",
   "categories.shown": "показываем",
   "categories.hidden": "опущена ниже",
   "categories.saveError": "Не удалось сохранить выбор. Попробуйте ещё раз.",
   "categories.loadError": "Не удалось загрузить скрытые категории.",
+  "categories.movies": "Оценённые фильмы категории",
+  "categories.moviesLoading": "Загружаем фильмы…",
+  "categories.moviesEmpty": "В этой категории пока нет оценённых фильмов.",
+  "categories.moviesError": "Не удалось загрузить фильмы категории.",
+  "categories.ratingError": "Не удалось сохранить оценку. Попробуйте ещё раз.",
+  "categories.lifted": "правило снято: есть лайк",
 
   "search.title": "Поиск",
   "search.label": "Название фильма или сериала",
@@ -157,7 +161,8 @@ const en: Record<MessageKey, string> = {
 
   "footer.data": "Movie data and ratings —",
   "footer.tmdbIntro": "TMDB notice:",
-  "footer.imdb": "IMDb ratings: information courtesy of IMDb, for personal and non-commercial use:",
+  "footer.imdb":
+    "IMDb ratings: information courtesy of IMDb, for personal and non-commercial use:",
 
   "home.lead":
     "We answer what to watch today: a couple of minutes of onboarding, then a list of 10–20 movies with explanations.",
@@ -214,12 +219,10 @@ const en: Record<MessageKey, string> = {
   "profile.rate": "Rate movies",
   "profile.changeTo": "Change the rating of “{title}” to “{value}”",
   "profile.restart": "Start over",
-  "profile.restartConfirm":
-    "Your ratings on this device will be lost.",
+  "profile.restartConfirm": "Your ratings on this device will be lost.",
   "profile.restartCancel": "Cancel",
   "profile.restartError": "Could not start over. Please try again.",
 
-  "categories.banner": "Moved down:",
   "categories.count": "you disliked {n} of {total}",
   "categories.show": "Show",
   "categories.hide": "Hide",
@@ -228,12 +231,17 @@ const en: Record<MessageKey, string> = {
   "categories.title": "Hidden categories",
   "categories.hint":
     "If you disliked a whole category, its movies are moved lower in the feed. You can bring them back.",
-  "categories.willShow": "We'll show it when similar viewers' ratings suggest it",
   "categories.empty": "Nothing is hidden yet.",
   "categories.shown": "shown",
   "categories.hidden": "moved down",
   "categories.saveError": "Could not save your choice. Please try again.",
   "categories.loadError": "Could not load hidden categories.",
+  "categories.movies": "Rated movies in the category",
+  "categories.moviesLoading": "Loading movies…",
+  "categories.moviesEmpty": "No rated movies in this category yet.",
+  "categories.moviesError": "Could not load the movies of this category.",
+  "categories.ratingError": "Could not save the rating. Please try again.",
+  "categories.lifted": "rule lifted: you liked one",
 
   "search.title": "Search",
   "search.label": "Movie or TV show title",

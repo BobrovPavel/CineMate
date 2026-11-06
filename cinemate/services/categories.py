@@ -3,6 +3,7 @@
 No web framework is used here; writes only flush, the caller commits.
 """
 
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.models import Collection, Company, Genre, User, UserCategoryPref
+from cinemate.db.models import Collection, Company, Genre, Movie, Rating, User, UserCategoryPref
 from cinemate.recommender.categories import (
     ANIME_KEY,
     ANIME_KIND,
@@ -21,6 +22,7 @@ from cinemate.recommender.categories import (
     STUDIO_KIND,
     CategoryKey,
     category_stats,
+    column_categories,
     triggered_categories,
 )
 from cinemate.services.recommendations import with_fresh_row
@@ -99,6 +101,62 @@ def get_category_prefs(
             )
         )
     return sorted(views, key=lambda v: (-v.disliked, v.kind, v.key))
+
+
+CATEGORY_MOVIES_LIMIT = 50
+
+
+@dataclass(frozen=True)
+class CategoryMovie:
+    """A movie the user rated that belongs to a category, with the user's rating."""
+
+    movie: Movie
+    value: int
+
+
+def get_category_movies(
+    session: Session,
+    store: MatrixStore,
+    user: User,
+    kind: str,
+    key: str,
+    settings: RecommenderSettings | None = None,
+    limit: int = CATEGORY_MOVIES_LIMIT,
+) -> list[CategoryMovie] | None:
+    """Movies of the category the user rated: dislikes first, then likes, each newest first.
+
+    A movie belongs to the category by the same features as in ``category_stats`` (a studio only
+    while recognisable); movies that are not matrix columns are ignored. ``None`` for an unknown
+    category (unknown kind, or no such genre / collection / studio / anime key).
+    """
+    settings = settings or RecommenderSettings()
+    if kind not in KINDS or not _names(session, {(kind, key)}, "en").get((kind, key)):
+        return None
+    taste = (data := store.get(user.pool)).taste
+    if taste is None:
+        return []
+    wanted = (kind, key)
+    studio_max = settings.category_thresholds.studio_max_movies
+    rows = session.execute(
+        select(Rating.movie_id, Rating.value)
+        .where(Rating.user_id == user.id)
+        .order_by(Rating.created_at.desc(), Rating.id.desc())
+    ).all()
+    found: list[tuple[int, int]] = []
+    for movie_id, value in rows:
+        col = bisect_left(data.movie_ids, movie_id)
+        if (
+            col < len(data.movie_ids)
+            and data.movie_ids[col] == movie_id
+            and wanted in column_categories(taste, col, studio_max)
+        ):
+            found.append((movie_id, value))
+    found.sort(key=lambda item: item[1] > 0)  # stable: dislikes first, order kept
+    found = found[:limit]
+    movies = {
+        m.id: m for m in session.scalars(select(Movie).where(Movie.id.in_([i for i, _ in found])))
+    }
+    return [CategoryMovie(movies[i], v) for i, v in found if i in movies]
 
 
 def _names(session: Session, keys: set[CategoryKey], language: str) -> dict[CategoryKey, str]:

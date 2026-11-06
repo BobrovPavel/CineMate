@@ -5,17 +5,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClampedText } from "@/components/ClampedText";
-import { HiddenCategoriesBanner } from "@/components/HiddenCategoriesBanner";
 import { CardSkeleton } from "@/components/MovieCard";
 import {
   ApiError,
-  fetchCategoryPrefs,
   fetchRecommendations,
-  postCategoryPref,
   postReactionRating,
   postReactionSeen,
   TMDB_IMAGE_BASE,
-  type CategoryPref,
   type RecommendationItem,
   type SeenType,
 } from "@/lib/api";
@@ -71,23 +67,12 @@ export default function RecommendationsPage() {
   const [items, setItems] = useState<Shown[]>([]);
   const [leaving, setLeaving] = useState<Set<number>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
-  const [categories, setCategories] = useState<CategoryPref[]>([]);
-  const [categoryBusy, setCategoryBusy] = useState(false);
   const started = useRef(false);
   // Movies reacted to in this page lifetime; never re-added by a refetch.
   const reacted = useRef<Set<number>>(new Set());
 
-  const loadCategories = useCallback(async () => {
-    try {
-      setCategories(await fetchCategoryPrefs());
-    } catch {
-      // Silent: the notice is optional, the feed works without it.
-    }
-  }, []);
-
   const load = useCallback(async () => {
     setStatus("loading");
-    void loadCategories();
     try {
       const data = await fetchRecommendations(LIMIT);
       setStrategy(data.strategy);
@@ -100,7 +85,7 @@ export default function RecommendationsPage() {
       }
       setStatus("error");
     }
-  }, [router, loadCategories]);
+  }, [router]);
 
   useEffect(() => {
     if (started.current) return;
@@ -126,19 +111,6 @@ export default function RecommendationsPage() {
       // Silent: the current grid stays usable.
     }
   }, []);
-
-  async function showCategory(category: CategoryPref) {
-    setCategoryBusy(true);
-    setMessage(null);
-    try {
-      await postCategoryPref(category.kind, category.key, true);
-      await load();
-    } catch {
-      setMessage(t("categories.saveError"));
-    } finally {
-      setCategoryBusy(false);
-    }
-  }
 
   async function react(item: Shown, reaction: Reaction) {
     const id = item.movie.id;
@@ -195,14 +167,6 @@ export default function RecommendationsPage() {
         </div>
       )}
 
-      {status === "ready" && (
-        <HiddenCategoriesBanner
-          prefs={categories}
-          busy={categoryBusy}
-          onShow={(c) => void showCategory(c)}
-        />
-      )}
-
       {message && (
         <div
           role="alert"
@@ -255,26 +219,31 @@ export default function RecommendationsPage() {
                   gone ? "scale-95 opacity-0" : "opacity-100"
                 }`}
               >
-                <Link href={`/movies/${item.movie.id}`} aria-label={primary} tabIndex={-1} className="block">
-                <div className="aspect-[2/3] w-full overflow-hidden rounded-xl bg-gray-200">
-                  {item.movie.poster_path ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={`${TMDB_IMAGE_BASE}${item.movie.poster_path}`}
-                      alt={t("poster.alt", { title: primary })}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-full w-full items-center justify-center p-4 text-center text-gray-500"
-                      role="img"
-                      aria-label={t("poster.missing")}
-                    >
-                      {t("poster.missing")}
-                    </div>
-                  )}
-                </div>
+                <Link
+                  href={`/movies/${item.movie.id}`}
+                  aria-label={primary}
+                  tabIndex={-1}
+                  className="block"
+                >
+                  <div className="aspect-[2/3] w-full overflow-hidden rounded-xl bg-gray-200">
+                    {item.movie.poster_path ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`${TMDB_IMAGE_BASE}${item.movie.poster_path}`}
+                        alt={t("poster.alt", { title: primary })}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center p-4 text-center text-gray-500"
+                        role="img"
+                        aria-label={t("poster.missing")}
+                      >
+                        {t("poster.missing")}
+                      </div>
+                    )}
+                  </div>
                 </Link>
                 <h2
                   title={primary}
