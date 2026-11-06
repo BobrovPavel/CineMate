@@ -10,7 +10,8 @@ from cinemate.db.models import ExternalRating, Movie, MovieExternalId, Rating, U
 
 CINEMATE_MIN_RATINGS = 10
 SHOW_KINOPOISK_ENV = "SHOW_KINOPOISK_RATING"
-_KINOPOISK_LABELS = {"ru": "Кинопоиск"}
+KINOPOISK_MODES = {"ru", "all", "off"}
+_LEGACY_KINOPOISK_MODES = {"1": "all", "0": "off"}
 
 
 @dataclass(frozen=True)
@@ -25,9 +26,18 @@ class RatingOut:
     url: str | None
 
 
-def show_kinopoisk_rating() -> bool:
-    """The Kinopoisk rating is shown only when env ``SHOW_KINOPOISK_RATING=1`` (off by default)."""
-    return os.environ.get(SHOW_KINOPOISK_ENV) == "1"
+def kinopoisk_mode() -> str:
+    """``SHOW_KINOPOISK_RATING``: ``ru`` (default), ``all`` or ``off``; legacy ``1``/``0``
+    mean ``all``/``off``; an unknown value falls back to ``ru``."""
+    raw = os.environ.get(SHOW_KINOPOISK_ENV, "").strip().lower()
+    raw = _LEGACY_KINOPOISK_MODES.get(raw, raw)
+    return raw if raw in KINOPOISK_MODES else "ru"
+
+
+def show_kinopoisk_rating(language: str) -> bool:
+    """Whether the Kinopoisk rating is shown for a request in ``language``."""
+    mode = kinopoisk_mode()
+    return mode == "all" or (mode == "ru" and language == "ru")
 
 
 def cinemate_rating(session: Session, movie_id: int, pool: str) -> tuple[float, int] | None:
@@ -45,18 +55,17 @@ def cinemate_rating(session: Session, movie_id: int, pool: str) -> tuple[float, 
 
 
 def movie_ratings(session: Session, movie: Movie, pool: str, language: str) -> list[RatingOut]:
-    """Ratings that exist for ``movie``, in the order TMDB, IMDb, CineMate, Kinopoisk."""
-    result: list[RatingOut] = []
+    """Ratings that exist for ``movie``, in the order Kinopoisk (if shown), IMDb,
+    TMDB, CineMate."""
+    cards: dict[str, RatingOut] = {}
     if movie.tmdb_vote_count and movie.tmdb_vote_average is not None and movie.tmdb_type:
-        result.append(
-            RatingOut(
-                "tmdb",
-                "TMDB",
-                movie.tmdb_vote_average,
-                "10",
-                movie.tmdb_vote_count,
-                f"https://www.themoviedb.org/{movie.tmdb_type}/{movie.tmdb_id}",
-            )
+        cards["tmdb"] = RatingOut(
+            "tmdb",
+            "TMDB",
+            movie.tmdb_vote_average,
+            "10",
+            movie.tmdb_vote_count,
+            f"https://www.themoviedb.org/{movie.tmdb_type}/{movie.tmdb_id}",
         )
     stored = {
         r.source: r
@@ -70,12 +79,21 @@ def movie_ratings(session: Session, movie: Movie, pool: str, language: str) -> l
             .order_by(MovieExternalId.external_id)
         )
         url = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else None
-        result.append(RatingOut("imdb", "IMDb", imdb.value, "10", imdb.votes, url))
+        cards["imdb"] = RatingOut("imdb", "IMDb", imdb.value, "10", imdb.votes, url)
     own = cinemate_rating(session, movie.id, pool)
     if own is not None:
-        result.append(RatingOut("cinemate", "CineMate", own[0], "%", own[1], None))
+        cards["cinemate"] = RatingOut("cinemate", "CineMate", own[0], "%", own[1], None)
     kinopoisk = stored.get("kinopoisk")
-    if kinopoisk is not None and show_kinopoisk_rating():
-        label = _KINOPOISK_LABELS.get(language, "Kinopoisk")
-        result.append(RatingOut("kinopoisk", label, kinopoisk.value, "10", None, None))
-    return result
+    if kinopoisk is not None and show_kinopoisk_rating(language):
+        kp_id = session.scalar(
+            select(MovieExternalId.external_id)
+            .where(MovieExternalId.movie_id == movie.id, MovieExternalId.source == "kinopoisk")
+            .order_by(MovieExternalId.external_id)
+        )
+        url = f"https://www.kinopoisk.ru/film/{kp_id}/" if kp_id else None
+        label = "Кинопоиск" if language == "ru" else "Kinopoisk"
+        cards["kinopoisk"] = RatingOut(
+            "kinopoisk", label, kinopoisk.value, "10", kinopoisk.votes or None, url
+        )
+    order = ["kinopoisk", "imdb", "tmdb", "cinemate"]
+    return [cards[k] for k in order if k in cards]
