@@ -94,6 +94,7 @@ export default function RecommendationsPage() {
     async (reset: boolean) => {
       if (inflight.current) return;
       inflight.current = true;
+      let restart = false;
       const first = reset || sessionId.current === null;
       if (reset) {
         clearFeed(window.sessionStorage);
@@ -130,11 +131,15 @@ export default function RecommendationsPage() {
           router.replace("/onboarding");
           return;
         }
-        if (first) setStatus("error");
+        if (e instanceof ApiError && e.status === 404 && !first) {
+          // The feed session is unknown to the server: start a new one.
+          restart = true;
+        } else if (first) setStatus("error");
         else setMore("error");
       } finally {
         inflight.current = false;
       }
+      if (restart) void fetchPage(true);
     },
     [router],
   );
