@@ -179,3 +179,33 @@ def test_no_because_taste_without_a_sure_feature(client):
         client.post("/api/ratings", json={"movie_id": movie_id, "value": 1})
     items = client.get("/api/recommendations").json()["items"]
     assert items and all(i["because_taste"] is None for i in items)
+
+
+def test_collection_card_for_a_franchise(app, client):
+    from cinemate.db.models import Collection
+
+    with app.state.session_factory() as session:
+        session.add(Collection(id=5, name="Saga"))
+        session.flush()
+        for movie_id in (7, 8):
+            session.get(Movie, movie_id).collection_id = 5
+        session.commit()
+    for movie_id in range(1, 7):
+        client.post("/api/ratings", json={"movie_id": movie_id, "value": 1})
+    (item,) = client.get("/api/recommendations").json()["items"]
+    assert item["movie"]["id"] == 7
+    assert item["collection"] == {
+        "id": 5,
+        "name": "Saga",
+        "parts": 2,
+        "unseen": 2,
+        "mode": "first",
+        "rated_parts": [],
+    }
+
+
+def test_collection_is_null_without_a_franchise(client):
+    for movie_id in range(1, 7):
+        client.post("/api/ratings", json={"movie_id": movie_id, "value": 1})
+    items = client.get("/api/recommendations").json()["items"]
+    assert items and all(i["collection"] is None for i in items)

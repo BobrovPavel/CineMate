@@ -20,8 +20,10 @@ import {
   type SeenType,
 } from "@/lib/api";
 import {
+  collectionLine,
   explainCollaborative,
   explainTaste,
+  explainNextPart,
   explainTwin,
 } from "@/lib/explain";
 import type { MessageKey } from "@/lib/i18n";
@@ -292,6 +294,34 @@ export default function RecommendationsPage() {
                 >
                   {meta}
                 </p>
+                {item.collection && (
+                  <p className="min-h-5 truncate text-sm leading-5 text-gray-600">
+                    <Link
+                      href={`/movies/${item.movie.id}`}
+                      className="underline"
+                      title={collectionLine(
+                        locale,
+                        item.collection.name,
+                        item.collection.parts,
+                      )}
+                    >
+                      {collectionLine(
+                        locale,
+                        item.collection.name,
+                        item.collection.parts,
+                      )}
+                    </Link>
+                  </p>
+                )}
+                {item.collection?.mode === "next" &&
+                  item.collection.rated_parts.length > 0 && (
+                    <ClampedText
+                      text={explainNextPart(
+                        locale,
+                        item.collection.rated_parts,
+                      )}
+                    />
+                  )}
                 {strategy === "collaborative" && item.twin && (
                   <ClampedText
                     text={explainTwin(locale, item.twin.common, item.twin.of)}

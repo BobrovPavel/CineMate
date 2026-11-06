@@ -2,7 +2,7 @@
 
 import random
 from collections import defaultdict
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
 from cinemate.movielens import Rating
 
@@ -113,3 +113,10 @@ def mean_popularity(recommended: Iterable[int], popularity: Mapping[int, float])
     if not items:
         return 0.0
     return sum(popularity.get(m, 0.0) for m in items) / len(items)
+
+
+def distinct_collections_at_k(
+    recommended: Sequence[int], collection_of: Callable[[int], int | None], k: int
+) -> float:
+    """Number of different collections among the movies of the top ``k`` that have one."""
+    return float(len({c for m in recommended[:k] if (c := collection_of(m)) is not None}))

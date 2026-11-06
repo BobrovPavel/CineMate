@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { explainCollaborative, explainTaste, explainTwin } from "./explain";
+import {
+  collectionLine,
+  explainCollaborative,
+  explainNextPart,
+  explainTaste,
+  explainTwin,
+} from "./explain";
 
 describe("explainCollaborative (ru)", () => {
   it("без because_of — только число людей", () => {
@@ -78,5 +84,41 @@ describe("explainTwin", () => {
     expect(explainTwin("en", 8, 10)).toBe(
       "Liked by a viewer who shares 8 of your 10 likes",
     );
+  });
+});
+
+describe("explainNextPart", () => {
+  it("перечисляет оценённые части на двух языках", () => {
+    expect(explainNextPart("ru", [1, 2])).toBe(
+      "Следующая часть: вы оценили части 1 и 2",
+    );
+    expect(explainNextPart("en", [1, 2, 3])).toBe(
+      "Next part: you rated parts 1, 2 and 3",
+    );
+  });
+
+  it("одна часть — в единственном числе", () => {
+    expect(explainNextPart("ru", [1])).toBe(
+      "Следующая часть: вы оценили часть 1",
+    );
+    expect(explainNextPart("en", [2])).toBe("Next part: you rated part 2");
+  });
+});
+
+describe("collectionLine", () => {
+  it("строка франшизы на двух языках", () => {
+    expect(collectionLine("ru", "Гарри Поттер", 8)).toBe(
+      "Серия «Гарри Поттер» · 8 фильмов",
+    );
+    expect(collectionLine("en", "Harry Potter Collection", 8)).toBe(
+      "Harry Potter Collection · 8 films",
+    );
+  });
+
+  it("убирает слово «коллекция» из названия TMDB", () => {
+    expect(collectionLine("ru", "Гарри Поттер (коллекция)", 2)).toBe(
+      "Серия «Гарри Поттер» · 2 фильма",
+    );
+    expect(collectionLine("en", "Saga", 1)).toBe("Saga Collection · 1 film");
   });
 });

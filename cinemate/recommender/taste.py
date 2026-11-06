@@ -276,6 +276,7 @@ def rerank_candidates(
     penalties: Sequence[float] | None = None,
     penalty_weight: float = 0.0,
     non_negative: Iterable[FeatureKey] = (),
+    limit_runs: bool = True,
 ) -> tuple[list[tuple[int, float]], TasteProfile]:
     """Re-rank CF ``(column, score)`` candidates for the user whose matrix row is ``row``.
 
@@ -283,7 +284,8 @@ def rerank_candidates(
     ``not_interested`` columns; the order is :func:`rerank` followed by :func:`diversify`.
     ``penalties[i]`` (e.g. the similarity to disliked movies) of candidate ``i`` is subtracted
     as ``penalty_weight * z(penalty)``. ``non_negative`` features are floored at 0 in the
-    profile. Returns the new order (scores unchanged) and the profile.
+    profile. Returns the new order (scores unchanged) and the profile. With ``limit_runs=False``
+    the :func:`diversify` step is left to the caller (:func:`diversify_candidates`).
     """
     profile = build_profile(
         data,
@@ -295,9 +297,17 @@ def rerank_candidates(
     )
     tastes = [taste_score(profile, data.groups[j]) for j, _ in candidates]
     order = rerank([score for _, score in candidates], tastes, weight, penalties, penalty_weight)
+    ordered = [candidates[i] for i in order]
+    return (diversify_candidates(data, ordered) if limit_runs else ordered), profile
+
+
+def diversify_candidates(
+    data: TasteData, candidates: Sequence[tuple[int, float]]
+) -> list[tuple[int, float]]:
+    """``candidates`` reordered by :func:`diversify` (genre and collection runs)."""
     order = diversify(
-        order,
+        range(len(candidates)),
         lambda i: data.primary_genre[candidates[i][0]],
         lambda i: data.collection[candidates[i][0]],
     )
-    return [candidates[i] for i in order], profile
+    return [candidates[i] for i in order]

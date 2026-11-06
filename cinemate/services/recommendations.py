@@ -15,7 +15,15 @@ from sqlalchemy.orm import Session
 
 from cinemate.config import RecommenderSettings
 from cinemate.db.matrix_store import MatrixStore
-from cinemate.db.models import Genre, Movie, Rating, SeenMark, User, UserCategoryPref
+from cinemate.db.models import (
+    Collection,
+    Genre,
+    Movie,
+    Rating,
+    SeenMark,
+    User,
+    UserCategoryPref,
+)
 from cinemate.recommender.categories import (
     category_stats,
     column_categories,
@@ -26,6 +34,7 @@ from cinemate.recommender.categories import (
     triggered_categories,
 )
 from cinemate.recommender.explain import Twin, explain
+from cinemate.recommender.franchise import FranchiseInfo, collapse_franchises
 from cinemate.recommender.matrix import RatingsMatrix
 from cinemate.recommender.similarity import find_neighbors
 from cinemate.recommender.strategy import recommend_with_strategy
@@ -37,6 +46,7 @@ from cinemate.recommender.taste import (
     LANGUAGE,
     TYPE,
     FeatureKey,
+    diversify_candidates,
     rerank_candidates,
     taste_reason,
 )
@@ -60,6 +70,22 @@ class TasteReason:
 
 
 @dataclass(frozen=True)
+class CollectionCard:
+    """The franchise of a recommended movie: its ``name``, number of ``parts`` and ``unseen`` ones.
+
+    ``mode`` is ``first``, ``next`` or ``best`` (see :class:`FranchiseInfo`); for ``next``
+    ``rated_parts`` are the numbers of the parts the user has seen.
+    """
+
+    id: int
+    name: str
+    parts: int
+    unseen: int
+    mode: str = "best"
+    rated_parts: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class RecommendedMovie:
     """A recommended movie with its score and explanation.
 
@@ -73,6 +99,7 @@ class RecommendedMovie:
     because_of: list[Movie] = field(default_factory=list)
     because_taste: TasteReason | None = None
     twin: Twin | None = None
+    collection: CollectionCard | None = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +182,68 @@ def with_fresh_row(session: Session, data: RatingsMatrix, user: User) -> tuple[c
     return vstack([matrix, fresh]).tocsr(), matrix.shape[0]
 
 
+def _card(info: FranchiseInfo | None, names: dict[int, str]) -> CollectionCard | None:
+    if info is None or info.collection_id not in names:
+        return None
+    return CollectionCard(
+        id=info.collection_id,
+        name=names[info.collection_id],
+        parts=info.parts,
+        unseen=info.unseen,
+        mode=info.mode,
+        rated_parts=info.rated_parts,
+    )
+
+
+def _collapse(
+    session: Session,
+    data: RatingsMatrix,
+    collection_of: list[int | None],
+    candidates: list[tuple[int, float]],
+    user_id: int,
+    excluded_ids: set[int],
+) -> tuple[list[tuple[int, float]], dict[int, FranchiseInfo]]:
+    """One part per franchise among ``candidates`` (columns); returns them with the cards' info.
+
+    Parts are the catalogue's movies of the collection ordered by (year, id); the user has seen
+    the ones they rated or marked ``watched`` / ``not_interested``. Only movies that are matrix
+    columns can be picked as the representative.
+    """
+    colls = {c for j, _ in candidates if (c := collection_of[j]) is not None}
+    if not colls:
+        return candidates, {}
+    parts: dict[int, list[int]] = {c: [] for c in colls}
+    for movie_id, coll in session.execute(
+        select(Movie.id, Movie.collection_id)
+        .where(Movie.collection_id.in_(colls))
+        .order_by(Movie.year.is_(None), Movie.year, Movie.id)
+    ):
+        parts[coll].append(movie_id)
+    rated = {
+        movie_id: value
+        for movie_id, value in session.execute(
+            select(Rating.movie_id, Rating.value).where(
+                Rating.user_id == user_id,
+                Rating.movie_id.in_([m for ids in parts.values() for m in ids]),
+            )
+        )
+    }
+    seen = set(rated) | excluded_ids
+    liked = {m for m, v in rated.items() if v > 0}
+    columns = {movie_id: j for j, movie_id in enumerate(data.movie_ids)}
+    keyed = [(data.movie_ids[j], score) for j, score in candidates]
+    collapsed = collapse_franchises(
+        keyed,
+        lambda m: collection_of[columns[m]],
+        lambda c: parts[c],
+        seen,
+        liked,
+        selectable=lambda m: m in columns,
+    )
+    franchises = {columns[m]: info for m, _, info in collapsed if info is not None}
+    return [(columns[m], score) for m, score, _ in collapsed], franchises
+
+
 def get_recommendations(
     session: Session,
     store: MatrixStore,
@@ -233,7 +322,8 @@ def get_recommendations(
     )
     rerank_on = taste is not None and (settings.taste_weight > 0 or penalty_on)
     # Over-fetch so that filtering excluded movies still leaves ``limit`` items.
-    wanted = max(limit, CANDIDATES) if rerank_on or hidden else limit
+    collapse_on = taste is not None and any(c is not None for c in taste.collection)
+    wanted = max(limit, CANDIDATES) if rerank_on or hidden or collapse_on else limit
     rec = recommend_with_strategy(
         matrix,
         user_index,
@@ -275,6 +365,7 @@ def get_recommendations(
             else None,
             penalty_weight=settings.dislike_item_weight,
             non_negative=shown_taste_features(shown),
+            limit_runs=False,
         )
     if hidden and taste is not None:
         studio_max = settings.hide_studio_max_movies
@@ -282,6 +373,13 @@ def get_recommendations(
             candidates,
             lambda c: any(key in hidden for key in column_categories(taste, c[0], studio_max)),
         )
+    franchises: dict[int, FranchiseInfo] = {}
+    if collapse_on and taste is not None:
+        candidates, franchises = _collapse(
+            session, data, taste.collection, candidates, user.id, excluded_ids
+        )
+    if profile is not None and taste is not None:
+        candidates = diversify_candidates(taste, candidates)
     picked = candidates[:limit]
 
     if rec.strategy != "collaborative":
@@ -315,6 +413,15 @@ def get_recommendations(
             if key and name:
                 reasons[j] = TasteReason(kind=key[0], id=str(key[1]), name=name)
 
+    collection_names = {
+        c.id: c.name
+        for c in session.scalars(
+            select(Collection).where(
+                Collection.id.in_({f.collection_id for f in franchises.values()})
+            )
+        )
+    }
+
     items = [
         RecommendedMovie(
             movie=movies[data.movie_ids[j]],
@@ -325,6 +432,7 @@ def get_recommendations(
             else [],
             because_taste=reasons.get(j),
             twin=explanations[j].twin if neighbors else None,
+            collection=_card(franchises.get(j), collection_names),
         )
         for j, score in picked
     ]

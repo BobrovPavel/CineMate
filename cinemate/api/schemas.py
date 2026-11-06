@@ -115,6 +115,18 @@ class Twin(BaseModel):
     of: int
 
 
+class CollectionOut(BaseModel):
+    """Franchise of a recommended movie; ``mode`` is first | next | best, ``rated_parts`` the
+    numbers of the parts the user has seen (for ``next``)."""
+
+    id: int
+    name: str
+    parts: int
+    unseen: int
+    mode: Literal["first", "next", "best"] = "best"
+    rated_parts: list[int] = []
+
+
 class RecommendationItem(BaseModel):
     movie: MovieCard
     score: float
@@ -122,6 +134,7 @@ class RecommendationItem(BaseModel):
     because_of: list[BecauseOf]
     because_taste: BecauseTaste | None = None
     twin: Twin | None = None
+    collection: CollectionOut | None = None
 
 
 class RecommendationsOut(BaseModel):
