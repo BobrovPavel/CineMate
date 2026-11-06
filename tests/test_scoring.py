@@ -120,3 +120,63 @@ def test_significance_negative_raises():
     m = likes_matrix([1, 2, 3], [1, 2, 3, 4])
     with pytest.raises(ValueError, match="significance"):
         recommend(m, 0, min_overlap=1, significance=-1)
+
+
+def twin_matrix() -> csr_matrix:
+    """User 0 likes 1..10; user 1 (twin) 1..8 and 11, 12; users 2..6 like 1 and 13 only."""
+    return likes_matrix(
+        list(range(1, 11)),
+        [*range(1, 9), 11, 12],
+        *([1, 13] for _ in range(5)),
+        cols=13,
+    )
+
+
+def test_defaults_are_the_original_formula():
+    m = twin_matrix()
+    assert recommend(m, 0, min_overlap=1) == recommend(
+        m, 0, min_overlap=1, sim_power=1.0, shrink="count"
+    )
+
+
+def test_count_with_power_one_matches_hand_computed_scores():
+    m = make([[1, 1, 0], [1, 1, 1]])
+    score = dict(recommend(m, 0, min_overlap=1, lam=1.0, pop_penalty=0.0))[2]
+    assert score == pytest.approx(1.0 * 1 / (1 + 1.0))
+
+
+def test_mass_shrink_uses_similarity_sum():
+    m = make([[1, 1, 0], [1, 1, 1]])
+    sim = 2 / math.sqrt(2 * 3)  # cosine of the only neighbour
+    score = dict(recommend(m, 0, min_overlap=1, pop_penalty=0.0, shrink="mass", mass_lambda=0.5))[2]
+    assert score == pytest.approx(sim / (sim + 0.5))
+
+
+def test_sim_power_enters_mass_and_norm():
+    m = make([[1, 1, 0], [1, 0, 1]])
+    sim = 0.5  # cosine of [1, 1, 0] and [1, 0, 1]
+    got = dict(recommend(m, 0, min_overlap=1, pop_penalty=0.0, shrink="mass", sim_power=2.0))[2]
+    assert got == pytest.approx(sim**2 / (sim**2 + 0.5))
+    # a like and a dislike from equally similar neighbours cancel in the norm
+    mixed = make([[1, 1, 0], [1, 0, 1], [1, 0, -1]])
+    s = dict(recommend(mixed, 0, min_overlap=1, pop_penalty=0.0, shrink="mass", sim_power=2.0))
+    assert s[2] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_twin_movies_lead_with_mass_and_not_with_count():
+    m = twin_matrix()
+    top_mass = [i for i, _ in recommend(m, 0, n=2, k=150, min_overlap=1, lam=40.0, shrink="mass")]
+    assert set(top_mass) == {10, 11}  # movies 11 and 12
+    top_count = [
+        i
+        for i, _ in recommend(
+            m, 0, n=2, k=150, min_overlap=1, lam=40.0, shrink="count", sim_power=1.0
+        )
+    ]
+    assert set(top_count) != {10, 11}
+
+
+@pytest.mark.parametrize("kwargs", [{"sim_power": 0.0}, {"mass_lambda": -1.0}, {"shrink": "sum"}])
+def test_invalid_scoring_parameters_raise(kwargs):
+    with pytest.raises(ValueError):
+        recommend(twin_matrix(), 0, **kwargs)

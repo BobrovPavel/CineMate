@@ -25,3 +25,7 @@ export function explainCollaborative(
 export function explainTaste(lang: Lang, name: string): string {
   return translate(lang)("explain.taste", { name });
 }
+
+export function explainTwin(lang: Lang, common: number, of: number): string {
+  return translate(lang)("explain.twin", { common, of });
+}

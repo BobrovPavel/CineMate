@@ -36,6 +36,7 @@ from cinemate.api.schemas import (
     SearchResultOut,
     SeenIn,
     SessionOut,
+    Twin,
     WriteOut,
 )
 from cinemate.db.catalog import import_from_tmdb
@@ -273,6 +274,7 @@ def recommendations(
                     if item.because_taste
                     else None
                 ),
+                twin=Twin(common=item.twin.common, of=item.twin.of) if item.twin else None,
             )
             for item in result.items
         ],

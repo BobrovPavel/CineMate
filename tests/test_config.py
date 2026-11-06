@@ -7,6 +7,7 @@ def test_defaults():
     s = RecommenderSettings()
     assert (s.k, s.lam, s.min_overlap, s.pop_penalty) == (150, 40.0, 1, 0.75)
     assert s.significance == 0
+    assert (s.sim_power, s.shrink, s.mass_lambda) == (2.5, "mass", 0.5)
 
 
 def test_from_env_empty_or_missing_gives_defaults():
@@ -25,6 +26,21 @@ def test_from_env_reads_all_variables():
         "REC_FALLBACK_POOL_FACTOR": "1",
     }
     assert RecommenderSettings.from_env(env) == RecommenderSettings(10, 2.5, 4, 0.0, 20, 1, 5)
+
+
+def test_from_env_reads_scoring_variables():
+    env = {"REC_SIM_POWER": "3", "REC_SHRINK": "count", "REC_MASS_LAMBDA": "0.1"}
+    s = RecommenderSettings.from_env(env)
+    assert (s.sim_power, s.shrink, s.mass_lambda) == (3.0, "count", 0.1)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("REC_SIM_POWER", "0"), ("REC_SHRINK", "sum"), ("REC_MASS_LAMBDA", "-1")],
+)
+def test_from_env_rejects_bad_scoring_values(name, value):
+    with pytest.raises(ValueError, match=name):
+        RecommenderSettings.from_env({name: value})
 
 
 def test_previous_k_is_still_accepted():

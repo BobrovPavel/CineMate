@@ -33,7 +33,7 @@ from cinemate.recommender.categories import (
 from cinemate.recommender.hybrid import recommend_hybrid
 from cinemate.recommender.item_based import recommend_item_based
 from cinemate.recommender.matrix import build_matrix
-from cinemate.recommender.scoring import recommend
+from cinemate.recommender.scoring import Shrink, recommend
 from cinemate.recommender.strategy import recommend_with_strategy
 from cinemate.recommender.taste import (
     CANDIDATES,
@@ -308,6 +308,9 @@ def evaluate(
     top_n: int = 10,
     pop_penalty: float = 1.0,
     significance: int = 0,
+    sim_power: float = 1.0,
+    shrink: Shrink = "count",
+    mass_lambda: float = 0.5,
     new_user_ratings: int | None = None,
     seed: int = 0,
     settings: RecommenderSettings | None = None,
@@ -447,6 +450,9 @@ def evaluate(
             lam=lam,
             pop_penalty=pop_penalty,
             significance=significance,
+            sim_power=sim_power,
+            shrink=shrink,
+            mass_lambda=mass_lambda,
         )
         return [m for m, _ in recs if m not in exclude][:top_n]
 
@@ -465,6 +471,9 @@ def evaluate(
             lam=settings.lam,
             pop_penalty=settings.pop_penalty,
             significance=settings.significance,
+            sim_power=settings.sim_power,
+            shrink=settings.shrink,
+            mass_lambda=settings.mass_lambda,
             min_user_ratings=settings.min_user_ratings,
             fallback_pool_factor=settings.fallback_pool_factor,
             rng=product_rng,
@@ -482,6 +491,9 @@ def evaluate(
                 lam=settings.lam,
                 blend_full_at=threshold,
                 significance=settings.significance,
+                sim_power=settings.sim_power,
+                shrink=settings.shrink,
+                mass_lambda=settings.mass_lambda,
             )
             return [m for m, _ in recs if m not in exclude][:top_n]
 
@@ -512,6 +524,9 @@ def evaluate(
             lam=lam,
             pop_penalty=pop_penalty,
             significance=significance,
+            sim_power=sim_power,
+            shrink=shrink,
+            mass_lambda=mass_lambda,
         )
         candidates = [(m, s) for m, s in recs if m not in exclude][:CANDIDATES]
         row = matrix[u]

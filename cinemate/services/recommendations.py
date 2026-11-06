@@ -25,7 +25,7 @@ from cinemate.recommender.categories import (
     shown_taste_features,
     triggered_categories,
 )
-from cinemate.recommender.explain import explain
+from cinemate.recommender.explain import Twin, explain
 from cinemate.recommender.matrix import RatingsMatrix
 from cinemate.recommender.similarity import find_neighbors
 from cinemate.recommender.strategy import recommend_with_strategy
@@ -72,6 +72,7 @@ class RecommendedMovie:
     liked_by: int = 0
     because_of: list[Movie] = field(default_factory=list)
     because_taste: TasteReason | None = None
+    twin: Twin | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +243,9 @@ def get_recommendations(
         lam=settings.lam,
         pop_penalty=settings.pop_penalty,
         significance=settings.significance,
+        sim_power=settings.sim_power,
+        shrink=settings.shrink,
+        mass_lambda=settings.mass_lambda,
         min_user_ratings=settings.min_user_ratings,
         fallback_pool_factor=settings.fallback_pool_factor,
         blend_full_at=settings.blend_full_at,
@@ -290,7 +294,9 @@ def get_recommendations(
             min_overlap=settings.min_overlap,
             significance=settings.significance,
         )
-    explanations = {j: explain(matrix, user_index, j, neighbors) for j, _ in picked}
+    explanations = {
+        j: explain(matrix, user_index, j, neighbors, settings.sim_power) for j, _ in picked
+    }
 
     needed = {data.movie_ids[j] for j, _ in picked}
     for exp in explanations.values():
@@ -318,6 +324,7 @@ def get_recommendations(
             if neighbors
             else [],
             because_taste=reasons.get(j),
+            twin=explanations[j].twin if neighbors else None,
         )
         for j, score in picked
     ]

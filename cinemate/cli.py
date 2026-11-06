@@ -321,6 +321,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="popularity penalty exponent, 0 disables it (default: %(default)s)",
     )
     ev.add_argument(
+        "--sim-power",
+        type=float,
+        default=RecommenderSettings().sim_power,
+        help="neighbour similarity exponent (case amplification), 1 keeps it as is "
+        "(default: %(default)s)",
+    )
+    ev.add_argument(
+        "--shrink",
+        choices=("count", "mass"),
+        default=RecommenderSettings().shrink,
+        help="smoothing by the number of neighbours (count, uses --lambda) or by their "
+        "similarity sum (mass, uses --mass-lambda) (default: %(default)s)",
+    )
+    ev.add_argument(
+        "--mass-lambda",
+        type=float,
+        default=RecommenderSettings().mass_lambda,
+        help="strength of the mass smoothing (default: %(default)s)",
+    )
+    ev.add_argument(
         "--significance",
         type=int,
         default=RecommenderSettings().significance,
@@ -415,6 +435,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--pop-penalty",
         default="1",
         help="comma-separated popularity penalty exponents, 0 disables it (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--sim-power",
+        default="1,2,2.5,3,3.5",
+        help="comma-separated similarity exponents (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--shrink",
+        default="mass",
+        help="comma-separated smoothing modes, count and/or mass (default: %(default)s)",
+    )
+    tu.add_argument(
+        "--mass-lambda",
+        default="0.1,0.25,0.5,1",
+        help="comma-separated strengths of the mass smoothing, used with --shrink mass "
+        "(default: %(default)s)",
     )
     tu.add_argument(
         "--significance",
@@ -1210,6 +1246,12 @@ def _run_evaluate(args: argparse.Namespace) -> int:
     if args.significance < 0:
         print("cinemate evaluate: error: --significance must be >= 0", file=sys.stderr)
         return 2
+    if not args.sim_power > 0:
+        print("cinemate evaluate: error: --sim-power must be > 0", file=sys.stderr)
+        return 2
+    if not args.mass_lambda >= 0:
+        print("cinemate evaluate: error: --mass-lambda must be >= 0", file=sys.stderr)
+        return 2
     if args.new_user_ratings is not None and args.new_user_ratings < 1:
         print("cinemate evaluate: error: --new-user-ratings must be >= 1", file=sys.stderr)
         return 2
@@ -1262,6 +1304,9 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         top_n=args.top_n,
         pop_penalty=args.pop_penalty,
         significance=args.significance,
+        sim_power=args.sim_power,
+        shrink=args.shrink,
+        mass_lambda=args.mass_lambda,
         new_user_ratings=args.new_user_ratings,
         settings=settings,
         new_user_pick=args.new_user_pick,
@@ -1285,7 +1330,16 @@ def _run_tune(args: argparse.Namespace) -> int:
             "min_overlap": parse_values(args.min_overlap, int),
             "pop_penalty": parse_values(args.pop_penalty, float),
             "significance": parse_values(args.significance, int),
+            "sim_power": parse_values(args.sim_power, float),
+            "shrink": parse_values(args.shrink, str),
+            "mass_lambda": parse_values(args.mass_lambda, float),
         }
+        if not all(v > 0 for v in grid["sim_power"]):
+            raise ValueError("sim_power values must be > 0")
+        if not all(v in ("count", "mass") for v in grid["shrink"]):
+            raise ValueError("shrink values must be count or mass")
+        if not all(v >= 0 for v in grid["mass_lambda"]):
+            raise ValueError("mass_lambda values must be >= 0")
         if not all(v >= 0 for v in grid["pop_penalty"]):
             raise ValueError("pop_penalty values must be >= 0")
         if not all(v >= 0 for v in grid["significance"]):

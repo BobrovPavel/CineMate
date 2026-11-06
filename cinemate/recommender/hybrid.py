@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from cinemate.recommender.scoring import candidate_stats
+from cinemate.recommender.scoring import Shrink, candidate_stats, shrink_factor
 from cinemate.recommender.similarity import find_neighbors
 
 
@@ -27,6 +27,9 @@ def recommend_hybrid_detailed(
     lam: float = 40.0,
     blend_full_at: float = 30.0,
     significance: int = 0,
+    sim_power: float = 1.0,
+    shrink: Shrink = "count",
+    mass_lambda: float = 0.5,
 ) -> HybridResult:
     """Like ``recommend_hybrid`` but also reports ``beta`` and whether neighbours were found."""
     if not blend_full_at > 0:
@@ -47,8 +50,8 @@ def recommend_hybrid_detailed(
 
     cf = np.zeros(values.shape[1])
     if neighbors:
-        stats = candidate_stats(matrix, user_index, neighbors)
-        raw = np.maximum(0.0, stats.norm) * stats.c / (stats.c + lam)
+        stats = candidate_stats(matrix, user_index, neighbors, sim_power)
+        raw = np.maximum(0.0, stats.norm) * shrink_factor(stats, lam, shrink, mass_lambda)
         peak = raw.max() if raw.size else 0.0
         if peak > 0:
             cf[stats.candidates] = raw / peak
@@ -70,22 +73,36 @@ def recommend_hybrid(
     lam: float = 40.0,
     blend_full_at: float = 30.0,
     significance: int = 0,
+    sim_power: float = 1.0,
+    shrink: Shrink = "count",
+    mass_lambda: float = 0.5,
 ) -> list[tuple[int, float]]:
     """Recommend up to ``n`` movies, smoothly moving from popularity to CF.
 
     With ``n_inf`` the user's non-zero ratings and ``beta = min(1, n_inf / blend_full_at)``::
 
         pop(m)       = likes(m) / max_likes                  (0 if nobody liked anything)
-        cf(m)        = max(0, norm(m)) * c / (c + lam)       (0 if no neighbour rated m)
+        cf(m)        = max(0, norm(m)) * shrink(m)           (0 if no neighbour rated m)
         cf_scaled(m) = cf(m) / max cf                        (0 everywhere if max is 0)
         score(m)     = (1 - beta) * pop(m) + beta * cf_scaled(m)
 
-    ``norm`` and ``c`` are as in ``recommend`` (there is no popularity penalty here, ``pop``
-    already accounts for it). Candidates are all movies the user has not rated. Without
-    neighbours the order is by likes (``pop``) whatever ``beta`` is. Returns
-    ``(movie_index, score)`` pairs by score descending (ties by movie index ascending).
+    ``norm`` and ``shrink`` (``sim_power``, ``shrink``, ``mass_lambda``) are as in
+    ``recommend`` (there is no popularity penalty here, ``pop`` already accounts for it).
+    Candidates are all movies the user has not rated. Without neighbours the order is by likes
+    (``pop``) whatever ``beta`` is. Returns ``(movie_index, score)`` pairs by score descending
+    (ties by movie index ascending).
     Raises ``ValueError`` if ``blend_full_at <= 0``.
     """
     return recommend_hybrid_detailed(
-        matrix, user_index, n, k, min_overlap, lam, blend_full_at, significance
+        matrix,
+        user_index,
+        n,
+        k,
+        min_overlap,
+        lam,
+        blend_full_at,
+        significance,
+        sim_power,
+        shrink,
+        mass_lambda,
     ).items
