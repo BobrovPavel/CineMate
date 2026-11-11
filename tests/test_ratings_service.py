@@ -41,29 +41,62 @@ def _full(session):
     return movie
 
 
-def test_tmdb_imdb_cinemate_and_hidden_kinopoisk(session, monkeypatch):
+def test_en_default_hides_kinopoisk_and_orders_imdb_tmdb_cinemate(session, monkeypatch):
     monkeypatch.delenv("SHOW_KINOPOISK_RATING", raising=False)
     movie = _full(session)
     assert movie_ratings(session, movie, "world", "en") == [
-        RatingOut("tmdb", "TMDB", 7.9, "10", 5000, "https://www.themoviedb.org/movie/949"),
         RatingOut("imdb", "IMDb", 8.3, "10", 700000, "https://www.imdb.com/title/tt0113277/"),
+        RatingOut("tmdb", "TMDB", 7.9, "10", 5000, "https://www.themoviedb.org/movie/949"),
         RatingOut("cinemate", "CineMate", 80.0, "%", 10, None),
     ]
 
 
-def test_kinopoisk_only_with_setting(session, monkeypatch):
+@pytest.mark.parametrize(
+    ("env", "language", "shown"),
+    [
+        (None, "ru", True),
+        (None, "en", False),
+        ("ru", "ru", True),
+        ("ru", "en", False),
+        ("all", "en", True),
+        ("all", "ru", True),
+        ("off", "ru", False),
+        ("off", "en", False),
+        ("1", "en", True),
+        ("0", "ru", False),
+        ("garbage", "ru", True),
+        ("garbage", "en", False),
+    ],
+)
+def test_kinopoisk_display_rule(session, monkeypatch, env, language, shown):
+    if env is None:
+        monkeypatch.delenv("SHOW_KINOPOISK_RATING", raising=False)
+    else:
+        monkeypatch.setenv("SHOW_KINOPOISK_RATING", env)
     movie = _full(session)
-    monkeypatch.setenv("SHOW_KINOPOISK_RATING", "0")
-    assert "kinopoisk" not in {r.source for r in movie_ratings(session, movie, "world", "ru")}
-    monkeypatch.setenv("SHOW_KINOPOISK_RATING", "1")
-    last = movie_ratings(session, movie, "ru", "ru")[-1]
-    assert (last.source, last.label, last.value, last.votes) == (
-        "kinopoisk",
-        "Кинопоиск",
-        8.0,
-        None,
+    sources = [r.source for r in movie_ratings(session, movie, "world", language)]
+    assert ("kinopoisk" in sources) is shown
+
+
+def test_ru_order_kinopoisk_first_with_link_and_votes(session, monkeypatch):
+    monkeypatch.delenv("SHOW_KINOPOISK_RATING", raising=False)
+    movie = _full(session)
+    session.add(MovieExternalId(source="kinopoisk", external_id="448", movie_id=movie.id))
+    kp = session.get(ExternalRating, (movie.id, "kinopoisk"))
+    kp.votes = 12345
+    session.flush()
+    ratings = movie_ratings(session, movie, "world", "ru")
+    assert [r.source for r in ratings] == ["kinopoisk", "imdb", "tmdb", "cinemate"]
+    assert ratings[0] == RatingOut(
+        "kinopoisk", "Кинопоиск", 8.0, "10", 12345, "https://www.kinopoisk.ru/film/448/"
     )
-    assert movie_ratings(session, movie, "world", "en")[-1].label == "Kinopoisk"
+
+
+def test_kinopoisk_without_id_or_votes(session, monkeypatch):
+    monkeypatch.delenv("SHOW_KINOPOISK_RATING", raising=False)
+    movie = _full(session)
+    first = movie_ratings(session, movie, "world", "ru")[0]
+    assert (first.source, first.votes, first.url) == ("kinopoisk", None, None)
 
 
 def test_cinemate_rating_needs_ten_ratings(session):
