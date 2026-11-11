@@ -100,14 +100,22 @@ export type RecommendationsResponse = {
   strategy: "collaborative" | "fallback";
   session_id: string;
   items: RecommendationItem[];
+  next_offset: number;
+  has_more: boolean;
 };
 
 export type SeenType = "not_seen" | "watched" | "not_interested";
 
 export function fetchRecommendations(
   limit = 20,
+  page?: { sessionId: string; offset: number },
 ): Promise<RecommendationsResponse> {
-  return apiFetch(`/api/recommendations?limit=${limit}`);
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (page) {
+    query.set("session_id", page.sessionId);
+    query.set("offset", String(page.offset));
+  }
+  return apiFetch(`/api/recommendations?${query}`);
 }
 
 export function postReactionRating(

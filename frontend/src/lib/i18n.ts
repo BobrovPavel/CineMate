@@ -50,6 +50,11 @@ const ru = {
   "recommendations.loadError":
     "Не удалось загрузить рекомендации. Проверьте соединение и попробуйте ещё раз.",
   "recommendations.empty": "Фильмы закончились — загляните позже.",
+  "recommendations.end":
+    "Это все рекомендации на сейчас. Оцените ещё фильмы — подборка обновится.",
+  "recommendations.refresh": "Обновить подборку",
+  "recommendations.moreError":
+    "Не удалось подгрузить следующие фильмы.",
   "recommendations.buttonLabel": "{action}: {title}",
   "recommendations.showMore": "Показать больше",
   "recommendations.showLess": "Свернуть",
@@ -198,6 +203,10 @@ const en: Record<MessageKey, string> = {
   "recommendations.loadError":
     "Could not load recommendations. Check your connection and try again.",
   "recommendations.empty": "No more movies — check back later.",
+  "recommendations.end":
+    "That's all the recommendations for now. Rate more movies — the picks will update.",
+  "recommendations.refresh": "Refresh picks",
+  "recommendations.moreError": "Could not load more movies.",
   "recommendations.buttonLabel": "{action}: {title}",
   "recommendations.showMore": "Show more",
   "recommendations.showLess": "Show less",

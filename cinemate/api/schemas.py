@@ -141,6 +141,8 @@ class RecommendationsOut(BaseModel):
     strategy: Literal["collaborative", "fallback"]
     session_id: str
     items: list[RecommendationItem]
+    next_offset: int = 0
+    has_more: bool = False
 
 
 class RatingIn(BaseModel):

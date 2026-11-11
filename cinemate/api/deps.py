@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import User
+from cinemate.services.feed_cache import FeedCache
 from cinemate.services.users import get_user_by_token, language_from_headers
 from cinemate.tmdb import TmdbClient
 
@@ -29,6 +30,11 @@ def get_db_session(request: Request) -> Iterator[Session]:
 def get_matrix_store(request: Request) -> MatrixStore:
     """Return the application-wide :class:`MatrixStore`."""
     return request.app.state.matrix_store
+
+
+def get_feed_cache(request: Request) -> FeedCache:
+    """Return the application-wide :class:`FeedCache`."""
+    return request.app.state.feed_cache
 
 
 def session_token(request: Request) -> str | None:

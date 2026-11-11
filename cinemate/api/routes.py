@@ -11,6 +11,7 @@ from cinemate.api.deps import (
     SESSION_COOKIE,
     get_current_user,
     get_db_session,
+    get_feed_cache,
     get_matrix_store,
     get_tmdb_client,
     language_from_request,
@@ -48,6 +49,7 @@ from cinemate.db.matrix_store import MatrixStore
 from cinemate.db.models import (
     Collection,
     Company,
+    Event,
     Keyword,
     Movie,
     MovieCompany,
@@ -65,9 +67,14 @@ from cinemate.services.categories import (
     set_category_pref,
 )
 from cinemate.services.events import log_impressions, log_reaction
+from cinemate.services.feed_cache import MAX_FEED, FeedCache, FeedSnapshot, take_page
 from cinemate.services.onboarding import onboarding_for_user
 from cinemate.services.ratings import movie_ratings
-from cinemate.services.recommendations import get_recommendations
+from cinemate.services.recommendations import (
+    EXCLUDING_MARKS,
+    RecommendationsResult,
+    get_recommendations,
+)
 from cinemate.services.search import search_local, search_movies
 from cinemate.services.users import (
     create_session_user,
@@ -235,34 +242,13 @@ def _card(movie: Movie, genres: list[str]) -> MovieCard:
     )
 
 
-@router.get("/recommendations", response_model=RecommendationsOut)
-def recommendations(
-    request: Request,
-    user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[Session, Depends(get_db_session)],
-    store: Annotated[MatrixStore, Depends(get_matrix_store)],
-    limit: Annotated[int, Query(ge=1, le=50)] = 20,
-) -> RecommendationsOut:
-    """Recommendations with explanations; each call is a new session with logged impressions."""
-    settings = request.app.state.recommender_settings
-    variant = assign_variant(settings, user.id)
-    result = get_recommendations(
-        session,
-        store,
-        user,
-        limit=limit,
-        settings=settings_for_variant(settings, variant),
-        language=language_from_request(request),
-    )
-    session_id = uuid.uuid4().hex
+def _recommendation_items(
+    session: Session, request: Request, result: RecommendationsResult
+) -> list[tuple[int, RecommendationItem]]:
     genres = _genre_names(session, request, [i.movie.id for i in result.items])
-    log_impressions(
-        session, user, session_id, [i.movie.id for i in result.items], result.strategy, variant
-    )
-    return RecommendationsOut(
-        strategy=result.strategy,
-        session_id=session_id,
-        items=[
+    return [
+        (
+            item.movie.id,
             RecommendationItem(
                 movie=_card(item.movie, genres.get(item.movie.id, [])),
                 score=item.score,
@@ -293,9 +279,94 @@ def recommendations(
                     if item.collection
                     else None
                 ),
+            ),
+        )
+        for item in result.items
+    ]
+
+
+@router.get("/recommendations", response_model=RecommendationsOut)
+def recommendations(
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    store: Annotated[MatrixStore, Depends(get_matrix_store)],
+    cache: Annotated[FeedCache, Depends(get_feed_cache)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    session_id: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> RecommendationsOut:
+    """A page of the feed. Without ``session_id`` a new feed session starts: up to ``MAX_FEED``
+    movies are ranked once and kept as a snapshot. With ``session_id`` the next page is taken
+    from the snapshot at ``offset``, skipping movies rated or marked since. If the snapshot is
+    gone the feed is recomputed without the movies already shown in that session (their
+    ``impression`` events); a ``session_id`` of another user is ``404``. Every page logs
+    impressions under the same ``session_id``."""
+    settings = request.app.state.recommender_settings
+    variant = assign_variant(settings, user.id)
+    snapshot = None
+    shown: set[int] = set()
+    if session_id is None:
+        session_id = uuid.uuid4().hex
+    else:
+        snapshot = cache.get(user.id, session_id)
+        if snapshot is None:
+            owners = set(
+                session.scalars(select(Event.user_id).where(Event.session_id == session_id))
             )
-            for item in result.items
-        ],
+            if owners - {user.id}:
+                raise HTTPException(status_code=404, detail="unknown feed session")
+            shown = set(
+                session.scalars(
+                    select(Event.movie_id).where(
+                        Event.session_id == session_id,
+                        Event.user_id == user.id,
+                        Event.type == "impression",
+                    )
+                )
+            )
+            offset = 0
+    if snapshot is None:
+        result = get_recommendations(
+            session,
+            store,
+            user,
+            limit=MAX_FEED,
+            settings=settings_for_variant(settings, variant),
+            language=language_from_request(request),
+        )
+        entries = [
+            entry
+            for entry in _recommendation_items(session, request, result)
+            if entry[0] not in shown
+        ]
+        snapshot = FeedSnapshot(strategy=result.strategy, variant=variant, entries=entries)
+        cache.put(user.id, session_id, snapshot)
+
+    # Rated or marked after the snapshot was taken (or, for the first page, nothing).
+    done = set(session.scalars(select(Rating.movie_id).where(Rating.user_id == user.id)))
+    done.update(
+        session.scalars(
+            select(SeenMark.movie_id).where(
+                SeenMark.user_id == user.id, SeenMark.type.in_(EXCLUDING_MARKS)
+            )
+        )
+    )
+    items, next_offset, has_more = take_page(snapshot.entries, offset, limit, done)
+    log_impressions(
+        session,
+        user,
+        session_id,
+        [i.movie.id for i in items],
+        snapshot.strategy,
+        snapshot.variant,
+    )
+    return RecommendationsOut(
+        strategy=snapshot.strategy,  # type: ignore[arg-type]
+        session_id=session_id,
+        items=items,
+        next_offset=next_offset,
+        has_more=has_more,
     )
 
 
