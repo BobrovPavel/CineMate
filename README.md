@@ -357,6 +357,11 @@ cinemate import-ratings-csv --file data/ratings.csv [--types Film,TvSeries] [--r
 - Повторный запуск ничего не добавляет и не меняет; `Movie.popularity_score` пересчитывается.
 - Постеры и описания есть у фильмов, для которых удалось установить пару TMDB; у `unresolved` их нет.
 
+## Развёртывание
+
+Производственный запуск на сервере (Oracle Cloud, Caddy с HTTPS, `docker-compose.prod.yml`) описан
+в [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Переменные окружения
 
 | Переменная     | Назначение                                                        |
