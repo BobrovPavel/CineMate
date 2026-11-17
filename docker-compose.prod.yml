@@ -1,0 +1,60 @@
+# Production addition to docker-compose.yml (see docs/DEPLOY.md):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# or set COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml in .env.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *default-logging
+
+  db:
+    restart: unless-stopped
+    # Tuned for a machine with 12 GB of memory.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=3GB
+      - -c
+      - effective_cache_size=8GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB
+    logging: *default-logging
+
+  api:
+    restart: unless-stopped
+    environment:
+      COOKIE_SECURE: "1"
+    logging: *default-logging
+
+  frontend:
+    restart: unless-stopped
+    # Only Caddy is reachable from outside; drop the published port 3000.
+    ports: !reset []
+    logging: *default-logging
+
+  app:
+    logging: *default-logging
+
+volumes:
+  caddy_data:
+  caddy_config:
